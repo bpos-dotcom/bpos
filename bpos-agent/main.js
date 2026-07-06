@@ -2,6 +2,7 @@ const { app, BrowserWindow, Tray, Menu } = require("electron");
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
+const net = require("net");
 const { exec } = require("child_process");
 const { printer: ThermalPrinter, types: PrinterTypes } = require("node-thermal-printer");
 
@@ -22,6 +23,37 @@ server.get("/", (req, res) => {
 });
 
 let printQueue = [];
+
+const virtualPrinterServer = net.createServer((socket) => {
+  let rawData = "";
+
+  socket.on("data", (chunk) => {
+    rawData += chunk.toString("utf8");
+  });
+
+  socket.on("end", () => {
+    const job = {
+      id: Date.now(),
+      receivedAt: new Date().toISOString(),
+      source: "Virtual Printer",
+      station: "Bridge",
+      printerName: "B-POS Agent Virtual Printer",
+      content: rawData,
+      status: "Recibido",
+    };
+
+    printQueue.push(job);
+
+    console.log("==============");
+    console.log("Trabajo recibido desde impresora virtual");
+    console.log(rawData);
+    console.log("==============");
+  });
+});
+
+virtualPrinterServer.listen(9100, "127.0.0.1", () => {
+  console.log("B-POS Agent Virtual Printer escuchando en 127.0.0.1:9100");
+});
 
 async function printThermalJob(job) {
 const printer = new ThermalPrinter({

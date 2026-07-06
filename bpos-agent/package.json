@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "description": "B-POS Agent - Servicio local para impresión y periféricos",
   "main": "main.js",
+  "author": "Burger Planet OS",
   "scripts": {
     "dev": "electron .",
-    "start": "electron ."
+    "start": "electron .",
+    "build": "electron-builder --win"
   },
   "dependencies": {
     "cors": "^2.8.5",
@@ -13,6 +15,34 @@
     "node-thermal-printer": "^4.6.0"
   },
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.burgerplanet.bposagent",
+    "productName": "B-POS Agent",
+    "directories": {
+      "output": "dist"
+    },
+   "files": [
+  "main.js",
+  "preload.js",
+  "index.html",
+  "package.json",
+  "virtual-printer/**/*",
+  "installer/**/*"
+],
+    "win": {
+      "target": "nsis",
+      "artifactName": "BPOS-Agent-Setup.exe"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "B-POS Agent",
+      "include": "installer/installer.nsh"
+    }
   }
 }
