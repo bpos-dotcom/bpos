@@ -49,7 +49,9 @@ export default function LoginPage() {
     });
 
     addAuditEvent({category:"Seguridad",action:"login.success",description:`${selectedUser.name} inició sesión`,userId:String(selectedUser.id),userName:selectedUser.name});
-    window.location.href = "/";
+    // Regresa a la página que pidió el PIN (solo rutas internas)
+    const next = new URLSearchParams(window.location.search).get("next");
+    window.location.href = next && next.startsWith("/") && !next.startsWith("//") && !next.startsWith("/login") ? next : "/";
   }
 
   return (

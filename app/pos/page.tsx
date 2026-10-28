@@ -20,6 +20,7 @@ import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { createPrintJobsForOrder } from "@/lib/bridge/printManager";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { Sidebar } from "@/components/layout/Sidebar";
+import RequirePermission from "@/components/auth/RequirePermission";
 import {
   allocateShiftOrderNumber,
   formatOrderNumber,
@@ -49,6 +50,14 @@ const menuItems = [
 ];
 
 export default function Home() {
+  return (
+    <RequirePermission permission="pos.view">
+      <PosScreen />
+    </RequirePermission>
+  );
+}
+
+function PosScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [orders, setOrders] = useState<SavedOrder[]>([]);
