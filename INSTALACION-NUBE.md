@@ -12,7 +12,10 @@ Si el archivo `.env.local` no existe, B-POS funciona igual que antes (solo local
 1. SQL Editor → New query → pega `supabase/migrations/0001_bpos_schema.sql` → Run.
    (Si ya lo corriste antes, sáltate este paso.)
 2. SQL Editor → New query → pega `supabase/migrations/0002_bpos_sync.sql` → Run.
-3. Authentication → Sign In / Providers → Email: puedes apagar **Confirm email**
+3. SQL Editor → New query → pega `supabase/migrations/0003_bpos_vistas.sql` → Run.
+   Crea las tablas de consulta (`bpos_ventas`, `bpos_insumos`, `bpos_cortes_caja`, ...)
+   que ves en Table Editor. Se puede correr más de una vez.
+4. Authentication → Sign In / Providers → Email: puedes apagar **Confirm email**
    para que la cuenta quede lista sin revisar el correo.
 
 ## 2. En la computadora de la caja
@@ -42,6 +45,15 @@ Después cada empleado entra con su PIN como siempre.
   tiempo podrían repetir el número de pedido.
 - Las rutas `/api/bridge/*` leen archivos de la computadora; al publicar en
   Vercel eso se tendrá que mover a la nube (bloque 13).
+
+## Seguridad del Bridge
+
+- `/api/bridge/*` solo responde a pantallas con sesión en la cuenta del negocio
+  y a B-POS Agent de esta computadora.
+- El Agent se identifica con la llave que B-POS crea en `%USERPROFILE%/.bpos/agent-key`.
+  El Agent instalado hoy todavía no la manda: se sigue aceptando solo para
+  entregar pedidos. Cuando reinstales el Agent nuevo, agrega
+  `BPOS_REQUIRE_AGENT_KEY=1` a `.env.local` para cerrar esa puerta.
 
 ## App del dueño (bloque 12)
 

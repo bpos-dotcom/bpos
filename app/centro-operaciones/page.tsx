@@ -19,6 +19,7 @@ import {
   type OperationsAlertStatus,
   OPERATIONS_ALERT_EVENT,
 } from "@/lib/notifications/operationsCenter";
+import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 
 const tabs: Array<{ value: OperationsAlertStatus | "all"; label: string }> = [
   { value: "pending", label: "Pendientes" },
@@ -46,7 +47,7 @@ export default function OperationsCenterPage() {
     syncCriticalInventoryAlerts();
     syncLowStockAlert();
     try {
-      const response = await fetch("/api/bridge/pending", { cache: "no-store" });
+      const response = await bridgeFetch("/api/bridge/pending", { cache: "no-store" });
       const payload = await response.json();
       if (response.ok && payload?.success) {
         syncDeliveryPendingAlert(Number(payload.count || 0), String(payload.signature || ""));

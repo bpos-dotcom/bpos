@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardBridgeRequest } from "@/lib/bridge/api-guard";
 import fs from "fs";
 import path from "path";
 
@@ -91,7 +92,10 @@ function writeAliases(data: AliasFile) {
   );
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await guardBridgeRequest(request);
+  if (denied) return denied;
+
   const data = readAliases();
 
   return NextResponse.json({
@@ -102,6 +106,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await guardBridgeRequest(request);
+  if (denied) return denied;
+
   try {
     const body = await request.json();
 
@@ -244,6 +251,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const denied = await guardBridgeRequest(request);
+  if (denied) return denied;
+
   try {
     const body = await request.json();
     const id = String(body.id || "").trim();

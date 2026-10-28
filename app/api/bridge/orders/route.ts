@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardBridgeRequest } from "@/lib/bridge/api-guard";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
@@ -67,7 +68,10 @@ function normalizeOrderId(value: unknown) {
   return String(value ?? "").trim().toUpperCase();
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await guardBridgeRequest(request);
+  if (denied) return denied;
+
   return NextResponse.json(
     {
       success: true,
@@ -83,6 +87,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await guardBridgeRequest(request, { agent: true });
+  if (denied) return denied;
+
   try {
     const order = (await request.json()) as BridgeOrder;
 
@@ -158,6 +165,9 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  const denied = await guardBridgeRequest(request);
+  if (denied) return denied;
+
   try {
     const body = (await request.json()) as {
       platform?: string;
@@ -262,7 +272,10 @@ export async function PATCH(request: NextRequest) {
   }
 }
 
-export async function DELETE() {
+export async function DELETE(request: NextRequest) {
+  const denied = await guardBridgeRequest(request);
+  if (denied) return denied;
+
   orders.splice(0, orders.length);
   return NextResponse.json({ success: true, count: 0, orders: [] });
 }

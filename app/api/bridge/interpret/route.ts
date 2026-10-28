@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { guardBridgeRequest } from "@/lib/bridge/api-guard";
 import {
   BridgeAlias,
   CatalogIngredient,
@@ -18,6 +19,9 @@ type InterpretRequestBody = {
 };
 
 export async function POST(request: NextRequest) {
+  const denied = await guardBridgeRequest(request);
+  if (denied) return denied;
+
   try {
     const body = (await request.json()) as InterpretRequestBody;
 

@@ -14,6 +14,7 @@ import {
   syncLowStockAlert,
   OPERATIONS_ALERT_EVENT,
 } from "@/lib/notifications/operationsCenter";
+import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: "📊" },
@@ -59,7 +60,7 @@ export function Sidebar() {
       syncCriticalInventoryAlerts();
       syncLowStockAlert();
 
-      const response = await fetch("/api/bridge/pending", { cache: "no-store" });
+      const response = await bridgeFetch("/api/bridge/pending", { cache: "no-store" });
       const payload = (await response.json()) as PendingResponse;
       if (response.ok && payload.success) {
         const nextCount = Number(payload.count ?? 0);

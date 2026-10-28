@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+import { guardBridgeRequest } from "@/lib/bridge/api-guard";
 import fs from "fs";
 import path from "path";
 
@@ -99,7 +100,10 @@ function findAlias(
   );
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const denied = await guardBridgeRequest(request);
+  if (denied) return denied;
+
   const aliases = readAliases();
   const orders = bridgeGlobal.bposBridgeOrders ?? [];
   const pending: Array<{
