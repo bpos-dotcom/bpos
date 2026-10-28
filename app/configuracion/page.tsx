@@ -4,6 +4,24 @@ import RequireRole from "@/components/auth/RequireRole";
 
 const adminModules = [
   {
+    title: "Centro de Operaciones",
+    href: "/centro-operaciones",
+    icon: "🚨",
+    description: "Alertas críticas, delivery, inventario e historial de incidencias.",
+  },
+  {
+    title: "Empresa y propietario",
+    href: "/configuracion/empresa",
+    icon: "🏢",
+    description: "Nombre del negocio y WhatsApp del dueño para cortes y listas de compras.",
+  },
+  {
+    title: "Delivery: equivalencias guardadas",
+    href: "/configuracion/delivery-equivalencias",
+    icon: "🔗",
+    description: "Productos, ingredientes, grupos e instrucciones ignoradas de plataformas delivery.",
+  },
+  {
     title: "Productos",
     href: "/configuracion/productos",
     icon: "🍔",
@@ -68,6 +86,12 @@ const adminModules = [
     href: "/configuracion/seguridad",
     icon: "🔐",
     description: "Permisos y auditoría.",
+  },
+  {
+    title: "Bitácora general",
+    href: "/configuracion/auditoria",
+    icon: "📒",
+    description: "Auditoría de caja, ventas y acciones sensibles.",
   },
   {
     title: "Sistema",

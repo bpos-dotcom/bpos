@@ -2,6 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import RequirePermission from "@/components/auth/RequirePermission";
+import { getCurrentUser } from "@/lib/auth";
+import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { Ingredient, recipes } from "@/data/inventory";
 import { products } from "@/data/products";
 import {
@@ -33,6 +36,8 @@ export default function InventarioPage() {
 
   function handleAdjustment() {
     try {
+      const user = getCurrentUser();
+      if (!requirePermissionOrAdmin(user, "inventory.adjust", "ajustar inventario")) return;
       if (!ingredientId) {
         alert("Selecciona un ingrediente.");
         return;
@@ -60,7 +65,7 @@ export default function InventarioPage() {
   );
 
   return (
-    <AppShell
+    <RequirePermission permission="inventory.view"><AppShell
       title="Inventario"
       subtitle="Inventario real, ajustes manuales, recetas y Kardex."
     >
@@ -278,7 +283,7 @@ export default function InventarioPage() {
           })}
         </div>
       </section>
-    </AppShell>
+    </AppShell></RequirePermission>
   );
 }
 

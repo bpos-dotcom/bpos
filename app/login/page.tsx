@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 import { setCurrentUser, UserRole } from "@/lib/auth";
+import { addAuditEvent } from "@/lib/audit";
+import { DEFAULT_USERS } from "@/lib/users";
 
 type SystemUser = {
   id: number;
@@ -22,7 +24,7 @@ export default function LoginPage() {
     const saved = localStorage.getItem(USERS_KEY);
     const activeUsers: SystemUser[] = saved
       ? JSON.parse(saved).filter((user: SystemUser) => user.active)
-      : [];
+      : DEFAULT_USERS.filter((user) => user.active);
 
     setUsers(activeUsers);
   }, []);
@@ -34,6 +36,7 @@ export default function LoginPage() {
     }
 
     if (selectedUser.pin !== pin) {
+      addAuditEvent({category:"Seguridad",action:"login.failed",description:`PIN incorrecto para ${selectedUser.name}`,entityId:String(selectedUser.id),metadata:{userName:selectedUser.name}});
       alert("PIN incorrecto.");
       setPin("");
       return;
@@ -45,6 +48,7 @@ export default function LoginPage() {
       role: selectedUser.role,
     });
 
+    addAuditEvent({category:"Seguridad",action:"login.success",description:`${selectedUser.name} inició sesión`,userId:String(selectedUser.id),userName:selectedUser.name});
     window.location.href = "/";
   }
 

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { getEnabledPaymentMethods } from "@/lib/payment-methods";
 
-export type PaymentMethod = "Efectivo" | "Tarjeta" | "Transferencia" | "Mixto";
+export type PaymentMethod = string;
 
 type CheckoutModalProps = {
   total: number;
@@ -28,6 +29,14 @@ export function CheckoutModal({
   const [cardAmount, setCardAmount] = useState("");
   const [transferAmount, setTransferAmount] = useState("");
   const [discount, setDiscount] = useState("");
+  const [availableMethods, setAvailableMethods] = useState<string[]>(["Efectivo","Tarjeta","Transferencia","Mixto"]);
+
+  useEffect(() => {
+    const load = () => setAvailableMethods(getEnabledPaymentMethods().filter((item) => item.channel !== "platform").map((item) => item.name));
+    load();
+    window.addEventListener("bpos:payment-methods-updated", load);
+    return () => window.removeEventListener("bpos:payment-methods-updated", load);
+  }, []);
 
   if (!isOpen) return null;
 
@@ -127,10 +136,9 @@ export function CheckoutModal({
             }
             className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
           >
-            <option>Efectivo</option>
-            <option>Tarjeta</option>
-            <option>Transferencia</option>
-            <option>Mixto</option>
+            {availableMethods.map((method) => (
+              <option key={method}>{method}</option>
+            ))}
           </select>
         </div>
 

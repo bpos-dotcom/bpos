@@ -1,189 +1,25 @@
 "use client";
-
-import { useEffect, useState } from "react";
-import RequireRole from "@/components/auth/RequireRole";
-import { AppShell } from "@/components/layout/AppShell";
-import { UserRole } from "@/lib/auth";
-
-type SystemUser = {
-  id: number;
-  name: string;
-  pin: string;
-  role: UserRole;
-  active: boolean;
-};
-
-const USERS_KEY = "bpos_users";
-
-const defaultUsers: SystemUser[] = [
-  {
-    id: 1,
-    name: "Gerardo",
-    pin: "1234",
-    role: "Admin",
-    active: true,
-  },
-];
-
-export default function UsuariosAdminPage() {
-  const [users, setUsers] = useState<SystemUser[]>([]);
-  const [name, setName] = useState("");
-  const [pin, setPin] = useState("");
-  const [role, setRole] = useState<UserRole>("Cajero");
-
-  useEffect(() => {
-    const saved = localStorage.getItem(USERS_KEY);
-
-    if (saved) {
-      setUsers(JSON.parse(saved));
-    } else {
-      setUsers(defaultUsers);
-      localStorage.setItem(USERS_KEY, JSON.stringify(defaultUsers));
-    }
-  }, []);
-
-  function saveUsers(nextUsers: SystemUser[]) {
-    setUsers(nextUsers);
-    localStorage.setItem(USERS_KEY, JSON.stringify(nextUsers));
-  }
-
-  function addUser() {
-    if (!name.trim()) {
-      alert("Captura el nombre del usuario.");
-      return;
-    }
-
-    if (pin.length < 4) {
-      alert("El PIN debe tener al menos 4 dígitos.");
-      return;
-    }
-
-    const newUser: SystemUser = {
-      id: Date.now(),
-      name,
-      pin,
-      role,
-      active: true,
-    };
-
-    saveUsers([...users, newUser]);
-
-    setName("");
-    setPin("");
-    setRole("Cajero");
-  }
-
-  function updateUser(
-    id: number,
-    field: keyof SystemUser,
-    value: string | boolean
-  ) {
-    const nextUsers = users.map((user) =>
-      user.id === id ? { ...user, [field]: value } : user
-    );
-
-    saveUsers(nextUsers);
-  }
-
-  return (
-    <RequireRole allow={["Admin"]}>
-      <AppShell
-        title="Usuarios y Permisos"
-        subtitle="Administra empleados, PIN, rol y estado del usuario."
-      >
-        <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-          <h2 className="text-xl font-black text-orange-500">
-            Agregar usuario
-          </h2>
-
-          <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-[2fr_1fr_1fr_auto]">
-            <input
-              value={name}
-              onChange={(event) => setName(event.target.value)}
-              placeholder="Nombre del empleado"
-              className="rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
-            />
-
-            <input
-              value={pin}
-              onChange={(event) => setPin(event.target.value)}
-              placeholder="PIN"
-              className="rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
-            />
-
-            <select
-              value={role}
-              onChange={(event) => setRole(event.target.value as UserRole)}
-              className="rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
-            >
-              <option>Cajero</option>
-              <option>Gerente</option>
-              <option>Admin</option>
-            </select>
-
-            <button
-              onClick={addUser}
-              className="rounded-2xl bg-orange-500 px-6 py-3 font-black text-black"
-            >
-              Agregar
-            </button>
-          </div>
-        </section>
-
-        <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-          <h2 className="text-xl font-black text-orange-500">
-            Usuarios registrados
-          </h2>
-
-          <div className="mt-6 space-y-3">
-            {users.map((user) => (
-              <div
-                key={user.id}
-                className="grid grid-cols-1 gap-3 rounded-2xl border border-zinc-800 bg-black p-4 xl:grid-cols-[2fr_1fr_1fr_1fr]"
-              >
-                <input
-                  value={user.name}
-                  onChange={(event) =>
-                    updateUser(user.id, "name", event.target.value)
-                  }
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white"
-                />
-
-                <input
-                  value={user.pin}
-                  onChange={(event) =>
-                    updateUser(user.id, "pin", event.target.value)
-                  }
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white"
-                />
-
-                <select
-                  value={user.role}
-                  onChange={(event) =>
-                    updateUser(user.id, "role", event.target.value as UserRole)
-                  }
-                  className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white"
-                >
-                  <option>Cajero</option>
-                  <option>Gerente</option>
-                  <option>Admin</option>
-                </select>
-
-                <button
-                  onClick={() => updateUser(user.id, "active", !user.active)}
-                  className={`rounded-xl px-3 py-2 font-black ${
-                    user.active
-                      ? "bg-green-500/10 text-green-400"
-                      : "bg-red-500/10 text-red-400"
-                  }`}
-                >
-                  {user.active ? "Activo" : "Inactivo"}
-                </button>
-              </div>
-            ))}
-          </div>
-        </section>
-      </AppShell>
-    </RequireRole>
-  );
-}
+import {useEffect,useMemo,useState} from "react";
+import RequirePermission from "@/components/auth/RequirePermission";
+import {AppShell} from "@/components/layout/AppShell";
+import {getCurrentUser,type UserRole} from "@/lib/auth";
+import {PERMISSIONS,getRoleDefaults,getUserPermissions,resetUserPermissions,saveUserPermissions,type PermissionKey} from "@/lib/permissions";
+import {addAuditEvent} from "@/lib/audit";
+import {getUsers,saveUsers,type SystemUser} from "@/lib/users";
+const roles:UserRole[]=["Admin","Gerente","Cajero","Cocina","Inventario","Consulta"];
+export default function Users(){
+ const[users,setUsers]=useState<SystemUser[]>([]);const[name,setName]=useState("");const[pin,setPin]=useState("");const[role,setRole]=useState<UserRole>("Cajero");const[editing,setEditing]=useState<SystemUser|null>(null);const[perms,setPerms]=useState<PermissionKey[]>([]);const[query,setQuery]=useState("");
+ useEffect(()=>setUsers(getUsers()),[]);const current=getCurrentUser();
+ function persist(next:SystemUser[]){setUsers(next);saveUsers(next)}
+ function add(){if(!name.trim()||!/^[0-9]{4,8}$/.test(pin))return alert("Captura nombre y un PIN de 4 a 8 dígitos.");if(users.some(u=>u.name.toLowerCase()===name.trim().toLowerCase()))return alert("Ya existe un usuario con ese nombre.");const now=new Date().toISOString();const u:SystemUser={id:Date.now(),name:name.trim(),pin,role,active:true,createdAt:now,updatedAt:now,createdBy:current.name};persist([...users,u]);setName("");setPin("");addAuditEvent({category:"Seguridad",action:"user.created",description:`${current.name} creó al usuario ${u.name} (${u.role})`,userId:String(current.id),userName:current.name,entityId:String(u.id)})}
+ function update(id:number,patch:Partial<SystemUser>){const target=users.find(u=>u.id===id);if(!target)return;if(target.role==="Admin"&&patch.active===false&&users.filter(u=>u.role==="Admin"&&u.active).length<=1)return alert("No puedes desactivar al único administrador activo.");const next=users.map(u=>u.id===id?{...u,...patch,updatedAt:new Date().toISOString(),updatedBy:current.name}:u);persist(next);addAuditEvent({category:"Seguridad",action:"user.updated",description:`${current.name} actualizó a ${target.name}`,userId:String(current.id),userName:current.name,entityId:String(id),metadata:patch})}
+ function changePin(u:SystemUser){const next=prompt(`Nuevo PIN para ${u.name} (4 a 8 dígitos):`);if(next===null)return;if(!/^[0-9]{4,8}$/.test(next))return alert("PIN inválido.");update(u.id,{pin:next});addAuditEvent({category:"Seguridad",action:"user.pin.changed",description:`PIN actualizado para ${u.name}`,userName:current.name,entityId:String(u.id)})}
+ function openPerm(u:SystemUser){setEditing(u);setPerms(getUserPermissions(u.id,u.role))}
+ function storePerm(){if(!editing)return;saveUserPermissions(editing.id,perms);addAuditEvent({category:"Seguridad",action:"permissions.updated",description:`${current.name} actualizó permisos de ${editing.name}`,userId:String(current.id),userName:current.name,entityId:String(editing.id),metadata:{permissions:perms}});setEditing(null)}
+ const filtered=useMemo(()=>users.filter(u=>u.name.toLowerCase().includes(query.toLowerCase())),[users,query]);
+ return <RequirePermission permission="users.manage"><AppShell title="Usuarios, Roles y Permisos" subtitle="Controla accesos por página y por acción sensible.">
+ <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6"><h2 className="text-xl font-black text-orange-400">Nuevo usuario</h2><div className="mt-4 grid gap-3 md:grid-cols-[2fr_1fr_1fr_auto]"><input value={name} onChange={e=>setName(e.target.value)} placeholder="Nombre" className="rounded-xl bg-black p-3"/><input value={pin} onChange={e=>setPin(e.target.value.replace(/\D/g,""))} placeholder="PIN 4-8 dígitos" className="rounded-xl bg-black p-3"/><select value={role} onChange={e=>setRole(e.target.value as UserRole)} className="rounded-xl bg-black p-3">{roles.map(r=><option key={r}>{r}</option>)}</select><button onClick={add} className="rounded-xl bg-orange-500 px-5 font-black text-black">Agregar</button></div></section>
+ <input value={query} onChange={e=>setQuery(e.target.value)} placeholder="Buscar usuario..." className="mt-6 w-full rounded-2xl border border-zinc-800 bg-zinc-950 p-4"/>
+ <section className="mt-4 space-y-3">{filtered.map(u=><div key={u.id} className="grid gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 xl:grid-cols-[2fr_1fr_auto_auto_auto]"><input value={u.name} onChange={e=>update(u.id,{name:e.target.value})} className="rounded-xl bg-black p-3"/><select value={u.role} onChange={e=>{const next=e.target.value as UserRole;update(u.id,{role:next});resetUserPermissions(u.id)}} className="rounded-xl bg-black p-3">{roles.map(r=><option key={r}>{r}</option>)}</select><button onClick={()=>openPerm(u)} className="rounded-xl border border-orange-500/40 px-4 py-2 font-black text-orange-300">Permisos</button><button onClick={()=>changePin(u)} className="rounded-xl border border-zinc-700 px-4 py-2 font-black">Cambiar PIN</button><button onClick={()=>update(u.id,{active:!u.active})} className={`rounded-xl px-4 py-2 font-black ${u.active?"bg-green-500/15 text-green-300":"bg-red-500/15 text-red-300"}`}>{u.active?"Activo":"Inactivo"}</button></div>)}</section>
+ {editing&&<div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-5"><div className="max-h-[90vh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-zinc-700 bg-zinc-950 p-6"><div className="flex justify-between gap-4"><div><p className="text-sm font-bold text-orange-400">Permisos personalizados</p><h2 className="text-2xl font-black">{editing.name}</h2><p className="text-sm text-zinc-500">Rol base: {editing.role}</p></div><button onClick={()=>setEditing(null)}>✕</button></div><div className="mt-4 flex flex-wrap gap-2"><button onClick={()=>setPerms(PERMISSIONS.map(p=>p.key))} className="rounded-xl border border-zinc-700 px-3 py-2 text-sm font-bold">Seleccionar todo</button><button onClick={()=>setPerms([])} className="rounded-xl border border-zinc-700 px-3 py-2 text-sm font-bold">Quitar todo</button><button onClick={()=>setPerms(getRoleDefaults(editing.role))} className="rounded-xl border border-orange-500/40 px-3 py-2 text-sm font-bold text-orange-300">Restaurar rol base</button></div>{[...new Set(PERMISSIONS.map(p=>p.group))].map(g=><div key={g} className="mt-6"><h3 className="font-black text-orange-400">{g}</h3><div className="mt-3 grid gap-2 md:grid-cols-2">{PERMISSIONS.filter(p=>p.group===g).map(p=><label key={p.key} className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-black p-3"><input type="checkbox" checked={perms.includes(p.key)} onChange={e=>setPerms(e.target.checked?[...perms,p.key]:perms.filter(x=>x!==p.key))}/><span>{p.label}</span></label>)}</div></div>)}<button onClick={storePerm} className="mt-6 w-full rounded-xl bg-orange-500 py-4 font-black text-black">Guardar permisos</button></div></div>}
+ </AppShell></RequirePermission>}

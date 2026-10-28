@@ -49,3 +49,13 @@ bpos-agent/node_modules/
 .next/
 bpos-agent/dist/
 bpos-agent/out/
+
+# copias de seguridad manuales (git ya guarda el historial)
+_respaldo*/
+
+# la plantilla de variables sí se sube
+!.env.example
+
+# archivos de depuración del agente (pueden traer datos reales de pedidos)
+bpos-agent/*-debug.*
+bpos-agent/pagina-completa.xml

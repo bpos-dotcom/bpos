@@ -1,10 +1,20 @@
 const { app, BrowserWindow, Tray, Menu } = require("electron");
 const path = require("path");
+const fs = require("fs");
 const express = require("express");
 const cors = require("cors");
 const net = require("net");
+const PDFParser = require("pdf2json");
 const { exec } = require("child_process");
+const parserEngine = require("./lib/parser-engine");
+const parseTicket = parserEngine.parseTicket || parserEngine;
+const { extractPdfText } = require("./lib/pdf-reader");
 const { printer: ThermalPrinter, types: PrinterTypes } = require("node-thermal-printer");
+const {
+  extractPdfTextWithOcr,
+  terminateOcrWorker,
+} = require("./lib/pdf-ocr-reader");
+
 
 const server = express();
 
@@ -25,13 +35,150 @@ server.get("/", (req, res) => {
 let printQueue = [];
 
 const virtualPrinterServer = net.createServer((socket) => {
-  let rawData = "";
+  let chunks = [];
 
-  socket.on("data", (chunk) => {
-    rawData += chunk.toString("utf8");
-  });
+socket.on("data", (chunk) => {
+  chunks.push(chunk);
+});
 
-  socket.on("end", () => {
+  socket.on("end", async() => {
+    const buffer = Buffer.concat(chunks);
+    const header = buffer.toString("utf8", 0, 20);
+
+if (header.startsWith("%PDF")) {
+  const jobsDir = path.join(app.getPath("userData"), "pdf-jobs");
+
+  if (!fs.existsSync(jobsDir)) {
+    fs.mkdirSync(jobsDir, { recursive: true });
+  }
+
+  const filePath = path.join(jobsDir, `pedido-${Date.now()}.pdf`);
+  fs.writeFileSync(filePath, buffer);
+let text = await extractPdfText(filePath);
+let extractionMethod = "pdf-text";
+let ocrResult = null;
+
+if (!text || !text.trim()) {
+  console.log("PDF sin texto seleccionable. Iniciando OCR local...");
+
+  ocrResult = await extractPdfTextWithOcr(filePath);
+  text = ocrResult.text;
+  extractionMethod = "tesseract-ocr";
+}
+
+const parsed = parseTicket(text);
+
+// El número OCR especializado solo se usa para DiDi.
+// Uber y Rappi tienen identificadores con otros formatos.
+if (parsed.platform === "didi" && ocrResult?.orderId) {
+  parsed.orderId = ocrResult.orderId;
+}
+
+const job = {
+  id: Date.now(),
+  receivedAt: new Date().toISOString(),
+  source: "B-POS Agent Virtual Printer",
+  format: "pdf",
+  extractionMethod,
+  filePath,
+  ...parsed,
+  rawText: text,
+  status: "Recibido",
+};
+
+printQueue.push(job);
+
+try {
+  const bridgeResult = await sendOrderToBpos(job);
+
+  if (bridgeResult.duplicate) {
+    job.status = "Duplicado";
+    console.log(
+      `Pedido duplicado ignorado por B-POS: ${job.platform}:${job.orderId}`
+    );
+  } else {
+    job.status = "Enviado a B-POS";
+    job.sentToBposAt = new Date().toISOString();
+
+    console.log(
+      `Pedido enviado a B-POS: ${job.platform}:${job.orderId}`
+    );
+  }
+} catch (error) {
+  job.status = "Error de envío";
+  job.bridgeError = error.message;
+
+  console.error(
+    "No se pudo enviar el pedido a B-POS:",
+    error.message
+  );
+}
+
+console.log("PDF recibido y procesado desde impresora virtual");
+console.log(job);
+
+return;
+
+  printQueue.push(job);
+
+  console.log("XPS recibido y procesado desde impresora virtual");
+  console.log(job);
+
+  return;
+}
+
+const pkOffset = buffer.indexOf(Buffer.from([0x50, 0x4B, 0x03, 0x04]));
+
+if (pkOffset !== -1) {
+  const jobsDir = path.join(app.getPath("userData"), "xps-jobs");
+
+  if (!fs.existsSync(jobsDir)) {
+    fs.mkdirSync(jobsDir, { recursive: true });
+  }
+
+  const xpsBuffer = buffer.slice(pkOffset);
+  const filePath = path.join(jobsDir, `pedido-${Date.now()}.xps`);
+
+  fs.writeFileSync(filePath, xpsBuffer);
+
+ const ocr = await extractPdfTextWithOcr(filePath);
+
+const parsed = parseTicket(ocr.text);
+
+// El número detectado por el OCR especializado del encabezado
+// tiene prioridad sobre cualquier detección del parser.
+parsed.orderId = ocr.orderId;
+
+const job = {
+  id: Date.now(),
+  receivedAt: new Date().toISOString(),
+  source: "B-POS Agent Virtual Printer",
+  format: "pdf",
+  extractionMethod: "tesseract-ocr",
+  filePath,
+  ...parsed,
+  rawText: ocr.text,
+  status: "Recibido",
+};
+
+  printQueue.push(job);
+
+  console.log("XPS recibido y procesado");
+  console.log(job);
+
+  return;
+}
+
+    const jobsDir = path.join(app.getPath("userData"), "print-jobs");
+
+if (!fs.existsSync(jobsDir)) {
+  fs.mkdirSync(jobsDir, { recursive: true });
+}
+
+const filePath = path.join(jobsDir, `job-${Date.now()}.bin`);
+fs.writeFileSync(filePath, buffer);
+const rawData = buffer.toString("utf8");
+const hexPreview = buffer.toString("hex").slice(0, 500);
     const job = {
       id: Date.now(),
       receivedAt: new Date().toISOString(),
@@ -39,6 +186,9 @@ const virtualPrinterServer = net.createServer((socket) => {
       station: "Bridge",
       printerName: "B-POS Agent Virtual Printer",
       content: rawData,
+      sizeBytes: buffer.length,
+      hexPreview: hexPreview,
+      filePath: filePath,
       status: "Recibido",
     };
 
@@ -88,8 +238,41 @@ const printer = new ThermalPrinter({
   await printer.execute();
 }
 
+async function sendOrderToBpos(job) {
+  const response = await fetch(
+    "http://localhost:3000/api/bridge/orders",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(job),
+    }
+  );
+
+  const result = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      result?.error || `B-POS respondió ${response.status}`
+    );
+  }
+
+  return result;
+}
+
 server.get("/queue", (req, res) => {
   res.json(printQueue);
+});
+
+server.get("/kds", (req, res) => {
+  const pendingOrders = printQueue.filter(
+    (job) =>
+      job.status === "Recibido" ||
+      job.status === "Pendiente"
+  );
+
+  res.json(pendingOrders);
 });
 
 server.post("/print", async (req, res) => {
@@ -152,6 +335,35 @@ server.get("/printers", (req, res) => {
   );
 });
 
+server.post("/read-pdf-ocr", async (req, res) => {
+  try {
+    const { file } = req.body;
+
+    if (!file || !fs.existsSync(file)) {
+      return res.status(400).json({
+        success: false,
+        error: "El archivo PDF no existe.",
+      });
+    }
+
+    const text = await extractPdfTextWithOcr(file);
+    const parsed = parseTicket(text);
+
+    return res.json({
+      success: true,
+      text,
+      parsed,
+    });
+  } catch (error) {
+    console.error("Error en OCR:", error);
+
+    return res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
 server.listen(4850, () => {
   console.log("B-POS Agent escuchando en puerto 4850");
 });
@@ -169,6 +381,14 @@ function createWindow() {
 
   mainWindow.loadFile("index.html");
 }
+
+app.on("before-quit", async () => {
+  try {
+    await terminateOcrWorker();
+  } catch (error) {
+    console.error("No se pudo cerrar el worker OCR:", error.message);
+  }
+});
 
 app.whenReady().then(() => {
   createWindow();

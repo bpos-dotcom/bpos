@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #000000;
+  --foreground: #ededed;
 }
 
 @theme inline {
@@ -23,4 +23,59 @@ body {
   background: var(--background);
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
+}
+
+/* Barra de desplazamiento discreta (menú lateral y paneles) */
+.bpos-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.bpos-scroll:hover {
+  scrollbar-color: #3f3f46 transparent;
+}
+.bpos-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.bpos-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.bpos-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+}
+.bpos-scroll:hover::-webkit-scrollbar-thumb {
+  background: #3f3f46;
+}
+
+/* Impresión / PDF de reportes: papel blanco, sin menú ni botones */
+@media print {
+  aside,
+  .no-print,
+  button {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  * {
+    color: #000 !important;
+    background: #fff !important;
+    border-color: #d4d4d8 !important;
+    box-shadow: none !important;
+  }
+  section {
+    break-inside: avoid;
+  }
+  .lg\:ml-64 {
+    margin-left: 0 !important;
+  }
+  header {
+    position: static !important;
+  }
+  /* las barras conservan su color al imprimir */
+  .bg-orange-500 {
+    background: #f97316 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
 }

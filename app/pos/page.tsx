@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { addAuditEvent } from "@/lib/audit";
 import { useEffect, useMemo, useState } from "react";
 import { CartItem, CartPanel } from "@/components/CartPanel";
 import { CheckoutModal, PaymentMethod } from "@/components/CheckoutModal";
@@ -16,8 +16,15 @@ import { ProductCard } from "@/components/ProductCard";
 import { Product } from "@/data/products";
 import { getAdminProducts } from "@/lib/admin";
 import { getCurrentUser, CurrentUser } from "@/lib/auth";
+import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { createPrintJobsForOrder } from "@/lib/bridge/printManager";
 import { discountInventoryByOrder } from "@/lib/inventory";
+import { Sidebar } from "@/components/layout/Sidebar";
+import {
+  allocateShiftOrderNumber,
+  formatOrderNumber,
+  getNextShiftOrderNumberPreview,
+} from "@/lib/order-sequence";
 
 const STORAGE_KEY = "bpos_orders";
 const USERS_KEY = "bpos_users";
@@ -49,6 +56,7 @@ export default function Home() {
   const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [search, setSearch] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [, setShiftVersion] = useState(0);
 
   const [details, setDetails] = useState<OrderDetails>({
     orderType: "Mostrador",
@@ -69,8 +77,24 @@ export default function Home() {
 
     setCurrentUserState(getCurrentUser());
 
-    const savedOrders = localStorage.getItem(STORAGE_KEY);
-    if (savedOrders) setOrders(JSON.parse(savedOrders));
+    const loadSavedOrders = () => {
+      const savedOrders = localStorage.getItem(STORAGE_KEY);
+      setOrders(savedOrders ? JSON.parse(savedOrders) : []);
+    };
+
+    loadSavedOrders();
+    window.addEventListener("storage", loadSavedOrders);
+    window.addEventListener("focus", loadSavedOrders);
+    window.addEventListener("bpos:orders-updated", loadSavedOrders);
+    const refreshShift = () => setShiftVersion((value) => value + 1);
+    window.addEventListener("bpos:shift-updated", refreshShift);
+
+    return () => {
+      window.removeEventListener("storage", loadSavedOrders);
+      window.removeEventListener("focus", loadSavedOrders);
+      window.removeEventListener("bpos:orders-updated", loadSavedOrders);
+      window.removeEventListener("bpos:shift-updated", refreshShift);
+    };
   }, []);
 
   const categories = useMemo(() => {
@@ -121,23 +145,7 @@ export default function Home() {
   }
 
   function authorizeAdmin(action: string) {
-    const pin = window.prompt(`Autorización Admin requerida para: ${action}`);
-
-    if (!pin) return false;
-
-    const savedUsers = localStorage.getItem(USERS_KEY);
-    const users: SystemUser[] = savedUsers ? JSON.parse(savedUsers) : [];
-
-    const admin = users.find(
-      (user) => user.active && user.role === "Admin" && user.pin === pin
-    );
-
-    if (!admin) {
-      alert("PIN de administrador incorrecto.");
-      return false;
-    }
-
-    return true;
+    return requirePermissionOrAdmin(currentUser, "pos.discount", action);
   }
 
   function addToCart(product: Product) {
@@ -202,6 +210,13 @@ export default function Home() {
     setCheckoutOpen(true);
   }
 
+  function nextGlobalOrderId() {
+    return orders.reduce(
+      (max, order) => Math.max(max, Number(order.id) || 0),
+      0
+    ) + 1;
+  }
+
   function confirmCheckout(data: {
     paymentMethod: PaymentMethod;
     cashReceived: number;
@@ -209,10 +224,7 @@ export default function Home() {
     transferAmount: number;
     discount: number;
   }) {
-    if (data.discount > 0 && currentUser?.role !== "Admin") {
-      const authorized = authorizeAdmin("aplicar descuento");
-      if (!authorized) return;
-    }
+    if (data.discount > 0 && !requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento")) return;
 
     const total = Math.max(subtotal - data.discount, 0);
 
@@ -222,20 +234,31 @@ export default function Home() {
       discount: data.discount,
     };
 
-    const newOrder: SavedOrder = {
-      id: orders.length + 1,
+    let sequence;
+    try {
+      sequence = allocateShiftOrderNumber();
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo generar el folio del turno.");
+      return;
+    }
+
+    const newOrder = {
+      id: nextGlobalOrderId(),
+      localOrderNumber: sequence.localOrderNumber,
+      shiftSessionId: sequence.shiftSessionId,
       createdAt: new Date().toISOString(),
       items: cart,
       details: nextDetails,
       subtotal,
       total,
-    };
+    } as SavedOrder & { localOrderNumber: number; shiftSessionId: string };
 
     saveOrders([...orders, newOrder]);
     discountInventoryByOrder(newOrder.id, cart);
     createPrintJobsForOrder(newOrder);
+    addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por $${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
 
-    alert(`Pedido #${newOrder.id} cobrado correctamente.`);
+    alert(`Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);
 
     // printTicket(newOrder);
 
@@ -252,10 +275,7 @@ export default function Home() {
   }
 
   function deleteOrder(id: number) {
-    if (currentUser?.role !== "Admin") {
-      alert("Solo el administrador puede borrar pedidos.");
-      return;
-    }
+    if (!requirePermissionOrAdmin(currentUser, "pos.cancel", "cancelar o borrar una venta")) return;
 
     if (!confirm("¿Seguro que quieres borrar este pedido?")) return;
 
@@ -289,7 +309,7 @@ export default function Home() {
     ticketWindow.document.write(`
       <html>
         <head>
-          <title>Ticket #${order.id}</title>
+          <title>Ticket #${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}</title>
           <style>
             body {
               font-family: monospace;
@@ -328,7 +348,7 @@ export default function Home() {
         <body>
           <div class="center">
             <div class="brand">BURGER PLANET</div>
-            <div>Ticket #${order.id.toString().padStart(6, "0")}</div>
+            <div>Ticket #${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}</div>
             <div class="small">${new Date(order.createdAt).toLocaleString()}</div>
           </div>
 
@@ -409,9 +429,9 @@ export default function Home() {
       )
       .join("\n");
 
-    const message = `🍔 *Burger Planet - Ticket #${order.id
-      .toString()
-      .padStart(6, "0")}*
+    const message = `🍔 *Burger Planet - Ticket #${formatOrderNumber(
+      order as SavedOrder & { localOrderNumber?: number }
+    )}*
 
 Hola ${order.details.customerName || "Cliente"}, este es tu pedido:
 
@@ -441,27 +461,7 @@ Gracias por pedir en Burger Planet 🚀`;
         onConfirm={confirmCheckout}
       />
 
-      <aside className="fixed left-0 top-0 hidden h-screen w-64 border-r border-zinc-800 bg-zinc-950 p-4 lg:block">
-        <div className="mb-8 rounded-2xl border border-zinc-800 bg-black p-4">
-          <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500 font-black text-black">
-            BP
-          </div>
-          <p className="text-sm font-bold text-orange-500">Burger Planet</p>
-          <h1 className="text-2xl font-black">B-POS</h1>
-        </div>
-
-        <nav className="space-y-2">
-          {menuItems.map((item) => (
-            <Link
-              key={item.href + item.label}
-              href={item.href}
-              className="block w-full rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-left text-sm font-bold text-zinc-200 hover:border-orange-500 hover:text-orange-500"
-            >
-              {item.label}
-            </Link>
-          ))}
-        </nav>
-      </aside>
+      <Sidebar />
 
       <section className="lg:ml-64">
         <header className="sticky top-0 z-20 border-b border-zinc-800 bg-black/90 px-6 py-4 backdrop-blur">
@@ -472,8 +472,18 @@ Gracias por pedir en Burger Planet 🚀`;
               value={currentUser?.name || "Sin usuario"}
               detail={`Rol: ${currentUser?.role || "No definido"}`}
             />
-            <TopStatus title="Turno" value="Matutino" detail="08:00 - 16:00" />
-            <TopStatus title="Pedido actual" value="#000125" detail="POS activo" />
+            <TopStatus
+              title="Turno"
+              value="Caja abierta"
+              detail="El folio reinicia en cada apertura"
+            />
+            <TopStatus
+              title="Siguiente pedido"
+              value={`#${getNextShiftOrderNumberPreview()
+                .toString()
+                .padStart(6, "0")}`}
+              detail="Consecutivo del turno actual"
+            />
 
             <button
               onClick={logout}
@@ -547,6 +557,45 @@ Gracias por pedir en Burger Planet 🚀`;
         </div>
 
         <div className="px-6 pb-6">
+
+          {orders.some((order) => Boolean((order as SavedOrder & { externalOrderNumber?: string }).externalOrderNumber)) && (
+            <section className="mb-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+              <h2 className="text-xl font-black text-orange-500">Pedidos de plataforma</h2>
+              <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {[...orders]
+                  .reverse()
+                  .filter((order) => Boolean((order as SavedOrder & { externalOrderNumber?: string }).externalOrderNumber))
+                  .map((order) => {
+                    const external = order as SavedOrder & {
+                      externalOrderNumber?: string;
+                      externalPlatform?: string;
+                    };
+                    const platform = String(external.externalPlatform || "").toLowerCase();
+                    const label = platform.includes("didi")
+                      ? "DiDi Food"
+                      : platform.includes("uber")
+                        ? "Uber Eats"
+                        : platform.includes("rappi")
+                          ? "Rappi"
+                          : "Plataforma";
+                    return (
+                      <div key={`platform-${order.id}`} className="rounded-2xl border border-zinc-800 bg-black p-4">
+                        <p className="font-black text-white">
+                          Pedido #{formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}
+                        </p>
+                        <p className="mt-1 text-sm font-bold text-orange-300">
+                          Plataforma: {label} · #{external.externalOrderNumber}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500">
+                          {order.details.customerName || "Cliente de plataforma"}
+                        </p>
+                      </div>
+                    );
+                  })}
+              </div>
+            </section>
+          )}
+
           <OrderHistoryPanel
             orders={[...orders].reverse()}
             userRole={currentUser?.role === "Admin" ? "Admin" : "Cajero"}
