@@ -18,7 +18,7 @@
     ; Inicio automático con Windows
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "com.burgerplanet.bposagent"
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "B-POS"
-    MessageBox MB_YESNO|MB_ICONQUESTION /SD IDNO "¿Borrar también los registros y archivos locales de B-POS en esta computadora?$\r$\n$\r$\nTus ventas, productos e inventario están en la nube y no se borran." IDNO bpos_keep_data
+    MessageBox MB_YESNO|MB_ICONQUESTION "¿Borrar también los registros y archivos locales de B-POS en esta computadora?$\r$\n$\r$\nTus ventas, productos e inventario están en la nube y no se borran." /SD IDNO IDNO bpos_keep_data
       ; Instalación para toda la PC: $APPDATA apuntaría a ProgramData; los datos son del usuario
       SetShellVarContext current
       RMDir /r "$APPDATA\B-POS"
