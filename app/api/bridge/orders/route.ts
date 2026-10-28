@@ -177,6 +177,7 @@ export async function PATCH(request: NextRequest) {
       interpretation?: OrderInterpretation;
       validation?: FinalOrderValidation;
       saleReadyPayload?: SaleReadyPayload | null;
+      stationPrint?: { at: string; stations: string[]; printers: string[] };
     };
 
     const platform = normalizePlatform(body.platform);
@@ -254,6 +255,8 @@ export async function PATCH(request: NextRequest) {
             salePreparedAt: body.saleReadyPayload ? now : undefined,
           }
         : {}),
+      // Ticket original ya mandado a las impresoras de estación (no se repite)
+      ...(body.stationPrint ? { stationPrint: body.stationPrint } : {}),
       bridgeUpdatedAt: now,
     };
 

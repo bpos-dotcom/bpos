@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
+import { getAdminIngredients, getAdminProducts, getAdminRecipes } from "@/lib/admin";
+import { stationsForOrder } from "@/lib/bridge/station-routing";
+import { printOriginalTicket, syncStationPrinters, toStationPrintersConfig } from "@/lib/localService";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
@@ -47,6 +49,7 @@ type AgentOrder = {
   saleReadyPayload?: SaleReadyPayload | null;
   salePreparedAt?: string;
   createdOrderId?: number;
+  stationPrint?: { at: string; stations: string[]; printers: string[] };
 };
 
 type QuantifiedItem = {
@@ -63,6 +66,8 @@ type AliasSelection = {
 };
 
 const REFRESH_MS = 2000;
+// Pedidos más viejos no se mandan a estaciones (ej. al abrir el Bridge horas después)
+const STATION_PRINT_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
 const ACTION_LABELS: Record<AliasActionType, string> = {
   product: "Producto del POS",
@@ -553,6 +558,64 @@ export default function BridgePage() {
       cancelled = true;
     };
   }, [automaticSaleSignature, activeOrders, loadData]);
+
+  // Ticket original → impresoras de estación. El Bridge solo lee: en cuanto
+  // un pedido está interpretado (aunque falten equivalencias, esas van a
+  // Cocina) se manda el papel original a cada estación que tiene algo.
+  const stationPrintLocks = useRef(new Set<string>());
+
+  useEffect(() => {
+    // El Agent guarda la asignación estación → impresora para su respaldo
+    try {
+      const saved = JSON.parse(localStorage.getItem("bpos_station_printers") || "null");
+      if (saved) void syncStationPrinters(toStationPrintersConfig(saved)).catch(() => {});
+    } catch {
+      // sin configuración guardada
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const printOriginals = async () => {
+      let changed = false;
+      for (const order of orders) {
+        if (cancelled) break;
+        if (!order.platform || !order.orderId || order.stationPrint || !order.interpretation) continue;
+        const received = Date.parse(order.bridgeReceivedAt || order.receivedAt || "");
+        if (Number.isFinite(received) && Date.now() - received > STATION_PRINT_MAX_AGE_MS) continue;
+
+        const key = `${normalize(order.platform)}:${order.orderId}`;
+        if (stationPrintLocks.current.has(key)) continue;
+        stationPrintLocks.current.add(key);
+
+        try {
+          const stations = stationsForOrder(order.interpretation, catalogProducts, getAdminRecipes());
+          const result = await printOriginalTicket({ platform: order.platform, orderId: order.orderId, stations });
+          await bridgeFetch("/api/bridge/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              platform: order.platform,
+              orderId: order.orderId,
+              stationPrint: { at: new Date().toISOString(), stations, printers: result.printers || [] },
+            }),
+          });
+          changed = true;
+        } catch (error) {
+          // Sin Agent en este dispositivo (ej. un celular) o sin PDF: el Agent imprime en Cocina por su cuenta
+          console.error(`No se pudo mandar ${key} a las estaciones:`, error);
+          stationPrintLocks.current.delete(key);
+        }
+      }
+      if (!cancelled && changed) await loadData();
+    };
+
+    void printOriginals();
+    return () => {
+      cancelled = true;
+    };
+  }, [orders, catalogProducts, loadData]);
 
   const pendingCount = useMemo(
     () =>

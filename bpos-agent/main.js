@@ -5,7 +5,6 @@ const express = require("express");
 const cors = require("cors");
 const net = require("net");
 const PDFParser = require("pdf2json");
-const { exec } = require("child_process");
 const parserEngine = require("./lib/parser-engine");
 const parseTicket = parserEngine.parseTicket || parserEngine;
 const { extractPdfText } = require("./lib/pdf-reader");
@@ -16,6 +15,7 @@ const {
 } = require("./lib/pdf-ocr-reader");
 const { initLogger } = require("./lib/logger");
 const { startDesktop } = require("./lib/desktop");
+const stationPrinter = require("./lib/station-printer");
 
 // Bloque 13: una sola copia de B-POS a la vez (los puertos 3000/4850/9100 son únicos)
 if (!app.requestSingleInstanceLock()) {
@@ -131,6 +131,8 @@ async function handlePrintJob(buffer) {
   try {
     const bridgeResult = await sendOrderToBpos(job);
     job.status = bridgeResult.duplicate ? "Duplicado" : "Enviado a B-POS";
+    // Si el Bridge no lo manda a estaciones a tiempo, el original sale en Cocina
+    if (!bridgeResult.duplicate && job.format !== "text") stationPrinter.scheduleFallback(job);
     job.sentToBposAt = new Date().toISOString();
     console.log(`${job.status}: ${job.platform}:${job.orderId} (${job.format}, ${(job.items || []).length} productos)`);
   } catch (error) {
@@ -275,25 +277,43 @@ server.delete("/queue", (req, res) => {
   });
 });
 
-server.get("/printers", (req, res) => {
-  exec(
-    "lpstat -v || lpstat -p || system_profiler SPPrintersDataType",
-    (error, stdout, stderr) => {
-      if (error) {
-        return res.json({
-          success: false,
-          printers: [],
-          error: error.message,
-          stderr,
-        });
-      }
+// Impresoras de Windows para asignar a cada estación (pantalla Configuración → Impresoras)
+server.get("/printers", async (req, res) => {
+  try {
+    res.json({ success: true, printers: await stationPrinter.listPrinters() });
+  } catch (error) {
+    res.json({ success: false, printers: [], error: error.message });
+  }
+});
 
-      res.json({
-        success: true,
-        raw: stdout,
-      });
-    }
-  );
+// Asignación estación → impresora y ancho de papel (la guarda el Agent para el respaldo)
+server.get("/station-printers", (req, res) => {
+  res.json({ success: true, config: stationPrinter.getConfig() });
+});
+
+server.post("/station-printers", (req, res) => {
+  try {
+    res.json({ success: true, config: stationPrinter.setConfig(req.body || {}) });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+// El Bridge indica a qué estaciones va el ticket original de un pedido
+server.post("/print-original", async (req, res) => {
+  try {
+    const { platform, orderId, stations } = req.body || {};
+    // El PDF se toma de la cola del Agent, nunca de una ruta que mande el navegador
+    const job = [...printQueue].reverse().find(
+      (j) => String(j.platform || "").toLowerCase() === String(platform || "").toLowerCase() &&
+        String(j.orderId || "").toUpperCase() === String(orderId || "").toUpperCase()
+    );
+    if (!job) return res.status(404).json({ success: false, error: "El Agent no tiene el ticket original de ese pedido." });
+    const result = await stationPrinter.printOriginal({ platform, orderId, filePath: job.filePath, stations: Array.isArray(stations) ? stations : [] });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
 });
 
 server.post("/read-pdf-ocr", async (req, res) => {
