@@ -28,6 +28,7 @@ const navItems = [
   { label: "Compras", href: "/compras", icon: "🛒" },
   { label: "Clientes", href: "/clientes", icon: "👥" },
   { label: "Reportes", href: "/reportes", icon: "📈" },
+  { label: "App del dueño", href: "/dueno", icon: "📱" },
   { label: "Configuración", href: "/configuracion", icon: "⚙️" },
 ];
 

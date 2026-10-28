@@ -42,3 +42,17 @@ Después cada empleado entra con su PIN como siempre.
   tiempo podrían repetir el número de pedido.
 - Las rutas `/api/bridge/*` leen archivos de la computadora; al publicar en
   Vercel eso se tendrá que mover a la nube (bloque 13).
+
+## App del dueño (bloque 12)
+
+En el celular del dueño abre B-POS en `/dueno`, entra con la cuenta del
+negocio y con tu PIN, y luego instálala como app:
+
+- **Android (Chrome):** botón **📲 Instalar B-POS** dentro de la app, o menú ⋮ → *Instalar app*.
+- **iPhone (Safari):** botón **Compartir** → *Agregar a pantalla de inicio*.
+
+Muestra ventas de todas las sucursales (se actualiza cada 30 s), utilidad y
+margen, productos top y alertas críticas. Con **🔔 Activar notificaciones**
+avisa de ventas nuevas y alertas críticas mientras la app esté abierta o en
+segundo plano. Para recibir avisos con la app **cerrada** falta un servidor que
+los envíe (se hace junto con el bloque 13, al publicar en la nube).

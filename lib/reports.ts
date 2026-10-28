@@ -370,8 +370,9 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
 
 // ------------------------------------------------------------ sucursales (nube)
 
-/** Ventas de todas las sucursales del negocio desde la nube */
-export async function loadBranchSales(range: DateRange) {
+/** Pedidos de todas las sucursales del negocio desde la nube (null si no hay nube) */
+/** `since`: solo pedidos guardados desde esa fecha (más rápido para periodos cortos) */
+export async function loadCloudOrders(since?: Date) {
   const { loadCloudAccount } = await import("@/lib/cloud/account");
   const { getSupabase, isCloudConfigured } = await import("@/lib/supabase/client");
   if (!isCloudConfigured) return null;
@@ -386,6 +387,9 @@ export async function loadBranchSales(range: DateRange) {
       .eq("business_id", account.businessId)
       .eq("collection", "bpos_orders")
       .eq("deleted", false)
+      // un pedido siempre se guarda después de crearse, así que no se pierde ninguno del periodo
+      .gte("updated_at", (since ?? new Date(0)).toISOString())
+      .order("seq")
       .range(page * 1000, page * 1000 + 999);
     if (error) throw new Error(error.message);
     rows.push(...((data ?? []) as { scope: string; data: ReportOrder }[]));
@@ -393,11 +397,31 @@ export async function loadBranchSales(range: DateRange) {
   }
 
   const names = new Map(account.branches.map((b) => [b.id, b.name]));
+  return {
+    branches: account.branches,
+    orders: rows
+      .filter(({ data }) => data && typeof data.createdAt === "string")
+      .map(({ scope, data }) => ({ branchId: scope, branchName: names.get(scope) || "Otra sucursal", order: data })),
+  };
+}
+
+/** Ventas de todas las sucursales del negocio desde la nube */
+export async function loadBranchSales(range: DateRange) {
+  const cloud = await loadCloudOrders(range.from);
+  if (!cloud) return null;
+  return salesByBranch(cloud.branches, cloud.orders, range);
+}
+
+export function salesByBranch(
+  branches: { id: string; name: string }[],
+  orders: { branchName: string; order: ReportOrder }[],
+  range: DateRange
+) {
   const byBranch = new Map<string, Row>();
-  account.branches.forEach((b) => byBranch.set(b.name, emptyRow(b.name)));
-  rows.forEach(({ scope, data }) => {
-    if (!data || !inRange(data.createdAt, range)) return;
-    bump(byBranch, names.get(scope) || "Otra sucursal", { count: 1, sales: Number(data.total) || 0 });
+  branches.forEach((b) => byBranch.set(b.name, emptyRow(b.name)));
+  orders.forEach(({ branchName, order }) => {
+    if (!inRange(order.createdAt, range)) return;
+    bump(byBranch, branchName, { count: 1, sales: Number(order.total) || 0 });
   });
   return finish(byBranch);
 }

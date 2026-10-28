@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { CloudGate } from "@/components/cloud/CloudGate";
@@ -16,6 +16,12 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "B-POS · Burger Planet OS",
   description: "Punto de venta para restaurantes",
+  // Instalada en iPhone/iPad abre sin barra de Safari
+  appleWebApp: { capable: true, title: "B-POS", statusBarStyle: "black-translucent" },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#000000",
 };
 
 export default function RootLayout({
