@@ -1,6 +1,6 @@
 {
   "name": "bpos-agent",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "description": "B-POS para Windows: sistema, Agent de impresión y actualizador automático",
   "main": "main.js",
   "author": "Burger Planet OS",
@@ -47,6 +47,10 @@
       {
         "from": "virtual-printer",
         "to": "virtual-printer"
+      },
+      {
+        "from": "tessdata",
+        "to": "tessdata"
       }
     ],
     "win": {
