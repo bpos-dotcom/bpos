@@ -1,169 +1,142 @@
 "use client";
-
 import { useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { adjustInventory } from "@/lib/inventory";
-import { findAliasByTicketName, PurchaseAlias } from "@/lib/purchases";
+import { getInventory } from "@/lib/inventory";
+import { addPurchaseAlias, type PurchaseSuggestion } from "@/lib/purchases";
+import { blocksToPurchaseDraft, ticketProductName, type TicketTrainingBlock } from "@/lib/purchase-ticket-training";
 import PurchaseAliases from "./PurchaseAliases";
-import PurchaseForm from "./PurchaseForm";
+import PurchaseForm, { type PurchasePrefill } from "./PurchaseForm";
 import PurchaseHistory from "./PurchaseHistory";
 import PurchasePhoto from "./PurchasePhoto";
+import PurchaseSuggestions from "./PurchaseSuggestions";
+import SuppliersPanel from "./SuppliersPanel";
+import TicketTrainer from "./TicketTrainer";
 
-type DetectedLine = {
-  originalLine: string;
-  cleanName: string;
-  multiplier: number;
-  alias?: PurchaseAlias;
-  status: "Encontrado" | "Sin equivalencia";
-};
+type Tab = "nueva" | "foto" | "sugerencias" | "proveedores" | "equivalencias";
 
-function parseTicketLine(line: string) {
-  const cleanLine = line.trim();
-
-  const match = cleanLine.match(/^(\d+)\s*x?\s+(.+)$/i);
-
-  if (!match) {
-    return {
-      multiplier: 1,
-      cleanName: cleanLine,
-    };
-  }
-
-  return {
-    multiplier: Number(match[1]),
-    cleanName: match[2].trim(),
-  };
-}
+const TABS: { id: Tab; label: string }[] = [
+  { id: "nueva", label: "🧾 Nueva compra" },
+  { id: "foto", label: "📸 Foto de ticket" },
+  { id: "sugerencias", label: "🧠 Sugerencias" },
+  { id: "proveedores", label: "🏪 Proveedores" },
+  { id: "equivalencias", label: "🔗 Equivalencias" },
+];
 
 export default function ComprasPage() {
+  const [tab, setTab] = useState<Tab>("nueva");
   const [refreshKey, setRefreshKey] = useState(0);
-  const [detectedLines, setDetectedLines] = useState<DetectedLine[]>([]);
+  const [prefill, setPrefill] = useState<PurchasePrefill | null>(null);
+  const [ocr, setOcr] = useState<{ key: number; text: string; imageName?: string } | null>(null);
+  const [ocrSupplier, setOcrSupplier] = useState("");
 
-  function refreshPurchases() {
-    setRefreshKey((current) => current + 1);
-  }
+  const refresh = () => setRefreshKey((x) => x + 1);
 
-  function processLines(lines: string[]) {
-    const detected = lines.map((line) => {
-      const parsed = parseTicketLine(line);
-      const alias = findAliasByTicketName(parsed.cleanName);
+  function fromTicket(blocks: TicketTrainingBlock[]) {
+    const draft = blocksToPurchaseDraft(blocks);
+    const supplier = ocrSupplier.trim() || draft.supplier || "";
 
-      return {
-        originalLine: line,
-        cleanName: parsed.cleanName,
-        multiplier: parsed.multiplier,
-        alias,
-        status: alias ? "Encontrado" : "Sin equivalencia",
-      } as DetectedLine;
-    });
-
-    setDetectedLines(detected);
-  }
-
-  function applyDetectedPurchases() {
-    const matched = detectedLines.filter((line) => line.alias);
-
-    if (matched.length === 0) {
-      alert("No hay productos con equivalencia para aplicar.");
+    if (draft.lines.length === 0) {
+      alert("Marca al menos una línea como 📦 Producto y relaciónala con un ingrediente.");
       return;
     }
 
-    matched.forEach((line) => {
-      if (!line.alias) return;
-
-      adjustInventory({
-        ingredientId: line.alias.ingredientId,
-        quantity: line.alias.quantity * line.multiplier,
-        adjustmentType: "Ajuste positivo",
-        reason: `Compra inteligente · Ticket: ${line.originalLine}`,
+    // Aprender: la próxima vez estas líneas se reconocen solas
+    const inventory = getInventory();
+    blocks
+      .filter((b) => b.role === "product" && b.ingredientId && b.inventoryPerUnit && b.inventoryPerUnit > 0)
+      .forEach((b) => {
+        try {
+          addPurchaseAlias({
+            ticketName: ticketProductName(b.text) || b.text,
+            supplier: supplier || undefined,
+            ingredientId: b.ingredientId!,
+            ingredientName: b.ingredientName || "",
+            quantity: b.inventoryPerUnit!,
+            unit: inventory.find((i) => i.id === b.ingredientId)?.unit ?? "pza",
+          });
+        } catch {
+          // una línea sin datos suficientes no debe frenar la compra
+        }
       });
+
+    setPrefill({
+      key: Date.now(),
+      supplier,
+      invoice: draft.invoice,
+      source: "ocr",
+      ocrText: ocr?.text,
+      imageName: ocr?.imageName,
+      lines: draft.lines,
     });
+    setTab("nueva");
+  }
 
-    setDetectedLines([]);
-    refreshPurchases();
-
-    alert("Inventario actualizado desde ticket.");
+  function fromSuggestions(items: PurchaseSuggestion[]) {
+    const counts = new Map<string, number>();
+    items.forEach((i) => i.lastSupplier && counts.set(i.lastSupplier, (counts.get(i.lastSupplier) || 0) + 1));
+    const supplier = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0];
+    setPrefill({
+      key: Date.now(),
+      supplier,
+      source: "shopping-list",
+      lines: items.map((i) => ({
+        ingredientId: i.ingredientId,
+        ticketName: i.ingredientName,
+        presentations: 1,
+        inventoryQuantity: i.suggestedQuantity,
+        lineTotal: i.estimatedCost ? Math.round(i.estimatedCost * 100) / 100 : 0,
+      })),
+    });
+    setTab("nueva");
   }
 
   return (
-    <AppShell
-      title="Compras Inteligentes"
-      subtitle="Foto, equivalencias, multiplicadores e inventario automático."
-    >
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
-        <div className="space-y-6">
-          <PurchasePhoto onLinesDetected={processLines} />
-          <PurchaseAliases />
+    <AppShell title="Compras" subtitle="Ticket con foto → Equivalencias → Inventario → Kardex → Costos">
+      <div className="space-y-6">
+        <div className="flex flex-wrap gap-2">
+          {TABS.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={`rounded-2xl border px-4 py-3 text-sm font-black ${
+                tab === t.id ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-800 bg-zinc-950 text-zinc-300 hover:border-orange-500"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
         </div>
 
-        <div className="space-y-6">
-          {detectedLines.length > 0 && (
-            <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-              <h2 className="text-xl font-black text-orange-500">
-                Productos detectados
-              </h2>
+        {tab === "nueva" && <PurchaseForm prefill={prefill} onPurchaseCreated={() => { setPrefill(null); refresh(); }} />}
 
-              <p className="mt-2 text-sm text-zinc-400">
-                Revisa las equivalencias encontradas antes de actualizar el
-                inventario.
-              </p>
-
-              <div className="mt-6 space-y-3">
-                {detectedLines.map((line) => (
-                  <div
-                    key={line.originalLine}
-                    className="rounded-2xl border border-zinc-800 bg-black p-4"
-                  >
-                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                      <div>
-                        <p className="font-black">{line.originalLine}</p>
-
-                        <p className="mt-1 text-xs text-zinc-500">
-                          Cantidad detectada: {line.multiplier} · Producto:{" "}
-                          {line.cleanName}
-                        </p>
-
-                        {line.alias ? (
-                          <p className="mt-1 text-sm text-zinc-400">
-                            → {line.alias.ingredientName} · +
-                            {line.alias.quantity * line.multiplier}{" "}
-                            {line.alias.unit}
-                          </p>
-                        ) : (
-                          <p className="mt-1 text-sm text-red-400">
-                            Sin equivalencia configurada
-                          </p>
-                        )}
-                      </div>
-
-                      <span
-                        className={`rounded-xl px-3 py-1 text-xs font-black ${
-                          line.alias
-                            ? "bg-green-500/10 text-green-400"
-                            : "bg-red-500/10 text-red-400"
-                        }`}
-                      >
-                        {line.status}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <button
-                onClick={applyDetectedPurchases}
-                className="mt-6 w-full rounded-2xl bg-orange-500 py-3 font-black text-black"
-              >
-                Aplicar productos detectados al inventario
-              </button>
-            </section>
-          )}
-
-          <PurchaseForm onPurchaseCreated={refreshPurchases} />
-
-          <div key={refreshKey}>
-            <PurchaseHistory />
+        {tab === "foto" && (
+          <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
+            <div className="space-y-4">
+              <PurchasePhoto onTextDetected={(text, imageName) => setOcr({ key: Date.now(), text, imageName })} />
+              <input
+                value={ocrSupplier}
+                onChange={(e) => setOcrSupplier(e.target.value)}
+                placeholder="Proveedor del ticket (ayuda a reconocer los artículos)"
+                className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3"
+              />
+            </div>
+            {ocr ? (
+              <TicketTrainer key={ocr.key} text={ocr.text} supplier={ocrSupplier} onSupplier={setOcrSupplier} onReady={(blocks) => fromTicket(blocks)} />
+            ) : (
+              <section className="flex items-center justify-center rounded-3xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">
+                Toma la foto del ticket y presiona “Leer ticket”. Aquí vas a revisar cada línea; lo que ya tenga
+                equivalencia se reconoce solo.
+              </section>
+            )}
           </div>
+        )}
+
+        {tab === "sugerencias" && <PurchaseSuggestions onUse={fromSuggestions} />}
+        {tab === "proveedores" && <SuppliersPanel />}
+        {tab === "equivalencias" && <PurchaseAliases />}
+
+        <div key={refreshKey}>
+          <PurchaseHistory />
         </div>
       </div>
     </AppShell>

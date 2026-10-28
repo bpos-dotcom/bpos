@@ -1,0 +1,571 @@
+{
+  "aliases": [
+    {
+      "id": "alias-1783744316674",
+      "externalName": "Alitas (SOLO ALITAS)",
+      "normalizedExternalName": "alitas (solo alitas)",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "3",
+          "name": "Alitas 6 pzas"
+        }
+      ],
+      "createdAt": "2026-07-11T04:31:56.674Z",
+      "updatedAt": "2026-07-11T04:31:56.674Z"
+    },
+    {
+      "id": "alias-1783744946608",
+      "externalName": "Papas Fritas Dobles(200GR)",
+      "normalizedExternalName": "papas fritas dobles(200gr)",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "5",
+          "name": "Combo Burger + Papas"
+        }
+      ],
+      "createdAt": "2026-07-11T04:42:26.608Z",
+      "updatedAt": "2026-07-11T04:42:26.608Z"
+    },
+    {
+      "id": "alias-1783748302080",
+      "externalName": "Salchipulpos",
+      "normalizedExternalName": "salchipulpos",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "4",
+          "name": "Alitas 12 pzas"
+        }
+      ],
+      "createdAt": "2026-07-11T05:38:22.080Z",
+      "updatedAt": "2026-07-11T05:38:22.080Z"
+    },
+    {
+      "id": "alias-1783748323540",
+      "externalName": "Mango habanero",
+      "normalizedExternalName": "mango habanero",
+      "platform": "didi",
+      "actionType": "ingredient",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Salsa",
+          "quantity": 30,
+          "unit": "ml"
+        }
+      ],
+      "createdAt": "2026-07-11T05:38:43.540Z",
+      "updatedAt": "2026-07-11T05:38:43.540Z"
+    },
+    {
+      "id": "alias-1783748497422",
+      "externalName": "No, Gracias",
+      "normalizedExternalName": "no, gracias",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-11T05:41:37.422Z",
+      "updatedAt": "2026-07-11T05:41:37.422Z"
+    },
+    {
+      "id": "alias-1783749571133",
+      "externalName": "Bluecheese No, Gracias",
+      "normalizedExternalName": "bluecheese no, gracias",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-11T05:59:31.133Z",
+      "updatedAt": "2026-07-11T05:59:31.133Z"
+    },
+    {
+      "id": "alias-1783759360526",
+      "externalName": "Combo- Combo El Favorito",
+      "normalizedExternalName": "combo- combo el favorito",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "5",
+          "name": "Combo Burger + Papas"
+        }
+      ],
+      "createdAt": "2026-07-11T08:42:40.526Z",
+      "updatedAt": "2026-07-11T08:42:40.526Z"
+    },
+    {
+      "id": "alias-1783759607807",
+      "externalName": "Hamburguesa Kansas City.",
+      "normalizedExternalName": "hamburguesa kansas city.",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "1",
+          "name": "Burger Planet Clásica"
+        }
+      ],
+      "createdAt": "2026-07-11T08:46:47.807Z",
+      "updatedAt": "2026-07-11T08:46:47.807Z"
+    },
+    {
+      "id": "alias-1783767523412",
+      "externalName": "Combo Especial",
+      "normalizedExternalName": "combo especial",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "4",
+          "name": "Alitas 12 pzas"
+        }
+      ],
+      "createdAt": "2026-07-11T10:58:43.412Z",
+      "updatedAt": "2026-07-11T10:58:43.412Z"
+    },
+    {
+      "id": "alias-1783767528336",
+      "externalName": "Polaca",
+      "normalizedExternalName": "polaca",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "4",
+          "name": "Alitas 12 pzas"
+        }
+      ],
+      "createdAt": "2026-07-11T10:58:48.336Z",
+      "updatedAt": "2026-07-11T10:58:48.336Z"
+    },
+    {
+      "id": "alias-1783767532512",
+      "externalName": "Si",
+      "normalizedExternalName": "si",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "1783750989711",
+          "name": "Boneless Individuales"
+        }
+      ],
+      "createdAt": "2026-07-11T10:58:52.512Z",
+      "updatedAt": "2026-07-11T10:58:52.512Z"
+    },
+    {
+      "id": "alias-1783767536390",
+      "externalName": "Mountain dew",
+      "normalizedExternalName": "mountain dew",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "4",
+          "name": "Alitas 12 pzas"
+        }
+      ],
+      "createdAt": "2026-07-11T10:58:56.390Z",
+      "updatedAt": "2026-07-11T10:58:56.390Z"
+    },
+    {
+      "id": "alias-1783767626504",
+      "externalName": "Queso Amarillo extra 107",
+      "normalizedExternalName": "queso amarillo extra 107",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Refresco"
+        }
+      ],
+      "createdAt": "2026-07-11T11:00:26.504Z",
+      "updatedAt": "2026-07-11T11:00:26.504Z"
+    },
+    {
+      "id": "alias-1783800819129",
+      "externalName": "Boneless Individuales",
+      "normalizedExternalName": "boneless individuales",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "1783750989711",
+          "name": "Boneless Individuales"
+        }
+      ],
+      "createdAt": "2026-07-11T20:13:39.129Z",
+      "updatedAt": "2026-07-11T20:13:39.129Z"
+    },
+    {
+      "id": "alias-1783800823422",
+      "externalName": "Bañados",
+      "normalizedExternalName": "banados",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-11T20:13:43.422Z",
+      "updatedAt": "2026-07-11T20:13:43.422Z"
+    },
+    {
+      "id": "alias-1783800838410",
+      "externalName": "Jalapefio ranch",
+      "normalizedExternalName": "jalapefio ranch",
+      "platform": "didi",
+      "actionType": "ingredient",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Salsa",
+          "quantity": 30,
+          "unit": "ml"
+        }
+      ],
+      "createdAt": "2026-07-11T20:13:58.410Z",
+      "updatedAt": "2026-07-11T20:13:58.410Z"
+    },
+    {
+      "id": "alias-1783800851329",
+      "externalName": "Si, Ranch aparte",
+      "normalizedExternalName": "si, ranch aparte",
+      "platform": "didi",
+      "actionType": "ingredient",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Salsa",
+          "quantity": 3,
+          "unit": "ml"
+        }
+      ],
+      "createdAt": "2026-07-11T20:14:11.329Z",
+      "updatedAt": "2026-07-11T20:14:11.329Z"
+    },
+    {
+      "id": "alias-1783811574633",
+      "externalName": "Boneless Dobles",
+      "normalizedExternalName": "boneless dobles",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "3",
+          "name": "Alitas 6 pzas"
+        }
+      ],
+      "createdAt": "2026-07-11T23:12:54.633Z",
+      "updatedAt": "2026-07-11T23:12:54.633Z"
+    },
+    {
+      "id": "alias-1783811578159",
+      "externalName": "Bafiados",
+      "normalizedExternalName": "bafiados",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "4",
+          "name": "Alitas 12 pzas"
+        }
+      ],
+      "createdAt": "2026-07-11T23:12:58.159Z",
+      "updatedAt": "2026-07-11T23:12:58.159Z"
+    },
+    {
+      "id": "alias-1783811586505",
+      "externalName": "Salsa búfalo",
+      "normalizedExternalName": "salsa bufalo",
+      "platform": "didi",
+      "actionType": "ingredient",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Salsa",
+          "quantity": 30,
+          "unit": "ml"
+        }
+      ],
+      "createdAt": "2026-07-11T23:13:06.505Z",
+      "updatedAt": "2026-07-11T23:13:06.505Z"
+    },
+    {
+      "id": "alias-1783811590216",
+      "externalName": "Bdfalo ranch",
+      "normalizedExternalName": "bdfalo ranch",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "4",
+          "name": "Alitas 12 pzas"
+        }
+      ],
+      "createdAt": "2026-07-11T23:13:10.216Z",
+      "updatedAt": "2026-07-11T23:13:10.216Z"
+    },
+    {
+      "id": "alias-1783811593875",
+      "externalName": "Ranch No, Gracias",
+      "normalizedExternalName": "ranch no, gracias",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-11T23:13:13.875Z",
+      "updatedAt": "2026-07-11T23:13:13.875Z"
+    },
+    {
+      "id": "alias-1783811600584",
+      "externalName": "Refresco Coca Cola 600ml",
+      "normalizedExternalName": "refresco coca cola 600ml",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Refresco"
+        }
+      ],
+      "createdAt": "2026-07-11T23:13:20.584Z",
+      "updatedAt": "2026-07-11T23:13:20.584Z"
+    },
+    {
+      "id": "alias-1783811606169",
+      "externalName": "Papas Fritas(100GR)",
+      "normalizedExternalName": "papas fritas(100gr)",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "5",
+          "name": "Combo Burger + Papas"
+        }
+      ],
+      "createdAt": "2026-07-11T23:13:26.169Z",
+      "updatedAt": "2026-07-11T23:13:26.169Z"
+    },
+    {
+      "id": "alias-1783811612469",
+      "externalName": "Lemon pepper",
+      "normalizedExternalName": "lemon pepper",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-11T23:13:32.469Z",
+      "updatedAt": "2026-07-11T23:13:32.469Z"
+    },
+    {
+      "id": "alias-1783904632661",
+      "externalName": "Aderezo especial",
+      "normalizedExternalName": "aderezo especial",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-13T01:03:52.661Z",
+      "updatedAt": "2026-07-13T01:03:52.661Z"
+    },
+    {
+      "id": "alias-1783908776253",
+      "externalName": "BBQ",
+      "normalizedExternalName": "bbq",
+      "platform": "didi",
+      "actionType": "ingredient",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Salsa",
+          "quantity": 30,
+          "unit": "ml"
+        }
+      ],
+      "createdAt": "2026-07-13T02:12:56.253Z",
+      "updatedAt": "2026-07-13T02:12:56.253Z"
+    },
+    {
+      "id": "alias-1783908784070",
+      "externalName": "Catsup",
+      "normalizedExternalName": "catsup",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-13T02:13:04.070Z",
+      "updatedAt": "2026-07-13T02:13:04.070Z"
+    },
+    {
+      "id": "alias-1783916250151",
+      "externalName": "Italiana",
+      "normalizedExternalName": "italiana",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "1",
+          "name": "Burger Planet Clásica"
+        }
+      ],
+      "createdAt": "2026-07-13T04:17:30.151Z",
+      "updatedAt": "2026-07-13T04:17:30.151Z"
+    },
+    {
+      "id": "alias-1783916254495",
+      "externalName": "Dr. Pepper",
+      "normalizedExternalName": "dr. pepper",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Refresco"
+        }
+      ],
+      "createdAt": "2026-07-13T04:17:34.495Z",
+      "updatedAt": "2026-07-13T04:17:34.495Z"
+    },
+    {
+      "id": "alias-1783916293186",
+      "externalName": "Boneless Jumbo",
+      "normalizedExternalName": "boneless jumbo",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "4",
+          "name": "Alitas 12 pzas"
+        }
+      ],
+      "createdAt": "2026-07-13T04:18:13.186Z",
+      "updatedAt": "2026-07-13T04:18:13.186Z"
+    },
+    {
+      "id": "alias-1783916896592",
+      "externalName": "Dr Pepper Blackberry EDICION LIMITADA",
+      "normalizedExternalName": "dr pepper blackberry edicion limitada",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Refresco"
+        }
+      ],
+      "createdAt": "2026-07-13T04:28:16.592Z",
+      "updatedAt": "2026-07-13T04:28:16.592Z"
+    },
+    {
+      "id": "alias-1783939502461",
+      "externalName": "Búfalo ranch",
+      "normalizedExternalName": "bufalo ranch",
+      "platform": "didi",
+      "actionType": "ingredient",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Salsa",
+          "quantity": 30,
+          "unit": "ml"
+        }
+      ],
+      "createdAt": "2026-07-13T10:45:02.461Z",
+      "updatedAt": "2026-07-13T10:45:02.461Z"
+    },
+    {
+      "id": "alias-1783939664720",
+      "externalName": "Mexicana",
+      "normalizedExternalName": "mexicana",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "1",
+          "name": "Burger Planet Clásica"
+        }
+      ],
+      "createdAt": "2026-07-13T10:47:44.720Z",
+      "updatedAt": "2026-07-13T10:47:44.720Z"
+    },
+    {
+      "id": "alias-1783939669972",
+      "externalName": "Aparte",
+      "normalizedExternalName": "aparte",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-13T10:47:49.972Z",
+      "updatedAt": "2026-07-13T10:47:49.972Z"
+    },
+    {
+      "id": "alias-1783939674562",
+      "externalName": "Papas individuales (100gr)",
+      "normalizedExternalName": "papas individuales (100gr)",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "3",
+          "name": "Alitas 6 pzas"
+        }
+      ],
+      "createdAt": "2026-07-13T10:47:54.562Z",
+      "updatedAt": "2026-07-13T10:47:54.562Z"
+    },
+    {
+      "id": "alias-1783939679895",
+      "externalName": "Gochujang® Korean Boneless",
+      "normalizedExternalName": "gochujang® korean boneless",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "3",
+          "name": "Alitas 6 pzas"
+        }
+      ],
+      "createdAt": "2026-07-13T10:47:59.895Z",
+      "updatedAt": "2026-07-13T10:47:59.895Z"
+    },
+    {
+      "id": "alias-1783939684687",
+      "externalName": "Soda italiana Blackberry",
+      "normalizedExternalName": "soda italiana blackberry",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "6",
+          "name": "Refresco"
+        }
+      ],
+      "createdAt": "2026-07-13T10:48:04.687Z",
+      "updatedAt": "2026-07-13T10:48:04.687Z"
+    },
+    {
+      "id": "alias-1784081219990",
+      "externalName": "La Mexicana",
+      "normalizedExternalName": "la mexicana",
+      "platform": "didi",
+      "actionType": "product",
+      "targets": [
+        {
+          "id": "1",
+          "name": "Burger Planet Clásica"
+        }
+      ],
+      "createdAt": "2026-07-15T02:06:59.990Z",
+      "updatedAt": "2026-07-15T02:06:59.990Z"
+    },
+    {
+      "id": "alias-1784081224934",
+      "externalName": "Tocino extra",
+      "normalizedExternalName": "tocino extra",
+      "platform": "didi",
+      "actionType": "ignore",
+      "targets": [],
+      "createdAt": "2026-07-15T02:07:04.934Z",
+      "updatedAt": "2026-07-15T02:07:04.934Z"
+    }
+  ]
+}

@@ -12,6 +12,9 @@ export type PrintJob = {
   id: number;
   createdAt: string;
   orderId: number;
+  localOrderNumber?: number;
+  externalOrderNumber?: string;
+  externalPlatform?: string;
   station: KitchenStation;
   printerName: string;
   content: string;
@@ -66,6 +69,9 @@ export function createPrintJobsForOrder(order: PrintableOrder) {
       id: Date.now() + Math.floor(Math.random() * 10000),
       createdAt: new Date().toISOString(),
       orderId: order.id,
+      localOrderNumber: order.localOrderNumber,
+      externalOrderNumber: order.externalOrderNumber,
+      externalPlatform: order.externalPlatform,
       station: kitchenStation,
       printerName: getConfiguredPrinter(kitchenStation),
       content: buildStationTicket(order, kitchenStation),

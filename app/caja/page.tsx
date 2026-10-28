@@ -1,7 +1,14 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
+import { buildShoppingListMessage, clearLowStockAfterShiftClose, getPendingLowStock, markShoppingListSent, shoppingListWasSentForShift } from "@/lib/inventory";
+import { getOwnerWhatsapp } from "@/lib/business-settings";
+import { getCurrentUser } from "@/lib/auth";
+import { requirePermissionOrAdmin } from "@/lib/permissions";
+import { addAuditEvent } from "@/lib/audit";
+import { saveCashCloseRecord } from "@/lib/cash-history";
 
 type CashMovement = {
   id: number;
@@ -9,21 +16,28 @@ type CashMovement = {
   amount: number;
   reason: string;
   createdAt: string;
+  userName?: string;
 };
 
 type Shift = {
   openedAt: string;
+  sessionId: string;
+  orderCounter: number;
   openingCash: number;
   status: "open";
   movements: CashMovement[];
+  openedBy?: string;
 };
 
 type SavedOrder = {
   id: number;
+  localOrderNumber?: number;
+  shiftSessionId?: string;
   createdAt: string;
   total: number;
   details: {
     paymentMethod: string;
+    orderType?: string;
   };
 };
 
@@ -33,15 +47,49 @@ const ORDERS_KEY = "bpos_orders";
 export default function CajaPage() {
   const [openingCash, setOpeningCash] = useState("");
   const [cashCounted, setCashCounted] = useState("");
+  const [differenceReason, setDifferenceReason] = useState("");
   const [movementType, setMovementType] =
     useState<CashMovement["type"]>("Gasto");
   const [movementAmount, setMovementAmount] = useState("");
   const [movementReason, setMovementReason] = useState("");
   const [shift, setShift] = useState<Shift | null>(null);
+  const [ordersVersion, setOrdersVersion] = useState(0);
+  const [inventoryVersion, setInventoryVersion] = useState(0);
 
   useEffect(() => {
     const savedShift = localStorage.getItem(SHIFT_KEY);
-    if (savedShift) setShift(JSON.parse(savedShift));
+    if (savedShift) {
+      const parsed = JSON.parse(savedShift);
+      const migrated: Shift = {
+        ...parsed,
+        sessionId:
+          parsed.sessionId ||
+          `shift-${parsed.openedAt}-${Math.random().toString(36).slice(2, 9)}`,
+        orderCounter: Number(parsed.orderCounter || 0),
+      };
+      localStorage.setItem(SHIFT_KEY, JSON.stringify(migrated));
+      setShift(migrated);
+    }
+
+    const refreshOrders = () => setOrdersVersion((value) => value + 1);
+    const refreshShift = () => {
+      const current = localStorage.getItem(SHIFT_KEY);
+      setShift(current ? JSON.parse(current) : null);
+    };
+    window.addEventListener("storage", refreshOrders);
+    window.addEventListener("focus", refreshOrders);
+    window.addEventListener("bpos:orders-updated", refreshOrders);
+    window.addEventListener("bpos:shift-updated", refreshShift);
+    const refreshInventory = () => setInventoryVersion((value) => value + 1);
+    window.addEventListener("bpos:inventory-alerts-updated", refreshInventory);
+
+    return () => {
+      window.removeEventListener("storage", refreshOrders);
+      window.removeEventListener("focus", refreshOrders);
+      window.removeEventListener("bpos:orders-updated", refreshOrders);
+      window.removeEventListener("bpos:shift-updated", refreshShift);
+      window.removeEventListener("bpos:inventory-alerts-updated", refreshInventory);
+    };
   }, []);
 
   const shiftOrders = useMemo(() => {
@@ -50,10 +98,14 @@ export default function CajaPage() {
     const savedOrders = localStorage.getItem(ORDERS_KEY);
     const orders: SavedOrder[] = savedOrders ? JSON.parse(savedOrders) : [];
 
-    return orders.filter(
-      (order) => new Date(order.createdAt) >= new Date(shift.openedAt)
-    );
-  }, [shift]);
+    return orders.filter((order) => {
+      if (order.shiftSessionId) {
+        return order.shiftSessionId === shift.sessionId;
+      }
+
+      return new Date(order.createdAt) >= new Date(shift.openedAt);
+    });
+  }, [shift, ordersVersion]);
 
   const totalSales = shiftOrders.reduce((sum, order) => sum + order.total, 0);
 
@@ -80,6 +132,38 @@ export default function CajaPage() {
   const expectedCash = (shift?.openingCash || 0) + cashSales + cashIn - cashOut;
   const difference = Number(cashCounted || 0) - expectedCash;
 
+
+  const pendingLowStock = useMemo(() => getPendingLowStock(), [inventoryVersion, shift]);
+  const shoppingListSent = Boolean(shift && shoppingListWasSentForShift(shift.openedAt));
+
+  function sendShoppingList() {
+    if (!shift) return;
+    const phone = getOwnerWhatsapp();
+    if (!phone) {
+      alert("Configura el WhatsApp del dueño en Configuración → Empresa y propietario.");
+      window.location.href = "/configuracion/empresa";
+      return;
+    }
+
+    const message = buildShoppingListMessage();
+    const currentUser = getCurrentUser();
+    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
+    markShoppingListSent(shift.openedAt, {
+      sentBy: currentUser?.name || "Usuario del sistema",
+      phone,
+      items: pendingLowStock.map((item) => item.name),
+    });
+    addAuditEvent({
+      category: "Caja",
+      action: "shopping-list.sent",
+      description: `Lista de compras enviada por WhatsApp con ${pendingLowStock.length} artículo(s).`,
+      userName: currentUser?.name || "Usuario del sistema",
+      entityId: shift.sessionId,
+      metadata: { phone, items: pendingLowStock.map((item) => item.name) },
+    });
+    setInventoryVersion((value) => value + 1);
+  }
+
   function saveShift(nextShift: Shift | null) {
     setShift(nextShift);
 
@@ -91,6 +175,8 @@ export default function CajaPage() {
   }
 
   function openShift() {
+    const user = getCurrentUser();
+    if (!requirePermissionOrAdmin(user, "cash.open", "abrir caja")) return;
     const amount = Number(openingCash);
 
     if (amount <= 0) {
@@ -98,11 +184,26 @@ export default function CajaPage() {
       return;
     }
 
-    saveShift({
-      openedAt: new Date().toISOString(),
+    const openedAt = new Date().toISOString();
+
+    const currentUser = getCurrentUser();
+    const nextShift: Shift = {
+      openedAt,
+      sessionId: `shift-${openedAt}-${Math.random().toString(36).slice(2, 9)}`,
+      orderCounter: 0,
       openingCash: amount,
       status: "open",
       movements: [],
+      openedBy: currentUser?.name || "Usuario del sistema",
+    };
+    saveShift(nextShift);
+    addAuditEvent({
+      category: "Caja",
+      action: "cash.opened",
+      description: `Caja abierta con fondo inicial de $${amount.toFixed(2)}.`,
+      userName: nextShift.openedBy,
+      entityId: nextShift.sessionId,
+      metadata: { openingCash: amount, openedAt },
     });
 
     setOpeningCash("");
@@ -110,6 +211,8 @@ export default function CajaPage() {
 
   function addMovement() {
     if (!shift) return;
+    const permissionUser = getCurrentUser();
+    if (!requirePermissionOrAdmin(permissionUser, "cash.movement", "registrar movimiento de caja")) return;
 
     const amount = Number(movementAmount);
 
@@ -123,17 +226,27 @@ export default function CajaPage() {
       return;
     }
 
+    const currentUser = getCurrentUser();
     const movement: CashMovement = {
       id: Date.now(),
       type: movementType,
       amount,
       reason: movementReason,
       createdAt: new Date().toISOString(),
+      userName: currentUser?.name || "Usuario del sistema",
     };
 
     saveShift({
       ...shift,
       movements: [...shift.movements, movement],
+    });
+    addAuditEvent({
+      category: "Caja",
+      action: "cash.movement.created",
+      description: `${movement.type} por $${movement.amount.toFixed(2)}: ${movement.reason}`,
+      userName: movement.userName,
+      entityId: shift.sessionId,
+      metadata: movement,
     });
 
     setMovementAmount("");
@@ -142,6 +255,13 @@ export default function CajaPage() {
 
   function closeShift() {
   if (!shift) return;
+  const permissionUser = getCurrentUser();
+  if (!requirePermissionOrAdmin(permissionUser, "cash.close", "cerrar caja")) return;
+
+  if (pendingLowStock.length > 0 && !shoppingListWasSentForShift(shift.openedAt)) {
+    alert("No podrás cerrar caja hasta enviar la lista de compras por WhatsApp.");
+    return;
+  }
 
   if (cashCounted === "") {
     alert("Captura el efectivo contado antes de cerrar.");
@@ -150,6 +270,11 @@ export default function CajaPage() {
 
   const counted = Number(cashCounted);
   const cutDifference = counted - expectedCash;
+
+  if (cutDifference !== 0 && differenceReason.trim() === "") {
+    alert("Captura el motivo del faltante o sobrante antes de cerrar.");
+    return;
+  }
 
   const uberSales = shiftOrders
     .filter((order) => order.details.orderType === "Uber Eats")
@@ -184,11 +309,13 @@ export default function CajaPage() {
     .slice(0, 10)
     .replaceAll("-", "")}-${Date.now().toString().slice(-4)}`;
 
+  const currentUserForCut = getCurrentUser();
+  const cashierName = currentUserForCut?.name || "Usuario del sistema";
   const message = `🍔 *BURGER PLANET*
 📊 *CORTE DE CAJA*
 
 🧾 Folio: ${cutFolio}
-👤 Cajero: Gerardo Chavarria
+👤 Cajero: ${cashierName}
 🕒 Apertura: ${new Date(shift.openedAt).toLocaleString()}
 🕒 Cierre: ${new Date().toLocaleString()}
 
@@ -225,6 +352,7 @@ ${movementsText}
 💵 Efectivo esperado: $${expectedCash.toFixed(2)}
 💵 Efectivo contado: $${counted.toFixed(2)}
 ⚠️ Diferencia: $${cutDifference.toFixed(2)}
+${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
 
 ✅ Corte finalizado correctamente.`;
 
@@ -236,15 +364,71 @@ ${movementsText}
 
   if (!confirmed) return;
 
-  const phone = "528131241417";
+  const phone = getOwnerWhatsapp();
+  if (!phone) {
+    alert("Configura el WhatsApp del dueño en Configuración → Empresa y propietario.");
+    window.location.href = "/configuracion/empresa";
+    return;
+  }
   const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(
     message
   )}`;
 
   window.open(whatsappUrl, "_blank");
 
+  const closedAt = new Date().toISOString();
+  const currentUser = getCurrentUser();
+  const closedBy = currentUser?.name || "Usuario del sistema";
+  const otherSales = Math.max(0, totalSales - counterSales - whatsappSales - uberSales - didiSales);
+  const cutRecord = {
+    id: `close-${shift.sessionId}`,
+    folio: cutFolio,
+    shiftSessionId: shift.sessionId,
+    openedAt: shift.openedAt,
+    closedAt,
+    openedBy: shift.openedBy || "No registrado",
+    closedBy,
+    openingCash: shift.openingCash,
+    countedCash: counted,
+    expectedCash,
+    difference: cutDifference,
+    differenceReason: cutDifference !== 0 ? differenceReason.trim() : undefined,
+    totalSales,
+    orderCount: shiftOrders.length,
+    salesByPayment: { cash: cashSales, card: cardSales, transfer: transferSales },
+    salesByChannel: { counter: counterSales, whatsapp: whatsappSales, uber: uberSales, didi: didiSales, other: otherSales },
+    cashIn,
+    cashOut,
+    movements: shift.movements,
+    shoppingListSent: shoppingListWasSentForShift(shift.openedAt),
+    whatsappPhone: phone,
+    cutMessage: message,
+    cutSentAt: closedAt,
+  };
+  saveCashCloseRecord(cutRecord);
+  addAuditEvent({
+    category: "Caja",
+    action: "cash.closed",
+    description: `Caja cerrada. Ventas $${totalSales.toFixed(2)}, diferencia $${cutDifference.toFixed(2)}.`,
+    userName: closedBy,
+    entityId: shift.sessionId,
+    metadata: { folio: cutFolio, expectedCash, countedCash: counted, difference: cutDifference, differenceReason: cutRecord.differenceReason },
+  });
+  if (cutDifference !== 0) {
+    addAuditEvent({
+      category: "Caja",
+      action: "cash.difference.recorded",
+      description: `${cutDifference < 0 ? "Faltante" : "Sobrante"} de $${Math.abs(cutDifference).toFixed(2)} registrado: ${differenceReason.trim()}`,
+      userName: closedBy,
+      entityId: shift.sessionId,
+      metadata: { difference: cutDifference, reason: differenceReason.trim() },
+    });
+  }
+
+  clearLowStockAfterShiftClose();
   saveShift(null);
   setCashCounted("");
+  setDifferenceReason("");
 }
 
   return (
@@ -252,6 +436,11 @@ ${movementsText}
       title="Caja"
       subtitle="Apertura, movimientos, efectivo esperado y cierre de turno."
     >
+      <div className="mb-6 flex justify-end">
+        <Link href="/caja/historial" className="rounded-2xl border border-orange-500/40 px-5 py-3 font-black text-orange-300 hover:bg-orange-500/10">
+          Historial de cortes
+        </Link>
+      </div>
       {!shift ? (
         <section className="mx-auto max-w-xl rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
           <p className="text-sm font-bold text-orange-500">Caja cerrada</p>
@@ -282,12 +471,13 @@ ${movementsText}
         </section>
       ) : (
         <section className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-5">
             <Metric title="Estado" value="Abierta" />
             <Metric
               title="Fondo inicial"
               value={`$${shift.openingCash.toFixed(2)}`}
             />
+            <Metric title="Pedidos del turno" value={shift.orderCounter.toString()} />
             <Metric title="Ventas turno" value={`$${totalSales.toFixed(2)}`} />
             <Metric
               title="Efectivo esperado"
@@ -383,6 +573,28 @@ ${movementsText}
             </div>
           </section>
 
+          {pendingLowStock.length > 0 && (
+            <section className="rounded-3xl border border-yellow-400/50 bg-yellow-400/10 p-6">
+              <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <h2 className="text-xl font-black text-yellow-300">🟡 Lista de faltantes pendiente</h2>
+                  <p className="mt-2 text-sm text-yellow-100/80">
+                    No podrás cerrar caja hasta enviar la lista de compras por WhatsApp.
+                  </p>
+                  <p className="mt-2 text-sm font-bold text-yellow-200">
+                    {pendingLowStock.map((item) => item.name).join(", ")}
+                  </p>
+                </div>
+                <button
+                  onClick={sendShoppingList}
+                  className="rounded-2xl bg-yellow-300 px-6 py-4 font-black text-black"
+                >
+                  {shoppingListSent ? "Lista enviada ✓" : "Enviar lista por WhatsApp"}
+                </button>
+              </div>
+            </section>
+          )}
+
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
             <h2 className="text-xl font-black">Cerrar turno</h2>
             <p className="mt-2 text-zinc-400">
@@ -406,6 +618,18 @@ ${movementsText}
               <Metric title="Esperado" value={`$${expectedCash.toFixed(2)}`} />
               <Metric title="Diferencia" value={`$${difference.toFixed(2)}`} />
             </div>
+
+            {difference !== 0 && (
+              <label className="mt-5 block">
+                <span className="mb-2 block text-sm font-bold text-yellow-300">Motivo del faltante o sobrante</span>
+                <textarea
+                  value={differenceReason}
+                  onChange={(event) => setDifferenceReason(event.target.value)}
+                  placeholder="Ej. Faltante pendiente de revisión"
+                  className="min-h-24 w-full rounded-2xl border border-yellow-500/30 bg-black px-4 py-3 text-white"
+                />
+              </label>
+            )}
 
             <button
               onClick={closeShift}

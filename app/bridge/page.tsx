@@ -1,522 +1,944 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { Product } from "@/data/products";
-import { interpretTicketWithAI } from "@/lib/ai/interpreter";
-import { findBridgeProduct, ParsedBridgeItem } from "@/lib/bridge/parser";
+import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
+import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
+import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
+import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
+import { createAutomaticSale } from "@/lib/bridge/create-automatic-sale";
 import BridgeAliases from "./BridgeAliases";
-import { discountInventoryByOrder } from "@/lib/inventory";
-import { createPrintJobsForOrder } from "@/lib/bridge/printManager";
 
-type BridgeStatus =
-  | "Recibido"
-  | "Procesando IA"
-  | "Venta creada"
-  | "Inventario actualizado"
-  | "KDS enviado"
-  | "Impreso"
-  | "Finalizado"
-  | "Error";
+type AliasActionType = "product" | "ingredient" | "bundle" | "ignore";
 
-type BridgeTicket = {
-  id: number;
-  platform: "Didi Food" | "Uber Eats";
-  orderNumber: string;
-  receivedAt: string;
-  customer: string;
-  parsedItems: ParsedBridgeItem[];
-  status: BridgeStatus;
-  rawText: string;
+type AliasTarget = {
+  id: string;
+  name: string;
+  quantity?: number;
+  unit?: string;
+};
+
+type BridgeAlias = {
+  id: string;
+  normalizedExternalName: string;
+  externalName: string;
+  platform?: string | null;
+  actionType: AliasActionType;
+  targets: AliasTarget[];
+};
+
+type AgentOrder = {
+  id?: number | string;
+  platform?: string;
+  orderId?: string | null;
+  receivedAt?: string;
+  bridgeReceivedAt?: string;
+  customer?: { name?: string | null; phone?: string | null };
+  delivery?: { address?: string | null; type?: string | null };
+  rawText?: string;
+  total?: number;
+  status?: string;
+  interpretation?: OrderInterpretation;
+  interpretationUpdatedAt?: string;
+  validation?: FinalOrderValidation;
+  validationUpdatedAt?: string;
+  readyForSale?: boolean;
+  saleReadyPayload?: SaleReadyPayload | null;
+  salePreparedAt?: string;
   createdOrderId?: number;
 };
 
-type BridgeOrderItem = Product & { quantity: number };
-
-type BridgeOrder = {
-  id: number;
-  createdAt: string;
-  items: BridgeOrderItem[];
-  details: {
-    orderType: string;
-    customerName: string;
-    customerPhone: string;
-    customerAddress: string;
-    paymentMethod: string;
-    discount: number;
-  };
-  subtotal: number;
-  total: number;
-  source?: string;
-  externalOrderNumber?: string;
+type QuantifiedItem = {
+  id: string;
+  qty: number;
+  externalName: string;
+  rawLine: string;
 };
 
-const ORDERS_KEY = "bpos_orders";
-
-const STATUS_FLOW: BridgeStatus[] = [
-  "Recibido",
-  "Procesando IA",
-  "Venta creada",
-  "Inventario actualizado",
-  "KDS enviado",
-  "Impreso",
-  "Finalizado",
-];
-
-const statusStyles: Record<BridgeStatus, string> = {
-  Recibido: "border-blue-500/40 bg-blue-500/10 text-blue-300",
-  "Procesando IA": "border-purple-500/40 bg-purple-500/10 text-purple-300",
-  "Venta creada": "border-orange-500/40 bg-orange-500/10 text-orange-300",
-  "Inventario actualizado": "border-green-500/40 bg-green-500/10 text-green-300",
-  "KDS enviado": "border-cyan-500/40 bg-cyan-500/10 text-cyan-300",
-  Impreso: "border-yellow-500/40 bg-yellow-500/10 text-yellow-300",
-  Finalizado: "border-green-500/40 bg-green-500/10 text-green-300",
-  Error: "border-red-500/40 bg-red-500/10 text-red-300",
+type AliasSelection = {
+  externalName: string;
+  platform: string;
+  token: number;
 };
+
+const REFRESH_MS = 2000;
+
+const ACTION_LABELS: Record<AliasActionType, string> = {
+  product: "Producto del POS",
+  ingredient: "Ingrediente",
+  bundle: "Grupo de insumos",
+  ignore: "Ignorar",
+};
+
+function normalize(value: unknown) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function cleanExternalName(value: string) {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(
+      /\s+(?:MX\$|\$)\s*-?\d[\d,]*(?:\.\d{1,2})?\s*(?:MXN)?\s*$/i,
+      ""
+    )
+    .trim();
+}
+
+function extractQuantifiedItems(rawText: string): QuantifiedItem[] {
+  return String(rawText || "")
+    .replace(/\r/g, "")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line, index) => {
+      const match = line.match(/^\s*(\d{1,4})\s*[xX×]\s*(.+?)\s*$/);
+      if (!match) return null;
+      const qty = Number(match[1]);
+      const externalName = cleanExternalName(match[2]);
+      if (!Number.isInteger(qty) || qty <= 0 || !externalName) return null;
+      return {
+        id: `${index}-${qty}-${externalName}`,
+        qty,
+        externalName,
+        rawLine: line,
+      };
+    })
+    .filter((item): item is QuantifiedItem => Boolean(item));
+}
+
+function findAlias(
+  aliases: BridgeAlias[],
+  externalName: string,
+  platform: string
+) {
+  const normalizedName = normalize(externalName);
+  const normalizedPlatform = normalize(platform);
+
+  return (
+    aliases.find(
+      (alias) =>
+        alias.normalizedExternalName === normalizedName &&
+        normalize(alias.platform) === normalizedPlatform
+    ) ||
+    aliases.find(
+      (alias) =>
+        alias.normalizedExternalName === normalizedName && !alias.platform
+    )
+  );
+}
+
+function platformLabel(value: unknown) {
+  const platform = normalize(value);
+  if (platform.includes("didi")) return "DiDi Food";
+  if (platform.includes("uber")) return "Uber Eats";
+  if (platform.includes("rappi")) return "Rappi";
+  return "Externa";
+}
 
 export default function BridgePage() {
-  const [tickets, setTickets] = useState<BridgeTicket[]>([]);
-  const [isCreating, setIsCreating] = useState(false);
+  const [orders, setOrders] = useState<AgentOrder[]>([]);
+  const [aliases, setAliases] = useState<BridgeAlias[]>([]);
+  const [selection, setSelection] = useState<AliasSelection | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [connectionError, setConnectionError] = useState("");
+  const [lastSync, setLastSync] = useState<Date | null>(null);
+  const [catalogProducts, setCatalogProducts] = useState(() => getAdminProducts());
+  const [catalogIngredients, setCatalogIngredients] = useState(() =>
+    getAdminIngredients()
+  );
+  const saleCreationLocks = useRef(new Set<string>());
+  const [showFinalized, setShowFinalized] = useState(false);
 
-  const activeTickets = tickets.filter((ticket) => ticket.status !== "Finalizado");
-  const finishedTickets = tickets.filter((ticket) => ticket.status === "Finalizado");
+  const loadData = useCallback(async () => {
+    try {
+      await fetch("/api/bridge/pending", { cache: "no-store" });
 
-  const nextOrderNumber = useMemo(() => {
-    return `BPB-${(tickets.length + 1).toString().padStart(4, "0")}`;
-  }, [tickets.length]);
+      const [ordersResponse, aliasesResponse] = await Promise.all([
+        fetch("/api/bridge/orders", { cache: "no-store" }),
+        fetch("/api/bridge/aliases", { cache: "no-store" }),
+      ]);
 
-  async function createDemoTicket(platform: "Didi Food" | "Uber Eats") {
-    setIsCreating(true);
-
-    const demoItems =
-      platform === "Didi Food"
-        ? ["2 Classic Burger", "1 Papas Grandes", "2 Coca-Cola"]
-        : ["1 Smash Doble", "1 Alitas 12 pzas", "1 Agua Mineral"];
-
-    const rawText = `${platform}
-Pedido ${nextOrderNumber}
-
-${demoItems.join("\n")}
-
-Notas:
-Sin cebolla
-Enviar cubiertos`;
-
-    const aiTicket = await interpretTicketWithAI(rawText);
-
-    const parsedItems: ParsedBridgeItem[] = aiTicket.items.map((item) => {
-      const result = findBridgeProduct(item.normalizedName);
-
-      return {
-        originalLine: item.originalName,
-        quantity: item.quantity,
-        cleanName: item.normalizedName,
-        product: result.product,
-        matched: Boolean(result.product),
-        matchType: result.matchType,
+      const ordersPayload = (await ordersResponse.json()) as {
+        success?: boolean;
+        orders?: AgentOrder[];
+        error?: string;
       };
-    });
+      const aliasesPayload = (await aliasesResponse.json()) as {
+        success?: boolean;
+        aliases?: BridgeAlias[];
+        error?: string;
+      };
 
-    const newTicket: BridgeTicket = {
-      id: Date.now(),
-      platform,
-      orderNumber: aiTicket.orderNumber || nextOrderNumber,
-      receivedAt: new Date().toISOString(),
-      customer: aiTicket.customer || (platform === "Didi Food" ? "Cliente Didi" : "Cliente Uber"),
-      parsedItems,
-      status: "Recibido",
-      rawText,
-    };
-
-    setTickets((current) => [newTicket, ...current]);
-    setIsCreating(false);
-  }
-
-  function createOrderFromTicket(ticket: BridgeTicket) {
-    const savedOrders: BridgeOrder[] = JSON.parse(
-      localStorage.getItem(ORDERS_KEY) ?? "[]"
-    );
-
-    const nextOrderId = savedOrders.length + 1;
-
-    const orderItems: BridgeOrderItem[] = ticket.parsedItems.map((item, index) => {
-      if (item.product) {
-        return {
-          ...item.product,
-          quantity: item.quantity,
-        };
+      if (!ordersResponse.ok || !ordersPayload.success) {
+        throw new Error(ordersPayload.error || "No se pudieron cargar pedidos.");
+      }
+      if (!aliasesResponse.ok || !aliasesPayload.success) {
+        throw new Error(
+          aliasesPayload.error || "No se pudieron cargar equivalencias."
+        );
       }
 
-      return {
-        id: Date.now() + index,
-        name: item.cleanName,
-        category: "Bridge",
-        price: 0,
-        emoji: "🛵",
-        quantity: item.quantity,
-      };
-    });
+      setOrders(Array.isArray(ordersPayload.orders) ? ordersPayload.orders : []);
+      setAliases(
+        Array.isArray(aliasesPayload.aliases) ? aliasesPayload.aliases : []
+      );
+      setConnectionError("");
+      setLastSync(new Date());
+    } catch (error) {
+      setConnectionError(
+        error instanceof Error ? error.message : "No se pudo sincronizar."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-    const subtotal = orderItems.reduce(
-      (sum, item) => sum + item.price * item.quantity,
-      0
-    );
+  useEffect(() => {
+    void loadData();
+    const timer = window.setInterval(() => void loadData(), REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [loadData]);
 
-    const newOrder: BridgeOrder = {
-      id: nextOrderId,
-      createdAt: new Date().toISOString(),
-      items: orderItems,
-      details: {
-        orderType: ticket.platform,
-        customerName: ticket.customer,
-        customerPhone: "",
-        customerAddress: "",
-        paymentMethod: ticket.platform,
-        discount: 0,
-      },
-      subtotal,
-      total: subtotal,
-      source: "B-POS Bridge",
-      externalOrderNumber: ticket.orderNumber,
+  useEffect(() => {
+    const refreshCatalogs = () => {
+      setCatalogProducts(getAdminProducts());
+      setCatalogIngredients(getAdminIngredients());
     };
 
-    localStorage.setItem(ORDERS_KEY, JSON.stringify([...savedOrders, newOrder]));
-    return nextOrderId;
-  }
+    window.addEventListener("storage", refreshCatalogs);
+    window.addEventListener("focus", refreshCatalogs);
 
-  function advanceTicket(id: number) {
-    setTickets((current) =>
-      current.map((ticket) => {
-        if (ticket.id !== id) return ticket;
+    return () => {
+      window.removeEventListener("storage", refreshCatalogs);
+      window.removeEventListener("focus", refreshCatalogs);
+    };
+  }, []);
 
-        const currentIndex = STATUS_FLOW.indexOf(ticket.status);
-        const nextStatus =
-          currentIndex >= 0 && currentIndex < STATUS_FLOW.length - 1
-            ? STATUS_FLOW[currentIndex + 1]
-            : "Finalizado";
+  const activeOrders = useMemo(
+    () => orders.filter((order) => order.status !== "Finalizado"),
+    [orders]
+  );
 
-        if (nextStatus === "Venta creada" && !ticket.createdOrderId) {
-          const createdOrderId = createOrderFromTicket(ticket);
+  const finalizedOrders = useMemo(
+    () => orders.filter((order) => order.status === "Finalizado"),
+    [orders]
+  );
 
-          return {
-            ...ticket,
-            status: nextStatus,
-            createdOrderId,
+  const interpretationInputSignature = useMemo(
+    () =>
+      JSON.stringify({
+        orders: activeOrders.map((order) => ({
+          platform: normalize(order.platform),
+          orderId: String(order.orderId || ""),
+          rawText: order.rawText || "",
+        })),
+        aliases: aliases.map((alias) => ({
+          id: alias.id,
+          externalName: alias.externalName,
+          normalizedExternalName: alias.normalizedExternalName,
+          platform: alias.platform || null,
+          actionType: alias.actionType,
+          targets: alias.targets,
+        })),
+        products: catalogProducts.map((product) => ({
+          id: product.id,
+          name: product.name,
+        })),
+        ingredients: catalogIngredients.map((ingredient) => ({
+          id: ingredient.id,
+          name: ingredient.name,
+          unit: ingredient.unit,
+        })),
+      }),
+    [activeOrders, aliases, catalogProducts, catalogIngredients]
+  );
+
+  useEffect(() => {
+    if (!interpretationInputSignature || activeOrders.length === 0) return;
+
+    let cancelled = false;
+
+    const runInterpretation = async () => {
+      let updatedAnyOrder = false;
+
+      for (const order of activeOrders) {
+        if (cancelled || !order.platform || !order.orderId) break;
+
+        try {
+          const response = await fetch("/api/bridge/interpret", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              platform: order.platform,
+              rawText: order.rawText || "",
+              aliases,
+              products: catalogProducts,
+              ingredients: catalogIngredients,
+            }),
+          });
+
+          const payload = (await response.json()) as {
+            success?: boolean;
+            interpretation?: OrderInterpretation;
+            error?: string;
           };
+
+          if (!response.ok || !payload.success || !payload.interpretation) {
+            throw new Error(payload.error || "No se pudo interpretar el pedido.");
+          }
+
+          const currentCore = order.interpretation
+            ? JSON.stringify({
+                ...order.interpretation,
+                interpretedAt: undefined,
+              })
+            : "";
+          const nextCore = JSON.stringify({
+            ...payload.interpretation,
+            interpretedAt: undefined,
+          });
+
+          if (currentCore === nextCore) continue;
+
+          const patchResponse = await fetch("/api/bridge/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              platform: order.platform,
+              orderId: order.orderId,
+              interpretation: payload.interpretation,
+            }),
+          });
+
+          if (!patchResponse.ok) {
+            const patchPayload = await patchResponse.json();
+            throw new Error(
+              patchPayload?.error || "No se pudo guardar la interpretación."
+            );
+          }
+
+          updatedAnyOrder = true;
+        } catch (error) {
+          if (!cancelled) {
+            console.error("Error del Motor de Interpretación 2.2:", error);
+          }
+        }
+      }
+
+      if (!cancelled && updatedAnyOrder) {
+        await loadData();
+      }
+    };
+
+    void runInterpretation();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [interpretationInputSignature, loadData]);
+
+  const validationInputSignature = useMemo(
+    () =>
+      JSON.stringify({
+        orders: activeOrders.map((order) => ({
+          platform: normalize(order.platform),
+          orderId: String(order.orderId || ""),
+          customer: order.customer || null,
+          delivery: order.delivery || null,
+          total: order.total || 0,
+          interpretation: order.interpretation || null,
+        })),
+        products: catalogProducts.map((product) => ({
+          id: product.id,
+          name: product.name,
+        })),
+        ingredients: catalogIngredients.map((ingredient) => ({
+          id: ingredient.id,
+          name: ingredient.name,
+          unit: ingredient.unit,
+        })),
+      }),
+    [activeOrders, catalogProducts, catalogIngredients]
+  );
+
+  useEffect(() => {
+    if (!validationInputSignature || activeOrders.length === 0) return;
+
+    let cancelled = false;
+
+    const runValidation = async () => {
+      let updatedAnyOrder = false;
+
+      for (const order of activeOrders) {
+        if (cancelled || !order.platform || !order.orderId || !order.interpretation) {
+          continue;
         }
 
-        if (nextStatus === "KDS enviado" && ticket.createdOrderId) {
-  const savedOrders: BridgeOrder[] = JSON.parse(
-    localStorage.getItem(ORDERS_KEY) ?? "[]"
-  );
+        try {
+          const response = await fetch("/api/bridge/validate", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              platform: order.platform,
+              orderId: order.orderId,
+              customer: order.customer,
+              delivery: order.delivery,
+              total: order.total,
+              rawText: order.rawText || "",
+              interpretation: order.interpretation,
+              products: catalogProducts,
+              ingredients: catalogIngredients,
+            }),
+          });
 
-  const nextOrders = savedOrders.map((order) =>
-    order.id === ticket.createdOrderId
-      ? { ...order, kdsReleased: true, status: "Nuevo" }
-      : order
-  );
+          const payload = (await response.json()) as {
+            success?: boolean;
+            validation?: FinalOrderValidation;
+            saleReadyPayload?: SaleReadyPayload | null;
+            error?: string;
+          };
 
-  localStorage.setItem(ORDERS_KEY, JSON.stringify(nextOrders));
+          if (!response.ok || !payload.success || !payload.validation) {
+            throw new Error(payload.error || "No se pudo validar el pedido.");
+          }
 
-  return {
-    ...ticket,
-    status: nextStatus,
-  };
-}
+          const currentCore = JSON.stringify({
+            validation: order.validation
+              ? { ...order.validation, checkedAt: undefined }
+              : null,
+            saleReadyPayload: order.saleReadyPayload
+              ? { ...order.saleReadyPayload, preparedAt: undefined }
+              : null,
+          });
+          const nextCore = JSON.stringify({
+            validation: { ...payload.validation, checkedAt: undefined },
+            saleReadyPayload: payload.saleReadyPayload
+              ? { ...payload.saleReadyPayload, preparedAt: undefined }
+              : null,
+          });
 
-if (nextStatus === "Impreso" && ticket.createdOrderId) {
-  const savedOrders: BridgeOrder[] = JSON.parse(
-    localStorage.getItem(ORDERS_KEY) ?? "[]"
-  );
+          if (currentCore === nextCore) continue;
 
-  const order = savedOrders.find((item) => item.id === ticket.createdOrderId);
+          const patchResponse = await fetch("/api/bridge/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              platform: order.platform,
+              orderId: order.orderId,
+              validation: payload.validation,
+              saleReadyPayload: payload.saleReadyPayload ?? null,
+            }),
+          });
 
-  if (order) {
-    createPrintJobsForOrder(order);
-  }
+          if (!patchResponse.ok) {
+            const patchPayload = await patchResponse.json();
+            throw new Error(
+              patchPayload?.error || "No se pudo guardar la validación."
+            );
+          }
 
-  return {
-    ...ticket,
-    status: nextStatus,
-  };
-}
+          updatedAnyOrder = true;
+        } catch (error) {
+          if (!cancelled) {
+            console.error("Error de validación 2.4/2.5:", error);
+          }
+        }
+      }
 
-        if (
-  nextStatus === "Inventario actualizado" &&
-  ticket.createdOrderId
-) {
-  discountInventoryByOrder(ticket.createdOrderId, ticket.parsedItems.map((item) => {
-    if (item.product) {
-      return {
-        ...item.product,
-        quantity: item.quantity,
-      };
-    }
-
-    return {
-      id: Date.now(),
-      name: item.cleanName,
-      category: "Bridge",
-      price: 0,
-      emoji: "🛵",
-      quantity: item.quantity,
+      if (!cancelled && updatedAnyOrder) {
+        await loadData();
+      }
     };
-  }));
 
-  return {
-    ...ticket,
-    status: nextStatus,
-  };
-}
+    void runValidation();
 
-        return {
-          ...ticket,
-          status: nextStatus,
-        };
-      })
-    );
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, [validationInputSignature, loadData]);
 
-  function resetDemo() {
-    if (!confirm("¿Limpiar cola e historial de Bridge?")) return;
-    setTickets([]);
+  const automaticSaleSignature = useMemo(
+    () =>
+      JSON.stringify(
+        activeOrders.map((order) => ({
+          platform: normalize(order.platform),
+          orderId: String(order.orderId || ""),
+          status: order.status || "",
+          readyForSale: Boolean(order.readyForSale),
+          createdOrderId: order.createdOrderId || null,
+          externalOrderKey: order.saleReadyPayload?.externalOrderKey || null,
+        }))
+      ),
+    [activeOrders]
+  );
+
+  useEffect(() => {
+    if (!automaticSaleSignature || activeOrders.length === 0) return;
+
+    let cancelled = false;
+
+    const createReadySales = async () => {
+      let changed = false;
+
+      for (const order of activeOrders) {
+        if (
+          cancelled ||
+          !order.platform ||
+          !order.orderId ||
+          !order.readyForSale ||
+          !order.saleReadyPayload ||
+          order.createdOrderId ||
+          order.status === "Venta creada" ||
+          order.status === "Finalizado"
+        ) {
+          continue;
+        }
+
+        const externalKey = order.saleReadyPayload.externalOrderKey;
+        if (saleCreationLocks.current.has(externalKey)) continue;
+
+        saleCreationLocks.current.add(externalKey);
+
+        try {
+          const result = createAutomaticSale(order.saleReadyPayload);
+
+          if (!result.success) {
+            console.error(
+              `No se pudo crear la venta automática ${externalKey}:`,
+              result.error
+            );
+            continue;
+          }
+
+          const patchResponse = await fetch("/api/bridge/orders", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              platform: order.platform,
+              orderId: order.orderId,
+              status: "Finalizado",
+              createdOrderId: result.orderId,
+            }),
+          });
+
+          if (!patchResponse.ok) {
+            const patchPayload = await patchResponse.json();
+            throw new Error(
+              patchPayload?.error || "No se pudo confirmar la venta creada."
+            );
+          }
+
+          changed = true;
+        } catch (error) {
+          console.error("Error del Bloque 3 - Venta automática:", error);
+        } finally {
+          saleCreationLocks.current.delete(externalKey);
+        }
+      }
+
+      if (!cancelled && changed) {
+        await loadData();
+      }
+    };
+
+    void createReadySales();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [automaticSaleSignature, activeOrders, loadData]);
+
+  const pendingCount = useMemo(
+    () =>
+      activeOrders.reduce((count, order) => {
+        const platform = normalize(order.platform);
+        return (
+          count +
+          extractQuantifiedItems(order.rawText || "").filter(
+            (item) => !findAlias(aliases, item.externalName, platform)
+          ).length
+        );
+      }, 0),
+    [activeOrders, aliases]
+  );
+
+  function configureItem(externalName: string, platform: string) {
+    setSelection({ externalName, platform, token: Date.now() });
+    window.setTimeout(() => {
+      document
+        .getElementById("bridge-aliases")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   }
 
   return (
     <AppShell
       title="B-POS Bridge"
-      subtitle="Impresora virtual inteligente para Didi Food, Uber Eats y plataformas externas."
+      subtitle="Los pedidos avanzan a Interpretado automáticamente cuando todas sus líneas cuantificadas tienen equivalencia."
     >
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[420px_1fr]">
-        <section className="space-y-6">
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-            <div className="flex items-center gap-4">
-              <div className="flex h-16 w-16 items-center justify-center rounded-3xl bg-green-500/10 text-4xl">
-                🟢
-              </div>
-
-              <div>
-                <p className="text-sm font-bold text-green-400">Bridge activo</p>
-                <h2 className="text-2xl font-black">Esperando pedidos</h2>
-                <p className="mt-1 text-sm text-zinc-400">
-                  La impresora virtual B-POS recibirá aquí los tickets externos.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-            <h2 className="text-xl font-black text-orange-500">
-              Simulador de ticket
-            </h2>
-
-            <p className="mt-2 text-sm text-zinc-400">
-              Ahora el ticket pasa por el motor IA. Por el momento usa fallback
-              local; después conectaremos OpenAI.
+      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.7fr)]">
+        <aside className="min-w-0 space-y-6">
+          <section
+            className={`rounded-3xl border p-6 ${
+              pendingCount > 0
+                ? "border-emerald-400/70 bg-emerald-500/10"
+                : "border-zinc-800 bg-zinc-950"
+            }`}
+          >
+            <p
+              className={`text-sm font-bold ${
+                connectionError ? "text-red-400" : "text-emerald-400"
+              }`}
+            >
+              {connectionError ? "Bridge sin conexión" : "Bridge conectado"}
             </p>
-
-            <div className="mt-6 grid grid-cols-1 gap-3">
-              <button
-                disabled={isCreating}
-                onClick={() => createDemoTicket("Didi Food")}
-                className="rounded-2xl bg-orange-500 px-5 py-4 font-black text-black disabled:opacity-50"
-              >
-                {isCreating ? "Procesando..." : "Simular pedido Didi Food"}
-              </button>
-
-              <button
-                disabled={isCreating}
-                onClick={() => createDemoTicket("Uber Eats")}
-                className="rounded-2xl border border-zinc-800 bg-black px-5 py-4 font-black text-white hover:border-orange-500 disabled:opacity-50"
-              >
-                {isCreating ? "Procesando..." : "Simular pedido Uber Eats"}
-              </button>
-
-              <button
-                onClick={resetDemo}
-                className="rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-4 font-black text-red-400"
-              >
-                Limpiar Bridge
-              </button>
-            </div>
-          </div>
-
-          <BridgeAliases />
-
-          <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-            <h2 className="text-xl font-black text-orange-500">
-              Flujo automático
+            <h2 className="mt-1 text-2xl font-black text-white">
+              {pendingCount > 0
+                ? `${pendingCount} equivalencia(s) pendiente(s)`
+                : "Todos los artículos están enlazados"}
             </h2>
-
-            <div className="mt-5 space-y-3 text-sm text-zinc-300">
-              <FlowItem icon="🖨️" text="Ticket enviado a impresora virtual" />
-              <FlowItem icon="🧠" text="IA interpreta productos y notas" />
-              <FlowItem icon="🍔" text="Venta creada automáticamente" />
-              <FlowItem icon="📦" text="Inventario descontado por receta" />
-              <FlowItem icon="👨‍🍳" text="Pedido enviado al KDS" />
-              <FlowItem icon="🔥" text="Impresión por estación" />
-              <FlowItem icon="📊" text="Dashboard actualizado" />
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-6">
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-            <Metric title="En cola" value={activeTickets.length.toString()} />
-            <Metric title="Finalizados" value={finishedTickets.length.toString()} />
-            <Metric title="Plataformas" value="2" />
-            <Metric title="Modo" value="IA ready" />
-          </div>
-
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-            <h2 className="text-xl font-black text-orange-500">
-              Cola de procesamiento
-            </h2>
-
-            <div className="mt-6 space-y-4">
-              {tickets.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">
-                  Todavía no hay tickets recibidos.
-                </div>
-              ) : (
-                tickets.map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    className="rounded-3xl border border-zinc-800 bg-black p-5"
-                  >
-                    <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                      <div>
-                        <p className="text-sm font-bold text-orange-500">
-                          {ticket.platform}
-                        </p>
-
-                        <h3 className="text-2xl font-black">
-                          Pedido {ticket.orderNumber}
-                        </h3>
-
-                        <p className="mt-1 text-sm text-zinc-400">
-                          {ticket.customer} ·{" "}
-                          {new Date(ticket.receivedAt).toLocaleString()}
-                        </p>
-
-                        {ticket.createdOrderId && (
-                          <p className="mt-2 text-sm font-black text-green-400">
-                            Venta B-POS #
-                            {ticket.createdOrderId.toString().padStart(6, "0")} creada
-                          </p>
-                        )}
-                      </div>
-
-                      <span
-                        className={`rounded-xl border px-3 py-2 text-xs font-black ${
-                          statusStyles[ticket.status]
-                        }`}
-                      >
-                        {ticket.status}
-                      </span>
-                    </div>
-
-                    <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
-                      <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-                        <p className="mb-3 text-sm font-black text-zinc-400">
-                          Productos interpretados
-                        </p>
-
-                        <div className="space-y-2">
-                          {ticket.parsedItems.map((item) => (
-                            <div
-                              key={item.originalLine}
-                              className="rounded-xl bg-black px-3 py-2 text-sm"
-                            >
-                              <p className="font-black text-zinc-200">
-                                {item.quantity} × {item.cleanName}
-                              </p>
-
-                              {item.matched && item.product ? (
-                                <p className="text-xs text-green-400">
-                                  ✓ {item.matchType === "alias" ? "Alias" : "Catálogo"}:{" "}
-                                  {item.product.name} · ${item.product.price.toFixed(2)}
-                                </p>
-                              ) : (
-                                <p className="text-xs text-red-400">
-                                  Sin coincidencia en catálogo
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-
-                      <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-                        <p className="mb-3 text-sm font-black text-zinc-400">
-                          Ticket original
-                        </p>
-
-                        <pre className="max-h-40 overflow-auto whitespace-pre-wrap text-xs leading-5 text-zinc-500">
-                          {ticket.rawText}
-                        </pre>
-                      </div>
-                    </div>
-
-                    <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-                      <MiniStep done={statusDone(ticket.status, "Recibido")} text="Recibido" />
-                      <MiniStep done={statusDone(ticket.status, "Procesando IA")} text="IA" />
-                      <MiniStep done={statusDone(ticket.status, "Venta creada")} text="Venta" />
-                      <MiniStep done={statusDone(ticket.status, "KDS enviado")} text="KDS" />
-                    </div>
-
-                    {ticket.status !== "Finalizado" && (
-                      <button
-                        onClick={() => advanceTicket(ticket.id)}
-                        className="mt-5 w-full rounded-2xl bg-orange-500 py-3 font-black text-black"
-                      >
-                        Avanzar procesamiento
-                      </button>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
+            <p className="mt-2 text-sm text-zinc-400">
+              {connectionError ||
+                "El estado cambia de Recibido a Interpretado sin pulsar botones."}
+            </p>
+            {lastSync && !connectionError && (
+              <p className="mt-3 text-xs text-zinc-500">
+                Última actualización: {lastSync.toLocaleTimeString()}
+              </p>
+            )}
           </section>
-        </section>
+
+          <div id="bridge-aliases" className="scroll-mt-6">
+            <BridgeAliases
+              selectedExternalName={selection?.externalName}
+              selectedPlatform={selection?.platform}
+              selectionToken={selection?.token}
+              onSaved={() => void loadData()}
+            />
+          </div>
+        </aside>
+
+        <main className="min-w-0 space-y-5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-2xl font-black text-white">Pedidos recibidos</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                El Bridge muestra solo líneas con cantidad seguida de x.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => setShowFinalized((value) => !value)}
+                className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-3 font-black text-white"
+              >
+                {showFinalized ? "Ocultar finalizados" : `Finalizados (${finalizedOrders.length})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => void loadData()}
+                className="rounded-2xl bg-orange-500 px-5 py-3 font-black text-black"
+              >
+                Actualizar ahora
+              </button>
+            </div>
+          </div>
+
+          {loading ? (
+            <div className="rounded-3xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">
+              Cargando pedidos...
+            </div>
+          ) : activeOrders.length === 0 ? (
+            <div className="rounded-3xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">
+              Todavía no hay pedidos activos.
+            </div>
+          ) : (
+            activeOrders.map((order) => {
+              const platformKey = normalize(order.platform);
+              const items = extractQuantifiedItems(order.rawText || "");
+              const resolved = items.map((item) => ({
+                ...item,
+                alias: findAlias(aliases, item.externalName, platformKey),
+              }));
+              const unresolved = resolved.filter((item) => !item.alias);
+              const saleCreated = Boolean(
+                order.status === "Venta creada" && order.createdOrderId
+              );
+              const interpreted = Boolean(
+                order.interpretation?.resolved &&
+                  (order.status === "Interpretado" || saleCreated)
+              );
+              const interpretationPending =
+                order.interpretation?.pendingCount ?? unresolved.length;
+              const interpretationErrors =
+                order.interpretation?.errorCount ?? 0;
+              const readyForSale = Boolean(
+                order.validation?.readyForSale && order.saleReadyPayload
+              );
+              const validationIssues = order.validation?.issues ?? [];
+
+              return (
+                <article
+                  key={`${platformKey}-${order.orderId}-${order.id}`}
+                  className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <h3 className="text-2xl font-black text-white">
+                        {order.createdOrderId
+                          ? `Pedido #${String(order.createdOrderId).padStart(6, "0")}`
+                          : "Pedido pendiente de folio local"}
+                      </h3>
+                      <p className="mt-1 text-sm font-black text-orange-400">
+                        Plataforma: {platformLabel(order.platform)} · #{String(order.orderId || "SIN-ID")}
+                      </p>
+                      <p className="mt-1 text-sm text-zinc-400">
+                        {order.customer?.name || "Cliente sin nombre"}
+                      </p>
+                    </div>
+
+                    <span
+                      className={`rounded-full border px-4 py-2 text-xs font-black uppercase ${
+                        saleCreated
+                          ? "border-violet-500/50 bg-violet-500/15 text-violet-300"
+                          : interpreted
+                            ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-300"
+                            : "border-orange-500/50 bg-orange-500/15 text-orange-300"
+                      }`}
+                    >
+                      {saleCreated
+                        ? `Venta #${order.createdOrderId}`
+                        : order.status || (interpreted ? "Interpretado" : "Recibido")}
+                    </span>
+                  </div>
+
+                  <section className="mt-6">
+                    <h4 className="font-black text-orange-500">
+                      Productos interpretados
+                    </h4>
+
+                    <div className="mt-3 space-y-3">
+                      {resolved.length === 0 ? (
+                        <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-sm text-zinc-500">
+                          No se encontraron líneas con formato cantidad + x.
+                        </div>
+                      ) : (
+                        resolved.map((item) => (
+                          <div
+                            key={item.id}
+                            className="rounded-2xl border border-zinc-800 bg-black p-4"
+                          >
+                            <div className="flex items-start gap-3">
+                              <span className="rounded-xl bg-orange-500 px-3 py-2 font-black text-black">
+                                {item.qty}x
+                              </span>
+                              <div className="min-w-0 flex-1">
+                                <p className="break-words font-black text-white">
+                                  {item.externalName}
+                                </p>
+
+                                {item.alias ? (
+                                  <div className="mt-2 rounded-xl border border-emerald-900 bg-emerald-950/35 p-3">
+                                    <p className="text-xs font-black uppercase text-emerald-400">
+                                      Equivalencia aplicada · {ACTION_LABELS[item.alias.actionType]}
+                                    </p>
+                                    {item.alias.actionType === "ignore" ? (
+                                      <p className="mt-1 text-sm text-zinc-400">
+                                        Sin acción
+                                      </p>
+                                    ) : (
+                                      item.alias.targets.map((target) => (
+                                        <p
+                                          key={`${item.alias?.id}-${target.id}`}
+                                          className="mt-1 text-sm text-zinc-300"
+                                        >
+                                          → {target.name}
+                                          {target.quantity !== undefined
+                                            ? ` · ${target.quantity}${
+                                                target.unit ? ` ${target.unit}` : ""
+                                              }`
+                                            : ""}
+                                        </p>
+                                      ))
+                                    )}
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      configureItem(item.externalName, platformKey)
+                                    }
+                                    className="mt-2 rounded-xl border border-red-500/50 bg-red-500/10 px-3 py-2 text-left text-sm font-black text-red-300 transition hover:bg-red-500 hover:text-white"
+                                  >
+                                    Sin equivalencia · Configurar ahora
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </section>
+
+                  {order.interpretation && (
+                    <section className="mt-5 rounded-2xl border border-sky-900 bg-sky-950/25 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h4 className="font-black text-sky-300">
+                          Motor de Interpretación 2.2
+                        </h4>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black uppercase ${
+                            order.interpretation.resolved
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : "bg-orange-500/15 text-orange-300"
+                          }`}
+                        >
+                          {order.interpretation.resolved
+                            ? "Resuelto"
+                            : "Con pendientes"}
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-2 gap-2 text-xs text-zinc-300 sm:grid-cols-5">
+                        <span>Productos: {order.interpretation.products.length}</span>
+                        <span>Ingredientes: {order.interpretation.ingredients.length}</span>
+                        <span>Grupos: {order.interpretation.bundles.length}</span>
+                        <span>Ignorados: {order.interpretation.ignored.length}</span>
+                        <span>Pendientes: {order.interpretation.pendingCount}</span>
+                      </div>
+                    </section>
+                  )}
+
+                  {order.validation && (
+                    <section
+                      className={`mt-5 rounded-2xl border p-4 ${
+                        order.validation.readyForSale
+                          ? "border-emerald-900 bg-emerald-950/35"
+                          : "border-red-900 bg-red-950/25"
+                      }`}
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h4
+                          className={`font-black ${
+                            order.validation.readyForSale
+                              ? "text-emerald-300"
+                              : "text-red-300"
+                          }`}
+                        >
+                          Validación final 2.4
+                        </h4>
+                        <span
+                          className={`rounded-full px-3 py-1 text-xs font-black uppercase ${
+                            order.validation.readyForSale
+                              ? "bg-emerald-500/15 text-emerald-300"
+                              : "bg-red-500/15 text-red-300"
+                          }`}
+                        >
+                          {order.validation.readyForSale
+                            ? "Validado"
+                            : `${order.validation.issueCount} problema(s)`}
+                        </span>
+                      </div>
+
+                      {validationIssues.length > 0 && (
+                        <ul className="mt-3 space-y-2 text-sm text-red-200">
+                          {validationIssues.map((issue, index) => (
+                            <li key={`${issue.code}-${index}`}>
+                              • {issue.message}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </section>
+                  )}
+
+                  {order.saleReadyPayload && (
+                    <section className="mt-5 rounded-2xl border border-violet-900 bg-violet-950/25 p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <h4 className="font-black text-violet-300">
+                          Objeto listo para venta 2.5
+                        </h4>
+                        <span className="rounded-full bg-violet-500/15 px-3 py-1 text-xs font-black uppercase text-violet-300">
+                          Preparado
+                        </span>
+                      </div>
+                      <div className="mt-3 grid grid-cols-1 gap-2 text-xs text-zinc-300 sm:grid-cols-3">
+                        <span>Productos: {order.saleReadyPayload.products.length}</span>
+                        <span>Movimientos: {order.saleReadyPayload.inventoryAdjustments.length}</span>
+                        <span>Ignorados: {order.saleReadyPayload.ignoredLines.length}</span>
+                      </div>
+                      <p className="mt-3 break-all text-xs text-zinc-500">
+                        Clave externa: {order.saleReadyPayload.externalOrderKey}
+                      </p>
+                    </section>
+                  )}
+
+                  <section className="mt-5 rounded-2xl border border-zinc-800 bg-black p-4">
+                    <h4 className="font-black text-zinc-200">Ticket original</h4>
+                    <pre className="mt-3 max-h-[360px] overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-zinc-400">
+                      {order.rawText || "Sin texto original"}
+                    </pre>
+                  </section>
+
+                  <div
+                    className={`mt-5 rounded-2xl border p-4 text-sm font-bold ${
+                      interpreted
+                        ? "border-emerald-900 bg-emerald-950/35 text-emerald-300"
+                        : "border-orange-900 bg-orange-950/30 text-orange-300"
+                    }`}
+                  >
+                    {saleCreated
+                      ? `Venta automática #${order.createdOrderId} creada correctamente. El inventario todavía no se descuenta hasta el Bloque 4.`
+                      : readyForSale
+                        ? "Pedido validado y preparado. El Bloque 3 creará la venta automáticamente cuando la caja esté abierta."
+                      : interpreted
+                        ? "El pedido está interpretado, pero todavía no supera la validación final 2.4."
+                        : interpretationErrors > 0
+                          ? `La interpretación tiene ${interpretationErrors} error(es) de catálogo o configuración. El pedido permanece en Recibido.`
+                          : `Faltan ${interpretationPending} equivalencia(s). El pedido permanecerá en Recibido.`}
+                  </div>
+                </article>
+              );
+            })
+          )}
+
+          {showFinalized && (
+            <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+              <h2 className="text-xl font-black text-emerald-400">Pedidos finalizados</h2>
+              <p className="mt-1 text-sm text-zinc-400">
+                Ya generaron venta y no forman parte de la cola activa.
+              </p>
+              <div className="mt-4 space-y-3">
+                {finalizedOrders.length === 0 ? (
+                  <p className="text-sm text-zinc-500">Todavía no hay pedidos finalizados.</p>
+                ) : (
+                  finalizedOrders.map((order) => (
+                    <div
+                      key={`final-${normalize(order.platform)}-${order.orderId}-${order.id}`}
+                      className="rounded-2xl border border-emerald-900/70 bg-emerald-950/20 p-4"
+                    >
+                      <p className="font-black text-white">
+                        Pedido #{String(order.createdOrderId || 0).padStart(6, "0")}
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-orange-300">
+                        Plataforma: {platformLabel(order.platform)} · #{String(order.orderId || "SIN-ID")}
+                      </p>
+                      <p className="mt-1 text-xs text-zinc-500">
+                        {order.customer?.name || "Cliente de plataforma"} · Venta creada
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </section>
+          )}
+        </main>
       </div>
     </AppShell>
-  );
-}
-
-function statusDone(current: BridgeStatus, target: BridgeStatus) {
-  return STATUS_FLOW.indexOf(current) >= STATUS_FLOW.indexOf(target);
-}
-
-function FlowItem({ icon, text }: { icon: string; text: string }) {
-  return (
-    <div className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-black p-3">
-      <span className="text-2xl">{icon}</span>
-      <span>{text}</span>
-    </div>
-  );
-}
-
-function Metric({ title, value }: { title: string; value: string }) {
-  return (
-    <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
-      <p className="text-sm text-zinc-400">{title}</p>
-      <p className="mt-2 text-2xl font-black text-orange-500">{value}</p>
-    </div>
-  );
-}
-
-function MiniStep({ done, text }: { done: boolean; text: string }) {
-  return (
-    <div
-      className={`rounded-2xl border p-3 text-center text-xs font-black ${
-        done
-          ? "border-green-500/40 bg-green-500/10 text-green-400"
-          : "border-zinc-800 bg-zinc-950 text-zinc-500"
-      }`}
-    >
-      {done ? "✓ " : ""}
-      {text}
-    </div>
   );
 }

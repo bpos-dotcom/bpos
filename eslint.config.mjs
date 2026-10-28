@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Copias de seguridad manuales y el agente de escritorio (proyecto aparte)
+    "_respaldo*/**",
+    "bpos-agent/**",
   ]),
 ]);
 

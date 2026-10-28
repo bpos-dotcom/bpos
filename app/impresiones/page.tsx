@@ -2,12 +2,23 @@
 
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { getCurrentUser } from "@/lib/auth";
+import { requirePermissionOrAdmin } from "@/lib/permissions";
+import { addAuditEvent } from "@/lib/audit";
 import {
   getPrintJobs,
   PrintJob,
   reprintJob,
   sendPendingPrintJobsToLocalService,
 } from "@/lib/bridge/printManager";
+
+function platformLabel(value?: string) {
+  const normalized = String(value || "").toLowerCase();
+  if (normalized.includes("didi")) return "DiDi Food";
+  if (normalized.includes("uber")) return "Uber Eats";
+  if (normalized.includes("rappi")) return "Rappi";
+  return "Plataforma";
+}
 
 export default function ImpresionesPage() {
   const [jobs, setJobs] = useState<PrintJob[]>([]);
@@ -25,7 +36,10 @@ export default function ImpresionesPage() {
   }
 
   function reprint(jobId: number) {
+    const user = getCurrentUser();
+    if (!requirePermissionOrAdmin(user, "printing.reprint", "reimprimir una comanda")) return;
     reprintJob(jobId);
+    addAuditEvent({category:"Impresiones",action:"print.reprinted",description:`${user.name} reimprimió la comanda ${jobId}`,userId:String(user.id),userName:user.name,entityId:String(jobId)});
     loadJobs();
     alert("Comanda enviada a reimpresión.");
   }
@@ -85,8 +99,13 @@ export default function ImpresionesPage() {
                     </p>
 
                     <h3 className="text-2xl font-black">
-                      Pedido #{job.orderId.toString().padStart(6, "0")}
+                      Pedido #{Number(job.localOrderNumber || job.orderId).toString().padStart(6, "0")}
                     </h3>
+                    {job.externalOrderNumber && (
+                      <p className="mt-1 text-sm font-bold text-orange-300">
+                        Plataforma: {platformLabel(job.externalPlatform)} · #{job.externalOrderNumber}
+                      </p>
+                    )}
 
                     <p className="mt-1 text-sm text-zinc-400">
                       {job.printerName} ·{" "}
