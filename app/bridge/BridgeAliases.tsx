@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import type { Product } from "@/data/products";
 import type { Ingredient } from "@/data/inventory";
 import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
+import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 
 type AliasActionType = "product" | "ingredient" | "bundle" | "ignore";
 
@@ -102,7 +103,7 @@ export default function BridgeAliases({
     setError("");
 
     try {
-      const response = await fetch("/api/bridge/aliases", {
+      const response = await bridgeFetch("/api/bridge/aliases", {
         method: "GET",
         cache: "no-store",
       });
@@ -298,7 +299,7 @@ export default function BridgeAliases({
     setSaving(true);
 
     try {
-      const response = await fetch("/api/bridge/aliases", {
+      const response = await bridgeFetch("/api/bridge/aliases", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -345,7 +346,7 @@ export default function BridgeAliases({
     setError("");
 
     try {
-      const response = await fetch("/api/bridge/aliases", {
+      const response = await bridgeFetch("/api/bridge/aliases", {
         method: "DELETE",
         headers: {
           "Content-Type": "application/json",

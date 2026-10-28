@@ -8,6 +8,7 @@ import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
 import { createAutomaticSale } from "@/lib/bridge/create-automatic-sale";
 import BridgeAliases from "./BridgeAliases";
+import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 
 type AliasActionType = "product" | "ingredient" | "bundle" | "ignore";
 
@@ -156,11 +157,11 @@ export default function BridgePage() {
 
   const loadData = useCallback(async () => {
     try {
-      await fetch("/api/bridge/pending", { cache: "no-store" });
+      await bridgeFetch("/api/bridge/pending", { cache: "no-store" });
 
       const [ordersResponse, aliasesResponse] = await Promise.all([
-        fetch("/api/bridge/orders", { cache: "no-store" }),
-        fetch("/api/bridge/aliases", { cache: "no-store" }),
+        bridgeFetch("/api/bridge/orders", { cache: "no-store" }),
+        bridgeFetch("/api/bridge/aliases", { cache: "no-store" }),
       ]);
 
       const ordersPayload = (await ordersResponse.json()) as {
@@ -270,7 +271,7 @@ export default function BridgePage() {
         if (cancelled || !order.platform || !order.orderId) break;
 
         try {
-          const response = await fetch("/api/bridge/interpret", {
+          const response = await bridgeFetch("/api/bridge/interpret", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -305,7 +306,7 @@ export default function BridgePage() {
 
           if (currentCore === nextCore) continue;
 
-          const patchResponse = await fetch("/api/bridge/orders", {
+          const patchResponse = await bridgeFetch("/api/bridge/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -380,7 +381,7 @@ export default function BridgePage() {
         }
 
         try {
-          const response = await fetch("/api/bridge/validate", {
+          const response = await bridgeFetch("/api/bridge/validate", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -424,7 +425,7 @@ export default function BridgePage() {
 
           if (currentCore === nextCore) continue;
 
-          const patchResponse = await fetch("/api/bridge/orders", {
+          const patchResponse = await bridgeFetch("/api/bridge/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -515,7 +516,7 @@ export default function BridgePage() {
             continue;
           }
 
-          const patchResponse = await fetch("/api/bridge/orders", {
+          const patchResponse = await bridgeFetch("/api/bridge/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({

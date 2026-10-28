@@ -238,13 +238,24 @@ const printer = new ThermalPrinter({
   await printer.execute();
 }
 
+// Llave que crea B-POS en ~/.bpos/agent-key para aceptar pedidos de este Agent
+function readAgentKey() {
+  try {
+    return fs.readFileSync(path.join(require("os").homedir(), ".bpos", "agent-key"), "utf8").trim();
+  } catch {
+    return "";
+  }
+}
+
 async function sendOrderToBpos(job) {
+  const agentKey = readAgentKey();
   const response = await fetch(
     "http://localhost:3000/api/bridge/orders",
     {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(agentKey ? { "x-bpos-agent-key": agentKey } : {}),
       },
       body: JSON.stringify(job),
     }

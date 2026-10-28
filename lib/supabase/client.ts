@@ -2,10 +2,10 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { DEFAULT_SUPABASE_PUBLISHABLE_KEY, DEFAULT_SUPABASE_URL } from "@/lib/supabase/config";
 
 // Next.js incrusta estas variables al compilar; deben leerse literalmente.
-const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL)
+export const SUPABASE_URL = (process.env.NEXT_PUBLIC_SUPABASE_URL || DEFAULT_SUPABASE_URL)
   .replace(/\/rest\/v1\/?$/, "")
   .replace(/\/$/, "");
-const SUPABASE_KEY =
+export const SUPABASE_KEY =
   process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ||
   DEFAULT_SUPABASE_PUBLISHABLE_KEY;
