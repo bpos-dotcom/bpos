@@ -2,7 +2,9 @@ $printerName = "B-POS Agent Virtual Printer"
 $portName = "9100"
 $hostAddress = "127.0.0.1"
 $portNumber = 9100
-$driverName = "Generic / Text Only"
+# PDF: los tickets de Rappi/Uber/DiDi son páginas con gráficos; "Generic / Text Only"
+# los entregaba vacíos. Con PDF el Agent lee el texto (u OCR si es imagen).
+$driverName = "Microsoft Print To PDF"
 
 Write-Output "Instalando B-POS Agent Virtual Printer..."
 
@@ -35,6 +37,12 @@ if (-not $existingPrinter) {
   Write-Output "Impresora creada: $printerName"
 } else {
   Write-Output "Impresora ya existe: $printerName"
+
+  # Windows 11 a veces lo muestra como "Microsoft Virtual Print Class Driver" (también entrega PDF)
+  if ($existingPrinter.DriverName -notin @($driverName, "Microsoft Virtual Print Class Driver")) {
+    Set-Printer -Name $printerName -DriverName $driverName
+    Write-Output "Controlador actualizado a: $driverName"
+  }
 
   if ($existingPrinter.PortName -ne $portName) {
     Set-Printer -Name $printerName -PortName $portName

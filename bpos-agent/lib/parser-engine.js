@@ -28,7 +28,7 @@ function parseTicket(text) {
       break;
   }
 
-  parsed.platform = platform;
+  parsed.platform = platform === "unknown" ? "otro" : platform;
 
   return parsed;
 }
