@@ -33,7 +33,7 @@ export function getRoleDefaults(role:UserRole){return [...ROLE_DEFAULTS[role]];}
 export function getUserPermissions(userId:number,role:UserRole):PermissionKey[]{if(typeof window==="undefined")return ROLE_DEFAULTS[role];try{const saved=JSON.parse(localStorage.getItem(KEY)||"{}");return Array.isArray(saved[userId])?saved[userId]:ROLE_DEFAULTS[role];}catch{return ROLE_DEFAULTS[role];}}
 export function saveUserPermissions(userId:number,items:PermissionKey[]){const saved=JSON.parse(localStorage.getItem(KEY)||"{}");saved[userId]=Array.from(new Set(items));localStorage.setItem(KEY,JSON.stringify(saved));window.dispatchEvent(new Event("bpos:permissions-updated"));}
 export function resetUserPermissions(userId:number){const saved=JSON.parse(localStorage.getItem(KEY)||"{}");delete saved[userId];localStorage.setItem(KEY,JSON.stringify(saved));window.dispatchEvent(new Event("bpos:permissions-updated"));}
-export function hasPermission(user:Pick<CurrentUser,"id"|"role">|null|undefined,key:PermissionKey){return !!user&&getUserPermissions(user.id,user.role).includes(key);}
+export function hasPermission(user:Pick<CurrentUser,"id"|"role">|null|undefined,key:PermissionKey){return !!user&&user.id>0&&getUserPermissions(user.id,user.role).includes(key);}
 export function authorizeWithAdminPin(action:string, requestedBy?:CurrentUser|null):boolean{
  const pin=window.prompt(`Se requiere autorización de administrador para: ${action}\n\nIngresa PIN de administrador:`);
  if(!pin)return false;
