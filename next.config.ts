@@ -8,6 +8,13 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: __dirname,
   },
+  // Bloque 13: `next build` deja en .next/standalone un servidor que no
+  // necesita node_modules; la app de escritorio (bpos-agent) lo incluye.
+  output: "standalone",
+  outputFileTracingRoot: __dirname,
+  outputFileTracingExcludes: {
+    "/*": ["./bpos-agent/**/*", "./_respaldo*/**/*"],
+  },
 };
 
 export default nextConfig;

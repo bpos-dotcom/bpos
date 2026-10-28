@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardBridgeRequest } from "@/lib/bridge/api-guard";
+import { BRIDGE_DATA_DIR } from "@/lib/bridge/data-dir";
 import fs from "fs";
 import path from "path";
 
@@ -33,7 +34,7 @@ type AliasFile = {
   aliases: BridgeAlias[];
 };
 
-const DATA_DIR = path.join(process.cwd(), "data");
+const DATA_DIR = BRIDGE_DATA_DIR;
 const DATA_FILE = path.join(DATA_DIR, "bridge-aliases.json");
 
 function ensureStorage() {

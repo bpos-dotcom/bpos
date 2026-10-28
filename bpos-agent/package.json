@@ -1,18 +1,20 @@
 {
   "name": "bpos-agent",
-  "version": "1.0.0",
-  "description": "B-POS Agent - Servicio local para impresión y periféricos",
+  "version": "1.1.0",
+  "description": "B-POS para Windows: sistema, Agent de impresión y actualizador automático",
   "main": "main.js",
   "author": "Burger Planet OS",
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
-    "build": "electron-builder --win"
+    "build": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always"
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.2",
     "adm-zip": "^0.5.18",
     "cors": "^2.8.5",
+    "electron-updater": "^6.6.2",
     "express": "^4.18.3",
     "node-thermal-printer": "^4.6.0",
     "pdf2json": "^4.0.3",
@@ -20,39 +22,65 @@
     "tesseract.js": "^7.0.0"
   },
   "devDependencies": {
-    "electron": "^31.0.0",
+    "electron": "^38.8.6",
     "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.burgerplanet.bposagent",
-    "productName": "B-POS Agent",
+    "productName": "B-POS",
+    "executableName": "B-POS",
+    "copyright": "Burger Planet OS",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "asar": true,
+    "files": [
+      "main.js",
+      "preload.js",
+      "index.html",
+      "package.json",
+      "lib/**/*",
+      "build/icon.png"
+    ],
     "extraResources": [
       {
         "from": "virtual-printer",
         "to": "virtual-printer"
       }
     ],
-    "files": [
-      "main.js",
-      "preload.js",
-      "index.html",
-      "package.json"
-    ],
     "win": {
-      "target": "nsis",
-      "artifactName": "BPOS-Agent-Setup.exe"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "BPOS-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
+      "perMachine": true,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "B-POS Agent",
+      "shortcutName": "B-POS",
+      "uninstallDisplayName": "B-POS",
+      "runAfterFinish": true,
       "include": "installer/installer.nsh"
-    }
-  }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "bpos-dotcom",
+        "repo": "bpos",
+        "releaseType": "release"
+      }
+    ],
+    "afterPack": "./build/after-pack.js"
+  },
+  "productName": "B-POS"
 }

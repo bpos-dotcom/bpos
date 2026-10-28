@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu } = require("electron");
+const { app } = require("electron");
 const path = require("path");
 const fs = require("fs");
 const express = require("express");
@@ -14,6 +14,15 @@ const {
   extractPdfTextWithOcr,
   terminateOcrWorker,
 } = require("./lib/pdf-ocr-reader");
+const { initLogger } = require("./lib/logger");
+const { startDesktop } = require("./lib/desktop");
+
+// Bloque 13: una sola copia de B-POS a la vez (los puertos 3000/4850/9100 son únicos)
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+  process.exit(0);
+}
+initLogger(app.getPath("userData"));
 
 
 const server = express();
@@ -21,14 +30,12 @@ const server = express();
 server.use(cors());
 server.use(express.json());
 
-let tray = null;
-let mainWindow = null;
 
 server.get("/", (req, res) => {
   res.json({
     service: "B-POS Agent",
     status: "running",
-    version: "1.0.0",
+    version: app.getVersion(),
   });
 });
 
@@ -200,6 +207,8 @@ const hexPreview = buffer.toString("hex").slice(0, 500);
     console.log("==============");
   });
 });
+
+virtualPrinterServer.on("error", (error) => console.error("Impresora virtual (puerto 9100):", error.message));
 
 virtualPrinterServer.listen(9100, "127.0.0.1", () => {
   console.log("B-POS Agent Virtual Printer escuchando en 127.0.0.1:9100");
@@ -375,65 +384,20 @@ server.post("/read-pdf-ocr", async (req, res) => {
   }
 });
 
-server.listen(4850, () => {
-  console.log("B-POS Agent escuchando en puerto 4850");
-});
+server
+  // Solo esta computadora: el navegador de la caja llama a localhost:4850
+  .listen(4850, "127.0.0.1", () => {
+    console.log("B-POS Agent escuchando en puerto 4850");
+  })
+  .on("error", (error) => console.error("Agent (puerto 4850):", error.message));
 
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 700,
-    height: 520,
-    title: "B-POS Agent",
-    autoHideMenuBar: true,
-    webPreferences: {
-      preload: path.join(__dirname, "preload.js"),
-    },
-  });
-
-  mainWindow.loadFile("index.html");
-}
-
-app.on("before-quit", async () => {
-  try {
-    await terminateOcrWorker();
-  } catch (error) {
-    console.error("No se pudo cerrar el worker OCR:", error.message);
-  }
-});
-
-app.whenReady().then(() => {
-  createWindow();
-
-  try {
-    tray = new Tray(path.join(__dirname, "icon.png"));
-
-    const menu = Menu.buildFromTemplate([
-      {
-        label: "Abrir B-POS Agent",
-        click() {
-          mainWindow.show();
-        },
-      },
-      {
-        type: "separator",
-      },
-      {
-        label: "Salir",
-        click() {
-          app.quit();
-        },
-      },
-    ]);
-
-    tray.setToolTip("B-POS Agent");
-    tray.setContextMenu(menu);
-  } catch (error) {
-    console.log("Icono de bandeja no disponible todavía.");
-  }
-});
-
-app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+// Ventana, bandeja, servidor de B-POS, actualizador y reparación: lib/desktop.js
+startDesktop({
+  onQuit: async () => {
+    try {
+      await terminateOcrWorker();
+    } catch (error) {
+      console.error("No se pudo cerrar el worker OCR:", error.message);
+    }
+  },
 });
