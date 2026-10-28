@@ -1,1 +1,0 @@
-resourcesPath: C:\Users\Admin\Desktop\proyectos\bpos\bpos-agent\dist\win-unpacked\resources
