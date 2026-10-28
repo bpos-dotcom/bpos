@@ -30,8 +30,13 @@ async function reinstallVirtualPrinter(resourcesDir) {
     : { ok: false, text: "No se pudo instalar la impresora virtual (¿se canceló el permiso de administrador?)." };
 }
 
-async function printerExists() {
-  const r = await run("powershell.exe", ["-NoProfile", "-Command", "if (Get-Printer -Name 'B-POS Agent Virtual Printer' -ErrorAction SilentlyContinue) { 'si' } else { 'no' }"]);
+/** La impresora existe y usa el controlador PDF (con "Generic / Text Only" los tickets llegan vacíos). */
+async function printerOk() {
+  const r = await run("powershell.exe", [
+    "-NoProfile",
+    "-Command",
+    "$p = Get-Printer -Name 'B-POS Agent Virtual Printer' -ErrorAction SilentlyContinue; if ($p -and $p.DriverName -in @('Microsoft Print To PDF','Microsoft Virtual Print Class Driver') -and $p.PortName -eq '9100') { 'si' } else { 'no' }",
+  ]);
   return r.out.includes("si");
 }
 
@@ -48,7 +53,7 @@ async function repairInstallation(ctx) {
   const serverOk = fs.existsSync(path.join(ctx.webDir, "server.js")) && fs.existsSync(path.join(ctx.webDir, ".next"));
   add(serverOk, serverOk ? "Archivos del sistema completos." : "Faltan archivos del sistema: descarga e instala de nuevo B-POS (no se borran tus datos).");
 
-  if (await printerExists()) add(true, "Impresora virtual instalada.");
+  if (await printerOk()) add(true, "Impresora virtual instalada (controlador PDF).");
   else {
     const r = await reinstallVirtualPrinter(ctx.resourcesDir);
     add(r.ok, r.text);

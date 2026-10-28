@@ -30,7 +30,10 @@ function parseItemsFromSection(itemSection) {
 function parseDidi(text) {
   const clean = text.replace(/\s+/g, " ").trim();
 
-  const itemSectionMatch = clean.match(/Notas del pedido\s+(.+?)\s+Subtotal/i);
+  // Los productos terminan donde empiezan los cargos (con OCR no siempre viene "Subtotal")
+  const itemSectionMatch = clean.match(
+    /Notas del pedido\s+(.+?)\s+(?:Subtotal|Dto\. de producto|Tarifa de entrega|Tarifa de servicio|Total a pagar)/i
+  );
   const itemSection = itemSectionMatch ? itemSectionMatch[1] : clean;
 
   return {
@@ -49,9 +52,15 @@ function parseDidi(text) {
     items: parseItemsFromSection(itemSection),
     notes:
       clean.match(/Notas del pedido\s+(.+?)\s+\d+x/i)?.[1]?.trim() || null,
-    total: Number(clean.match(/Total a pagar\s+MX\$?\s*([\d.]+)/i)?.[1] || 0),
+    // Con OCR los importes quedan al final, lejos de "Total a pagar": el último MX$ es el total
+    total: Number(
+      clean.match(/Total a pagar\s+MX\$?\s*([\d.]+)/i)?.[1] ||
+        [...clean.matchAll(/MX\$\s*([\d.,]+)/gi)].pop()?.[1]?.replace(/,/g, "") ||
+        0
+    ),
     createdAt: new Date().toISOString(),
-    rawText: clean,
+    // Con saltos de línea: B-POS busca los renglones "1x Producto"
+    rawText: String(text || ""),
   };
 }
 
