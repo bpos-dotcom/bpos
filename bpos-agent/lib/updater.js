@@ -36,9 +36,21 @@ function initUpdater({ isPackaged }) {
   autoUpdater.on("update-downloaded", (info) =>
     setStatus({ state: "ready", message: `Versión ${info.version} lista. Se instala al cerrar B-POS.`, available: info.version, progress: 100 })
   );
-  autoUpdater.on("error", (error) =>
-    setStatus({ state: "error", message: `No se pudo buscar actualizaciones: ${error?.message || error}`, checkedAt: new Date().toISOString() })
-  );
+  autoUpdater.on("error", (error) => {
+    const text = String(error?.message || error);
+    // Sin releases publicados GitHub contesta 404: no es una falla
+    const noReleases = /404|Unable to find latest version|No published versions/i.test(text);
+    const offline = /ENOTFOUND|ETIMEDOUT|ECONNRESET|EAI_AGAIN|net::ERR/i.test(text);
+    setStatus({
+      state: noReleases ? "current" : "error",
+      message: noReleases
+        ? "Aún no hay versiones publicadas"
+        : offline
+          ? "Sin internet: se vuelve a revisar más tarde"
+          : `No se pudo buscar actualizaciones: ${text.split("\n")[0].slice(0, 160)}`,
+      checkedAt: new Date().toISOString(),
+    });
+  });
 
   if (!isPackaged) {
     setStatus({ state: "dev", message: "Modo desarrollo: el actualizador solo funciona en la app instalada." });

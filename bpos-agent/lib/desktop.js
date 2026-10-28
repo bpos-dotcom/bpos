@@ -44,7 +44,8 @@ function state() {
     appVersion: app.getVersion(),
     server: web.getStatus(),
     update: updater.getUpdateStatus(),
-    autoStart: app.isPackaged ? app.getLoginItemSettings().openAtLogin : false,
+    // Con los mismos args que setAutoStart, si no Windows no lo reconoce como el mismo registro
+    autoStart: app.isPackaged ? app.getLoginItemSettings({ args: ["--hidden"] }).openAtLogin : false,
     packaged: app.isPackaged,
     logFile: getLogFile(),
     agent: { port: 4850, printerPort: 9100 },
