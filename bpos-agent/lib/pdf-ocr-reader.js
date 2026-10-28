@@ -6,9 +6,25 @@ const { createWorker } = require("tesseract.js");
 
 let workerPromise = null;
 
+/**
+ * Idiomas de Tesseract incluidos en el instalador (resources/tessdata), para
+ * que el OCR funcione sin internet. Sin esto tesseract.js los bajaba de un
+ * CDN la primera vez y, instalado en Archivos de programa, no podía
+ * guardarlos: los volvía a bajar en cada arranque.
+ */
+function tessdataDir() {
+  const packaged = process.resourcesPath && path.join(process.resourcesPath, "tessdata");
+  if (packaged && fs.existsSync(path.join(packaged, "spa.traineddata"))) return packaged;
+  return path.join(__dirname, "..", "tessdata");
+}
+
 async function getOcrWorker() {
   if (!workerPromise) {
     workerPromise = createWorker(["spa", "eng"], 1, {
+      langPath: tessdataDir(),
+      gzip: false,
+      // Se leen directo de la carpeta: no hay que guardar copias en ningún lado
+      cacheMethod: "none",
       logger: (message) => {
         if (message.status === "recognizing text") {
           const progress = Math.round((message.progress || 0) * 100);
