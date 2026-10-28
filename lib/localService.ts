@@ -33,3 +33,47 @@ export async function sendJobToLocalService(job: PrintJob) {
 
   return response.json();
 }
+export type StationPrintersConfig = {
+  printers: Partial<Record<"Parrilla" | "Freidora" | "Barra" | "Cocina", string>>;
+  paperWidthMm?: 58 | 80;
+};
+
+/** Le pasa al Agent qué impresora tiene cada estación (lo usa para el ticket original y el respaldo). */
+export async function syncStationPrinters(config: StationPrintersConfig) {
+  const response = await fetch(`${LOCAL_SERVICE_URL}/station-printers`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(config),
+  });
+  if (!response.ok) throw new Error("El Agent no guardó las impresoras.");
+  return response.json();
+}
+
+/** Imprime el ticket original de la plataforma en las impresoras de esas estaciones. */
+export async function printOriginalTicket(input: { platform: string; orderId: string; stations: string[] }) {
+  const response = await fetch(`${LOCAL_SERVICE_URL}/print-original`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    alreadyPrinted?: boolean;
+    printers?: string[];
+    stations?: string[];
+    results?: { printer: string; ok: boolean; error?: string }[];
+    missing?: string[];
+  };
+  if (!response.ok || !payload.success) throw new Error(payload.error || "El Agent no pudo imprimir el ticket.");
+  return payload;
+}
+
+/** Lo que guarda Configuración → Impresoras (bpos_station_printers) en el formato del Agent. */
+export function toStationPrintersConfig(saved: Record<string, unknown>): StationPrintersConfig {
+  const pick = (station: string) => (typeof saved?.[station] === "string" ? (saved[station] as string) : "");
+  return {
+    printers: { Parrilla: pick("Parrilla"), Freidora: pick("Freidora"), Barra: pick("Barra"), Cocina: pick("Cocina") },
+    paperWidthMm: Number(saved?.paperWidthMm) === 58 ? 58 : 80,
+  };
+}
