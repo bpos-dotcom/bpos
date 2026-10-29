@@ -8,6 +8,8 @@ export type SavedOrder = {
   details: OrderDetails;
   subtotal: number;
   total: number;
+  cancelled?: boolean;
+  cancelReason?: string;
 };
 
 type OrderHistoryPanelProps = {
@@ -97,13 +99,19 @@ export function OrderHistoryPanel({
                       WhatsApp
                     </button>
 
-                    {userRole === "Admin" && (
-                      <button
-                        onClick={() => onDelete(order.id)}
-                        className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-black text-red-400"
-                      >
-                        Borrar
-                      </button>
+                    {order.cancelled ? (
+                      <span className="rounded-xl border border-red-500/40 px-4 py-2 text-sm font-black text-red-400">
+                        Cancelada{order.cancelReason ? `: ${order.cancelReason}` : ""}
+                      </span>
+                    ) : (
+                      userRole === "Admin" && (
+                        <button
+                          onClick={() => onDelete(order.id)}
+                          className="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm font-black text-red-400"
+                        >
+                          Cancelar venta
+                        </button>
+                      )
                     )}
                   </div>
                 </div>

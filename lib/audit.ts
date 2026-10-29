@@ -1,3 +1,4 @@
+import { queueCloudAudit } from "@/lib/cloud/audit-outbox";
 export type AuditEvent = {
   id: string;
   category: string;
@@ -43,6 +44,8 @@ export function addAuditEvent(
     const next = [saved, ...readAudit()].slice(0, MAX_EVENTS);
     localStorage.setItem(AUDIT_KEY, JSON.stringify(next));
     window.dispatchEvent(new Event("bpos:audit-updated"));
+    // Copia en la nube que nadie puede editar ni borrar
+    queueCloudAudit(saved);
   }
 
   return saved;

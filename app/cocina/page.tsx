@@ -12,6 +12,7 @@ import {
   saveKdsStationConfig,
 } from "@/lib/kds-config";
 import type { KdsTicketLine } from "@/lib/bridge/ticket-structure";
+import { isCancelled } from "@/lib/sale-cancel";
 
 type KdsItem = SavedOrder["items"][number] & {
   externalName?: string;
@@ -250,7 +251,7 @@ export default function CocinaPage() {
     () =>
       orders
         .filter((order) => {
-          if (order.kdsCompleted || order.status === "Entregado") return false;
+          if (order.kdsCompleted || order.status === "Entregado" || isCancelled(order)) return false;
           if (order.source === "B-POS Bridge" && order.kdsReleased !== true)
             return false;
           if (stationFilter === "Todas") {

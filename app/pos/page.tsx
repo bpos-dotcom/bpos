@@ -21,6 +21,7 @@ import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { Sidebar } from "@/components/layout/Sidebar";
 import RequirePermission from "@/components/auth/RequirePermission";
+import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import {
   allocateShiftOrderNumber,
   formatOrderNumber,
@@ -288,12 +289,30 @@ function PosScreen() {
     });
   }
 
+  // Las ventas ya no se borran: se cancelan con motivo y quedan guardadas (y en la bitácora)
   async function deleteOrder(id: number) {
-    if (!(await requirePermissionOrAdmin(currentUser, "pos.cancel", "cancelar o borrar una venta"))) return;
+    const order = orders.find((o) => o.id === id);
+    if (!order || isCancelled(order)) return;
+    if (!(await requirePermissionOrAdmin(currentUser, "pos.cancel", "cancelar una venta"))) return;
 
-    if (!confirm("¿Seguro que quieres borrar este pedido?")) return;
+    const reason = prompt(`Motivo para cancelar el pedido #${formatOrderNumber(order)}:`);
+    if (reason === null) return;
+    if (!reason.trim()) {
+      alert("El motivo es obligatorio para cancelar una venta.");
+      return;
+    }
 
-    saveOrders(orders.filter((order) => order.id !== id));
+    const by = currentUser?.name || "Usuario";
+    saveOrders(orders.map((o) => (o.id === id ? cancelSale(o, reason, by) : o)));
+    addAuditEvent({
+      category: "Venta",
+      action: "sale.cancelled",
+      description: `${by} canceló el Pedido #${formatOrderNumber(order)} por $${order.total.toFixed(2)}: ${reason.trim()}`,
+      userId: currentUser?.id ? String(currentUser.id) : undefined,
+      userName: by,
+      entityId: String(order.id),
+      metadata: { total: order.total, reason: reason.trim() },
+    });
   }
 
   function logout() {
