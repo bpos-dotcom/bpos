@@ -175,9 +175,9 @@ export default function CajaPage() {
     }
   }
 
-  function openShift() {
+  async function openShift() {
     const user = getCurrentUser();
-    if (!requirePermissionOrAdmin(user, "cash.open", "abrir caja")) return;
+    if (!(await requirePermissionOrAdmin(user, "cash.open", "abrir caja"))) return;
     const amount = Number(openingCash);
 
     if (amount <= 0) {
@@ -210,10 +210,10 @@ export default function CajaPage() {
     setOpeningCash("");
   }
 
-  function addMovement() {
+  async function addMovement() {
     if (!shift) return;
     const permissionUser = getCurrentUser();
-    if (!requirePermissionOrAdmin(permissionUser, "cash.movement", "registrar movimiento de caja")) return;
+    if (!(await requirePermissionOrAdmin(permissionUser, "cash.movement", "registrar movimiento de caja"))) return;
 
     const amount = Number(movementAmount);
 
@@ -276,10 +276,10 @@ export default function CajaPage() {
     doCloseShift();
   }
 
-  function doCloseShift() {
+  async function doCloseShift() {
   if (!shift) return;
   const permissionUser = getCurrentUser();
-  if (!requirePermissionOrAdmin(permissionUser, "cash.close", "cerrar caja")) return;
+  if (!(await requirePermissionOrAdmin(permissionUser, "cash.close", "cerrar caja"))) return;
 
   if (pendingLowStock.length > 0 && !shoppingListWasSentForShift(shift.openedAt)) {
     alert("No podrás cerrar caja hasta enviar la lista de compras por WhatsApp.");
