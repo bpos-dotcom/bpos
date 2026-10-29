@@ -15,7 +15,7 @@
  * (producto, cantidad, estación) y el resto como `modifiers`. Así lo vendido
  * no cambia aunque después se edite el producto.
  */
-import type { KitchenStation, ModifierGroup, ModifierOption, Product } from "@/data/products";
+import type { ExtraStation, KitchenStation, ModifierGroup, ModifierOption, Product } from "@/data/products";
 
 export type SoldModifier = {
   group: string; // "Aderezo"
@@ -28,6 +28,8 @@ export type SoldModifier = {
   /** Opción enlazada a un producto (se guarda en la venta como parte) */
   productId?: number;
   station?: KitchenStation;
+  /** Multidestino: estaciones extra que también ven esta opción (las salsas → Freidora) */
+  alsoAt?: KitchenStation[];
 };
 
 export type SoldPart = {
@@ -107,11 +109,12 @@ export function soldModifiers(groups: ModifierGroup[] | undefined, chosen: Picks
           name: option.name,
           price: 0,
           ...(option.ingredientId && option.quantity ? { ingredientId: option.ingredientId, quantity: option.quantity } : {}),
+          ...(group.stations?.length ? { alsoAt: group.stations } : {}),
         },
       ];
     });
     const extras = extraCount(group, picked.length);
-    const charge = extras && Number(group.extraPrice) > 0 ? [{ group: group.name, name: `${group.name} extra (${extras})`, price: extras * Number(group.extraPrice), extra: extras }] : [];
+    const charge = extras && Number(group.extraPrice) > 0 ? [{ group: group.name, name: `${group.name} extra (${extras})`, price: extras * Number(group.extraPrice), extra: extras, ...(group.stations?.length ? { alsoAt: group.stations } : {}) }] : [];
     return [...picked, ...charge];
   });
 }
@@ -173,7 +176,26 @@ export function buildSelection(product: Product, products: Product[], picks: Rec
     parts: parts.length ? parts : undefined,
     modifiers: modifiers.length ? modifiers : undefined,
     ownTicket: !product.noOwnTicket,
+    extraStations: product.extraStations?.length ? product.extraStations : undefined,
   };
+}
+
+/**
+ * Multidestino sugerido por la receta: los insumos que prepara otra estación
+ * ("Boneless" → Freidora) en un producto de Parrilla. Una sugerencia por estación.
+ */
+export function suggestExtraStations(
+  product: Pick<Product, "name" | "station">,
+  recipe: { ingredientId: number }[],
+  ingredients: { id: number; name: string; station?: KitchenStation }[]
+): ExtraStation[] {
+  const byStation = new Map<KitchenStation, string[]>();
+  for (const line of recipe) {
+    const ingredient = ingredients.find((i) => Number(i.id) === Number(line.ingredientId));
+    if (!ingredient?.station || ingredient.station === product.station) continue;
+    byStation.set(ingredient.station, [...(byStation.get(ingredient.station) || []), ingredient.name]);
+  }
+  return [...byStation.entries()].map(([station, names]) => ({ station, text: `${names.join(", ")} para ${product.name}` }));
 }
 
 /** Lo que se cobra extra por pieza: opciones del producto y de sus partes. */
@@ -242,11 +264,16 @@ export function itemConsumption(
  * estación; el producto mismo también sale en la suya salvo que sea un combo
  * sin comanda propia (`ownTicket` falso).
  */
-export function kitchenItems<T extends { id: number; name: string; quantity: number; station?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean }>(
-  items: T[]
-): (T & { fromCombo?: string; lineKey: string })[] {
+export function kitchenItems<
+  T extends { id: number; name: string; quantity: number; station?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean; extraStations?: ExtraStation[] },
+>(items: T[]): (T & { fromCombo?: string; forProduct?: string; lineKey: string })[] {
   return items.flatMap((item, index) => {
-    if (!item.parts?.length) return [{ ...item, lineKey: String(index) }];
+    // Multidestino: cada estación extra ve su indicación y las opciones que le tocan
+    const extra = (item.extraStations || []).map((es, j) => {
+      const modifiers = (item.modifiers || []).filter((m) => m.alsoAt?.includes(es.station) && !m.extra);
+      return { ...item, name: es.text, station: es.station, modifiers: modifiers.length ? modifiers : undefined, forProduct: item.name, lineKey: `${index}-x${j}` };
+    });
+    if (!item.parts?.length) return [{ ...item, lineKey: String(index) }, ...extra];
     const own = item.ownTicket ? [{ ...item, lineKey: `${index}` }] : [];
     return [
       ...own,
@@ -263,6 +290,7 @@ export function kitchenItems<T extends { id: number; name: string; quantity: num
           lineKey: `${index}-${j}`,
         };
       }),
+      ...extra,
     ];
   });
 }

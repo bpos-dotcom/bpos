@@ -8,7 +8,9 @@
  *    trae en data-quick, ej. los billetes al cobrar);
  *  - teclado con letras (ñ y acentos) para texto.
  * Escribe directo en el campo (como si se tecleara), así todo B-POS lo usa
- * sin cambios. Un campo con data-no-touch-keyboard se salta.
+ * sin cambios. El teclado físico también sigue funcionando en el campo
+ * ("⌨️ Usar teclado" esconde el de pantalla). Un campo con
+ * data-no-touch-keyboard se salta.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DEVICE_SETTINGS_EVENT, touchKeypadEnabled } from "@/lib/device-settings";
@@ -28,7 +30,11 @@ function eligible(el: EventTarget | null): el is Field {
   return el.type === "number" || TEXT_TYPES.has(el.type);
 }
 
-const isNumeric = (el: Field) => el instanceof HTMLInputElement && (el.type === "number" || el.inputMode === "decimal" || el.inputMode === "numeric");
+const isNumeric = (el: Field) => {
+  if (!(el instanceof HTMLInputElement)) return false;
+  const mode = el.dataset.keypadMode ?? el.inputMode; // el original (se cambia a "none" al abrir)
+  return el.type === "number" || mode === "decimal" || mode === "numeric";
+};
 
 /** Escribe en el campo como si se tecleara (React se entera del cambio). */
 function setNativeValue(el: Field, value: string) {
@@ -57,13 +63,16 @@ export function TouchKeyboard() {
     return () => window.removeEventListener(DEVICE_SETTINGS_EVENT, load);
   }, []);
 
-  // Tocar un campo abre el teclado (sin el teclado del sistema)
+  // Tocar un campo abre el teclado en pantalla. El campo sí recibe el foco
+  // (inputmode="none" evita el teclado del sistema), así también se puede
+  // escribir con un teclado físico.
   useEffect(() => {
     if (!enabled) return;
     const onPointerDown = (event: PointerEvent) => {
       const el = event.target;
       if (!eligible(el) || (el as HTMLElement).closest("[data-touch-keyboard]")) return;
-      event.preventDefault();
+      if (el.dataset.keypadMode === undefined) el.dataset.keypadMode = el.inputMode || "";
+      el.inputMode = "none";
       fieldRef.current = el;
       setField(el);
       setDraft(el.value);
@@ -73,6 +82,14 @@ export function TouchKeyboard() {
     document.addEventListener("pointerdown", onPointerDown, true);
     return () => document.removeEventListener("pointerdown", onPointerDown, true);
   }, [enabled]);
+
+  // Lo que se escriba con el teclado físico también se ve en el teclado en pantalla
+  useEffect(() => {
+    if (!field) return;
+    const sync = () => setDraft(field.value);
+    field.addEventListener("input", sync);
+    return () => field.removeEventListener("input", sync);
+  }, [field]);
 
   const apply = useCallback((value: string) => {
     setDraft(value);
@@ -89,6 +106,17 @@ export function TouchKeyboard() {
     fieldRef.current = null;
     setField(null);
   }, [draft]);
+
+  // Esconder el teclado en pantalla y seguir con el teclado físico en el mismo campo
+  const switchToPhysical = useCallback(() => {
+    const el = fieldRef.current;
+    if (el) {
+      el.inputMode = (el.dataset.keypadMode || "") as HTMLInputElement["inputMode"];
+      el.focus();
+    }
+    fieldRef.current = null;
+    setField(null);
+  }, []);
 
   if (!enabled || !field) return null;
   const numeric = isNumeric(field);
@@ -125,6 +153,9 @@ export function TouchKeyboard() {
               {numeric ? `$${draft || "0"}` : password ? "•".repeat(draft.length) || " " : draft || " "}
             </p>
           </div>
+          <button onClick={switchToPhysical} className="rounded-2xl border border-zinc-700 px-4 py-4 text-sm font-black text-zinc-300" title="Esconder y escribir con el teclado físico">
+            ⌨️ Usar teclado
+          </button>
           <button onClick={close} className="rounded-2xl bg-orange-500 px-6 py-4 text-lg font-black text-black">
             Listo
           </button>

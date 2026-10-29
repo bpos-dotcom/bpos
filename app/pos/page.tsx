@@ -171,7 +171,7 @@ function PosScreen() {
   }
 
   // El precio del renglón ya incluye lo que cuestan las opciones elegidas
-  function addLine(product: Product, { parts, modifiers, ownTicket, comment }: Pick<CartItem, "parts" | "modifiers" | "ownTicket" | "comment">) {
+  function addLine(product: Product, { parts, modifiers, ownTicket, comment, extraStations }: Pick<CartItem, "parts" | "modifiers" | "ownTicket" | "comment" | "extraStations">) {
     // Con otro comentario es otro renglón (cada uno sale con su nota en la comanda)
     const lineId = lineIdFor(product.id, parts, modifiers) + (comment ? `|c:${comment}` : "");
     const price = product.price + extrasPrice(modifiers, parts);
@@ -188,7 +188,7 @@ function PosScreen() {
 
       return [
         ...currentCart,
-        { ...product, price, quantity: 1, lineId, ...(parts?.length ? { parts, ownTicket } : {}), ...(modifiers?.length ? { modifiers } : {}), ...(comment ? { comment } : {}) },
+        { ...product, price, quantity: 1, lineId, ...(parts?.length ? { parts, ownTicket } : {}), ...(modifiers?.length ? { modifiers } : {}), ...(comment ? { comment } : {}), ...(extraStations?.length ? { extraStations } : {}) },
       ];
     });
   }

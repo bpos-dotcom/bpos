@@ -1,9 +1,12 @@
+import type { KitchenStation } from "@/data/products";
 export type Ingredient = {
   id: number;
   name: string;
   unit: "pza" | "g" | "ml";
   stock: number;
   minimum: number;
+  /** Estación que lo prepara (ej. el boneless en Freidora): sugiere comanda extra a productos de otra estación que lo llevan */
+  station?: KitchenStation;
 };
 
 export const initialIngredients: Ingredient[] = [

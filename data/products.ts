@@ -40,7 +40,12 @@ export type ModifierGroup = {
   options: ModifierOption[];
   /** Copiado de otro producto (la copia es independiente; `edited` cuando ya se cambió) */
   copiedFrom?: { productName: string; edited: boolean };
+  /** Multidestino: estaciones extra que también ven lo elegido aquí (las salsas del boneless → Freidora) */
+  stations?: KitchenStation[];
 };
+
+/** Multidestino: otra estación prepara una parte ("Boneless para Boneless Burger" en Freidora). */
+export type ExtraStation = { station: KitchenStation; text: string };
 
 export type Product = {
   id: number;
@@ -53,6 +58,8 @@ export type Product = {
   components?: ProductComponent[];
   /** Combo: no manda comanda propia, solo salen sus opciones enlazadas en sus estaciones */
   noOwnTicket?: boolean;
+  /** Multidestino: además de su estación, estas preparan una parte (con su indicación) */
+  extraStations?: ExtraStation[];
   /** Opciones a elegir al venderlo (aderezos, salsas, término...) */
   modifierGroups?: ModifierGroup[];
 };

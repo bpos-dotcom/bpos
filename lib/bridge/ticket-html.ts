@@ -1,6 +1,7 @@
 import type { KitchenStation } from "@/data/products";
 import type { BusinessSettings, TicketSize } from "@/lib/business-settings";
 import type { DeliveryTicket, TicketItem } from "@/lib/bridge/delivery-ticket";
+import { stationLabel } from "@/lib/kds-config";
 
 /**
  * Tickets propios (HTML) que el Agent dibuja al ancho real del papel y manda
@@ -104,6 +105,26 @@ function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boo
     <div class="row main${withPrices ? " priced" : ""}"><span class="name">${item.qty}x&nbsp;${esc(item.name)}</span>${withPrices ? `<span class="price">${money(item.price)}</span>` : ""}</div>${parts}${details}${notes}${warn}</div>`;
 }
 
+/**
+ * Multidestino: lo que ve una estación extra (Freidora en un Boneless Burger
+ * de Parrilla): su indicación, las opciones que le tocan y las notas.
+ */
+function extraBlock(item: TicketItem, station: KitchenStation, text: string, delivery: boolean) {
+  // En delivery las opciones vienen como texto de la plataforma: se muestran todas
+  const choices = item.choices.filter((c) => !c.price && (c.alsoAt ? c.alsoAt.includes(station) : delivery));
+  return `<div class="item">
+    <div class="row main"><span class="name">${item.qty}x&nbsp;${esc(text)}</span></div>${choices
+      .map((c) => `<div class="sub">${c.question ? `${esc(c.question)} ` : ""}» ${c.qty > 1 ? `${c.qty}x ` : ""}${esc(c.name)}</div>`)
+      .join("")}${item.notes.map((n) => `<div class="sub">* ${esc(n)}</div>`).join("")}<div class="sub">(para ${esc(item.name)})</div></div>`;
+}
+
+/** ¿Esta estación ve el producto completo, o solo su parte de multidestino? */
+function mainHere(item: TicketItem, station: KitchenStation) {
+  if (!item.extra?.some((e) => e.station === station)) return true;
+  // Le toca además una parte del combo: ve el producto completo
+  return Boolean(item.parts?.some((p) => p.station === station));
+}
+
 /** Ticket de una estación: encabezado + solo los productos que le tocan. */
 export function stationTicketHtml(ticket: DeliveryTicket, station: KitchenStation, settings: BusinessSettings, paper: PaperWidth = 80) {
   const items = ticket.items.filter((i) => i.stations.includes(station));
@@ -111,10 +132,15 @@ export function stationTicketHtml(ticket: DeliveryTicket, station: KitchenStatio
     settings,
     paper,
     `${header(ticket, settings)}
-    <div class="station">${esc(station.toUpperCase())}</div>
-    ${items.map((i) => itemBlock(i, settings, false, station)).join("")}
+    <div class="station">${esc(stationLabel(station).toUpperCase())}</div>
+    ${items
+      .map((i) => {
+        const extraHere = i.extra?.find((e) => e.station === station);
+        return extraHere && !mainHere(i, station) ? extraBlock(i, station, extraHere.text, ticket.kind !== "mostrador") : itemBlock(i, settings, false, station);
+      })
+      .join("")}
     <div class="rule"></div>
-    <div class="center meta">${items.reduce((s, i) => s + (i.parts?.some((p) => p.station === station) ? i.parts.filter((p) => p.station === station).reduce((n, p) => n + p.qty, 0) : i.qty), 0)} producto(s) · ${esc(station)}</div>`
+    <div class="center meta">${items.reduce((s, i) => s + (i.parts?.some((p) => p.station === station) ? i.parts.filter((p) => p.station === station).reduce((n, p) => n + p.qty, 0) : i.qty), 0)} producto(s) · ${esc(stationLabel(station))}</div>`
   );
 }
 

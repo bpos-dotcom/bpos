@@ -1,5 +1,6 @@
 import type { KitchenStation } from "@/data/products";
 import type { LineRouting } from "@/lib/bridge/station-routing";
+import { getBusinessSettings } from "@/lib/business-settings";
 
 /**
  * Pedido de delivery ya leído, listo para los tickets propios de Burger
@@ -8,7 +9,7 @@ import type { LineRouting } from "@/lib/bridge/station-routing";
  * Se arma del texto del ticket original (renglones "1x Producto MX$129.99")
  * y de las equivalencias del Bridge (qué estación lleva cada renglón).
  */
-export type TicketChoice = { qty: number; name: string; price: number | null; question?: string };
+export type TicketChoice = { qty: number; name: string; price: number | null; question?: string; alsoAt?: KitchenStation[] };
 
 export type TicketItem = {
   index: number; // renglón en el texto del ticket (el mismo sourceIndex del Bridge)
@@ -21,6 +22,8 @@ export type TicketItem = {
   pending: boolean; // algún renglón sin equivalencia
   /** Partes de un combo: cada estación recibe solo las suyas */
   parts?: { qty: number; name: string; station: KitchenStation; extras?: string[] }[];
+  /** Multidestino: otra estación prepara una parte, con su indicación */
+  extra?: { station: KitchenStation; text: string }[];
 };
 
 export type DeliveryTicket = {
@@ -105,7 +108,9 @@ export function buildDeliveryTicket(
       // encabezado es un producto nuevo.
       if (current && (question !== null || !price)) {
         current.choices.push({ qty: Number(quantified[1]), name: text, price, question: question || lastQuestion || undefined });
-        route?.stations.forEach((s) => current!.stations.includes(s) || current!.stations.push(s));
+        // La opción va con su producto: solo suma estación si es otro producto
+        // (el refresco del combo a Barra); un aderezo o insumo no manda comanda aparte
+        route?.productStations.forEach((s) => current!.stations.includes(s) || current!.stations.push(s));
         if (route?.pending) current.pending = true;
         if (question !== null) lastQuestion = question;
         question = null;
@@ -122,6 +127,7 @@ export function buildDeliveryTicket(
         stations: route ? [...route.stations] : [],
         pending: Boolean(route?.pending),
         ...(route?.parts?.length ? { parts: route.parts.map((p) => ({ qty: p.quantity * Number(quantified[1]), name: p.name, station: p.station })) } : {}),
+        ...(route?.extra?.length ? { extra: route.extra } : {}),
       };
       items.push(current);
       question = null;
@@ -143,10 +149,12 @@ export function buildDeliveryTicket(
   });
   if (current && question) (current as TicketItem).notes.push(question);
 
-  // Renglón que el Bridge no conoce y nadie ignoró: a Cocina, para que se prepare
+  // Renglón que el Bridge no conoce y nadie ignoró: a la estación de respaldo
+  // (Configuración → Punto de venta), para que se prepare
+  const fallback = getBusinessSettings().fallbackStation;
   items.forEach((item) => {
     const allIgnored = [item.index].every((i) => routing.get(i)?.ignored);
-    if (!item.stations.length && !allIgnored) item.stations.push("Cocina");
+    if (!item.stations.length && !allIgnored) item.stations.push(fallback);
   });
 
   const totalCharge = [...charges].reverse().find((c) => /^total/i.test(c.label));

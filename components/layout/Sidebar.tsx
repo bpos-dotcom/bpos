@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNotificationSound } from "@/lib/notifications/useNotificationSound";
 import { getCurrentUser, clearCurrentUser } from "@/lib/auth";
 import { hasPermission, permissionForPath } from "@/lib/permissions";
@@ -37,7 +37,8 @@ const navItems = [
 ];
 
 const ACK_KEY = "bpos_bridge_pending_ack";
-const COLLAPSED_KEY = "bpos_sidebar_collapsed"; // solo de este dispositivo
+const PINNED_KEY = "bpos_sidebar_pinned"; // solo de este dispositivo
+const AUTO_CLOSE_MS = 10_000;
 const POLL_MS = 3000;
 
 type PendingResponse = {
@@ -58,30 +59,48 @@ export function Sidebar() {
   const [criticalSignature, setCriticalSignature] = useState("");
   const [warningSignature, setWarningSignature] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState(false);
-
-  // Barra lateral desplegable (solo íconos); se recuerda en este dispositivo
+  // Menú lateral: se contrae solo (solo íconos) y se abre encima al pasar el
+  // cursor o tocar »; se vuelve a contraer al salir el cursor o tras 10 s sin
+  // usarlo. "📌 Fijar abierto" lo deja abierto (se recuerda en este dispositivo).
+  const [pinned, setPinned] = useState(false);
+  const [open, setOpen] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     let saved = false;
     try {
-      saved = localStorage.getItem(COLLAPSED_KEY) === "1";
+      saved = localStorage.getItem(PINNED_KEY) === "1";
     } catch {}
     // eslint-disable-next-line react-hooks/set-state-in-effect -- preferencia del navegador: solo después de montar
-    setCollapsed(saved);
+    setPinned(saved);
   }, []);
   useEffect(() => {
-    document.documentElement.classList.toggle("sidebar-collapsed", collapsed);
-  }, [collapsed]);
-  function toggleCollapsed() {
-    setCollapsed((value) => {
-      try {
-        localStorage.setItem(COLLAPSED_KEY, value ? "0" : "1");
-      } catch {}
-      return !value;
-    });
+    document.documentElement.classList.toggle("sidebar-collapsed", !pinned);
+  }, [pinned]);
+  const stopTimer = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = null;
+  };
+  const scheduleClose = (ms = AUTO_CLOSE_MS) => {
+    stopTimer();
+    closeTimer.current = setTimeout(() => setOpen(false), ms);
+  };
+  useEffect(() => stopTimer, []);
+  function openMenu() {
+    if (pinned) return;
+    setOpen(true);
+    scheduleClose();
+  }
+  function setPinnedSaved(value: boolean) {
+    setPinned(value);
+    setOpen(false);
+    stopTimer();
+    try {
+      localStorage.setItem(PINNED_KEY, value ? "1" : "0");
+    } catch {}
   }
   // En celular el menú siempre se ve completo
-  const slim = collapsed && !mobileOpen;
+  const slim = !pinned && !open && !mobileOpen;
+  const floating = !pinned && open && !mobileOpen; // abierto encima del contenido
 
   const currentUser = getCurrentUser();
 
@@ -194,17 +213,28 @@ export function Sidebar() {
     {mobileOpen && (
       <div className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={() => setMobileOpen(false)} />
     )}
-    <aside className={`bpos-scroll bpos-sidebar fixed left-0 top-0 z-50 h-screen w-72 overflow-y-auto overflow-x-hidden border-r border-zinc-800 bg-zinc-950 lg:z-auto lg:block ${slim ? "p-2" : "p-4"} ${mobileOpen ? "block" : "hidden"}`}>
+    <aside
+      onMouseEnter={openMenu}
+      onMouseLeave={() => !pinned && scheduleClose(300)}
+      onPointerMove={() => floating && scheduleClose()}
+      onScroll={() => floating && scheduleClose()}
+      className={`bpos-scroll bpos-sidebar fixed left-0 top-0 z-50 h-screen w-72 overflow-y-auto overflow-x-hidden border-r border-zinc-800 bg-zinc-950 lg:block ${floating ? "is-open lg:z-50 shadow-[12px_0_40px_rgba(0,0,0,0.6)]" : "lg:z-auto"} ${slim ? "p-2" : "p-4"} ${mobileOpen ? "block" : "hidden"}`}
+    >
       <button
         type="button"
-        onClick={toggleCollapsed}
+        onClick={() => (pinned ? setPinnedSaved(false) : open ? setPinnedSaved(true) : openMenu())}
         className={`mb-3 hidden w-full items-center rounded-xl border border-zinc-800 bg-black py-2 text-xs font-black text-zinc-400 hover:border-orange-500 hover:text-orange-500 lg:flex ${slim ? "justify-center" : "justify-between px-3"}`}
-        title={slim ? "Mostrar menú completo" : "Contraer menú"}
-        aria-label={slim ? "Mostrar menú completo" : "Contraer menú"}
+        title={slim ? "Abrir menú" : pinned ? "Que se contraiga solo" : "Dejar el menú abierto"}
+        aria-label={slim ? "Abrir menú" : pinned ? "Que se contraiga solo" : "Dejar el menú abierto"}
       >
-        {slim ? "»" : (
+        {slim ? "»" : pinned ? (
           <>
-            <span>Contraer menú</span>
+            <span>Contraer solo</span>
+            <span>«</span>
+          </>
+        ) : (
+          <>
+            <span>📌 Fijar abierto</span>
             <span>«</span>
           </>
         )}

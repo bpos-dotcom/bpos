@@ -33,6 +33,7 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_push_prefs",
   "bpos_push_on",
   "bpos_sidebar_collapsed",
+  "bpos_sidebar_pinned",
   "bpos_touch_keypad",
 ]);
 

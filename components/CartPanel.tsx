@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Product } from "@/data/products";
+import type { ExtraStation, Product } from "@/data/products";
 import { modifiersText, type SoldModifier, type SoldPart } from "@/lib/compound";
 
 export type CartItem = Product & {
@@ -16,6 +16,8 @@ export type CartItem = Product & {
   ownTicket?: boolean;
   /** Comentario para la cocina ("sin cebolla") */
   comment?: string;
+  /** Multidestino: otras estaciones que preparan una parte */
+  extraStations?: ExtraStation[];
 };
 
 export const cartLineId = (item: CartItem) => item.lineId || String(item.id);
@@ -131,7 +133,7 @@ export function CartPanel({
                     </ul>
                   ) : (
                     <p className="mt-1 text-xs text-orange-400">
-                      👨‍🍳 {item.station || "Cocina"}
+                      👨‍🍳 {[item.station || "Cocina", ...(item.extraStations || []).map((e) => e.station)].join(" + ")}
                     </p>
                   )}
                   {item.comment && <p className="mt-1 text-xs font-bold text-yellow-200">💬 {item.comment}</p>}

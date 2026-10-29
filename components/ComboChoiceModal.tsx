@@ -6,7 +6,7 @@
  * esas opciones. Los grupos de una sola opción obligatoria ya vienen elegidos.
  */
 import { useMemo, useState } from "react";
-import type { ModifierGroup, Product } from "@/data/products";
+import type { ExtraStation, ModifierGroup, Product } from "@/data/products";
 import {
   OWN_OPTIONS,
   autoPicks,
@@ -26,7 +26,7 @@ import { describeGroup } from "@/components/products/ModifierEditor";
 type Props = {
   product: Product;
   products: Product[];
-  onConfirm: (result: { parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket: boolean; comment?: string }) => void;
+  onConfirm: (result: { parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket: boolean; comment?: string; extraStations?: ExtraStation[] }) => void;
   onClose: () => void;
 };
 
