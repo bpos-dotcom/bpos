@@ -1,4 +1,5 @@
 import { CartItem } from "@/components/CartPanel";
+import { realCustomerName } from "@/lib/bridge/delivery-ticket";
 import { OrderDetails } from "@/components/OrderDetailsPanel";
 
 export type SavedOrder = {
@@ -66,7 +67,7 @@ export function OrderHistoryPanel({
                   </p>
 
                   <p className="mt-1 text-sm text-zinc-400">
-                    {order.details.customerName || "Mostrador"} ·{" "}
+                    {realCustomerName(order.details.customerName) || "Sin nombre"} ·{" "}
                     {order.details.orderType} · {order.details.paymentMethod}
                   </p>
 

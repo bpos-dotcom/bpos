@@ -43,7 +43,7 @@ function style(settings: BusinessSettings, paper: PaperWidth) {
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; background: #fff; color: #000; overflow: hidden; }
   ::-webkit-scrollbar { display: none; }
-  body { width: 100%; padding: 6px 4px 14px; font-family: Arial, Helvetica, sans-serif; font-size: ${b}px; line-height: 1.2; font-weight: 700; }
+  body { width: 100%; padding: 6px 4px ${14 + settings.ticketCutSpace * 8}px; font-family: Arial, Helvetica, sans-serif; font-size: ${b}px; line-height: 1.2; font-weight: 700; }
   .center { text-align: center; }
   .logo { display: block; margin: 0 auto 6px; max-width: 100%; max-height: ${logo}px; }
   .platform { font-size: ${b * 1.25}px; font-weight: 900; }
@@ -62,6 +62,7 @@ function style(settings: BusinessSettings, paper: PaperWidth) {
   .notice { font-size: ${b * 0.95}px; text-align: center; margin-top: 6px; }
   .qr { display: block; margin: 8px auto 2px; width: ${b * 8}px; height: ${b * 8}px; }
   .qr svg { width: 100%; height: 100%; }
+  .qr-caption { font-size: ${b * 0.95}px; text-align: center; }
 `;
 }
 
@@ -140,7 +141,7 @@ export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings
     ${ticket.payment ? `<div class="row"><span class="name">Pago</span><span class="price">${esc(ticket.payment)}</span></div>` : ""}
     <div class="rule"></div>
     ${settings.ticketNotice && ticket.kind !== "mostrador" ? `<div class="notice">${esc(noticeText(ticket, settings))}</div>` : ""}
-    ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
+    ${qrSvg ? `<div class="qr">${qrSvg}</div>${settings.ticketQrCaption ? `<div class="qr-caption">${esc(settings.ticketQrCaption)}</div>` : ""}` : ""}
     ${settings.ticketFooter ? `<div class="center platform" style="margin-top:6px">${esc(settings.ticketFooter)}</div>` : ""}`
   );
 }

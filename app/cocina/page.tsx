@@ -1,5 +1,6 @@
 "use client";
 
+import { realCustomerName } from "@/lib/bridge/delivery-ticket";
 import { kitchenItems, modifiersText } from "@/lib/compound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
@@ -401,7 +402,7 @@ export default function CocinaPage() {
               </p>
             )}
             <p className="mt-1 truncate text-sm text-zinc-400">
-              {order.details.customerName || "Mostrador"} · {order.details.orderType}
+              {realCustomerName(order.details.customerName) || (external ? platformLabel(order.externalPlatform) : "Mostrador")} · {order.details.orderType}
             </p>
             {!expanded && (
               <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold text-zinc-300">

@@ -225,8 +225,48 @@ export default function EmpresaConfigPage() {
               </label>
 
               <label>
-                <span className={label}>Código QR (dirección web o texto; vacío = sin QR)</span>
+                <span className={label}>Código QR del ticket del cliente (dirección web o texto; vacío = sin QR)</span>
                 <input value={settings.ticketQrText} onChange={(e) => set({ ticketQrText: e.target.value })} className={input} placeholder="Ej. https://wa.me/528711234567" />
+                <span className="mt-2 flex flex-wrap gap-2 text-xs">
+                  {settings.ticketPhone.replace(/\D/g, "").length >= 10 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const digits = settings.ticketPhone.replace(/\D/g, "");
+                        set({ ticketQrText: `https://wa.me/${digits.length === 10 ? `52${digits}` : digits}` });
+                      }}
+                      className="rounded-full border border-zinc-700 px-3 py-1 font-bold text-zinc-300"
+                    >
+                      Usar el WhatsApp de pedidos directos
+                    </button>
+                  )}
+                  {settings.ticketQrText && (
+                    <button type="button" onClick={() => set({ ticketQrText: "" })} className="rounded-full border border-zinc-700 px-3 py-1 font-bold text-zinc-300">
+                      Quitar QR
+                    </button>
+                  )}
+                </span>
+              </label>
+
+              {settings.ticketQrText && (
+                <label>
+                  <span className={label}>Texto debajo del QR</span>
+                  <input value={settings.ticketQrCaption} onChange={(e) => set({ ticketQrCaption: e.target.value })} className={input} placeholder="Ej. Escanea para pedir directo" />
+                </label>
+              )}
+
+              <label>
+                <span className={label}>Espacio para cortar al final de cada ticket: {settings.ticketCutSpace} mm</span>
+                <input
+                  type="range"
+                  min={0}
+                  max={60}
+                  step={5}
+                  value={settings.ticketCutSpace}
+                  onChange={(e) => set({ ticketCutSpace: Number(e.target.value) })}
+                  className="w-full accent-orange-500"
+                />
+                <span className="mt-1 block text-xs text-zinc-500">Papel en blanco después de cada ticket para cortarlo a mano (tu impresora no tiene cortador). 0 = sin espacio extra.</span>
               </label>
 
               <label>

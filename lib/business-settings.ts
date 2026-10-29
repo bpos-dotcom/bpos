@@ -11,6 +11,8 @@ export type BusinessSettings = {
   ticketNotice: string; // aclaración del ticket de bolsa; acepta {plataforma} {negocio} {telefono}
   ticketFooter: string;
   ticketQrText: string; // URL o texto del QR ("" = sin QR)
+  ticketQrCaption: string; // texto debajo del QR ("Escanea para pedir directo")
+  ticketCutSpace: number; // milímetros en blanco al final de cada ticket para cortarlo a mano (0-60)
   bagTicketEnabled: boolean;
   /** Diseño de los tickets (térmica: todo en negro) */
   ticketFontSize: TicketSize; // tamaño de letra
@@ -33,6 +35,8 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   ticketNotice: DEFAULT_TICKET_NOTICE,
   ticketFooter: "¡Gracias por tu pedido!",
   ticketQrText: "",
+  ticketQrCaption: "Escanea para pedir directo",
+  ticketCutSpace: 15,
   bagTicketEnabled: true,
   ticketFontSize: "grande",
   ticketLogoSize: "grande",
@@ -56,6 +60,8 @@ function normalize(parsed: Partial<BusinessSettings>): BusinessSettings {
     ticketNotice: text(parsed.ticketNotice, DEFAULT_SETTINGS.ticketNotice).trim(),
     ticketFooter: text(parsed.ticketFooter, DEFAULT_SETTINGS.ticketFooter).trim(),
     ticketQrText: text(parsed.ticketQrText, "").trim(),
+    ticketQrCaption: text(parsed.ticketQrCaption, DEFAULT_SETTINGS.ticketQrCaption).trim(),
+    ticketCutSpace: Number.isFinite(Number(parsed.ticketCutSpace)) ? Math.min(60, Math.max(0, Math.round(Number(parsed.ticketCutSpace)))) : DEFAULT_SETTINGS.ticketCutSpace,
     bagTicketEnabled: parsed.bagTicketEnabled !== false,
     ticketFontSize: SIZES.includes(parsed.ticketFontSize as TicketSize) ? (parsed.ticketFontSize as TicketSize) : DEFAULT_SETTINGS.ticketFontSize,
     ticketLogoSize: SIZES.includes(parsed.ticketLogoSize as TicketSize) ? (parsed.ticketLogoSize as TicketSize) : DEFAULT_SETTINGS.ticketLogoSize,
