@@ -11,7 +11,8 @@ export const SUPABASE_KEY =
   DEFAULT_SUPABASE_PUBLISHABLE_KEY;
 
 /** true cuando el proyecto tiene Supabase configurado (modo nube) */
-export const isCloudConfigured = SUPABASE_URL !== "" && SUPABASE_KEY !== "";
+// NEXT_PUBLIC_BPOS_LOCAL=1 la apaga para probar pantallas sin cuenta.
+export const isCloudConfigured = process.env.NEXT_PUBLIC_BPOS_LOCAL !== "1" && SUPABASE_URL !== "" && SUPABASE_KEY !== "";
 
 let client: SupabaseClient | null = null;
 

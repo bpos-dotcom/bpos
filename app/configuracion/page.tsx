@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import RequireRole from "@/components/auth/RequireRole";
+import { PlatformAdminCard } from "@/components/admin/PlatformAdminCard";
 
 const adminModules = [
   {
@@ -28,16 +29,16 @@ const adminModules = [
     description: "Alta, edición, precios, categorías y estaciones.",
   },
   {
+    title: "Sistema",
+    href: "/configuracion/sistema",
+    icon: "⚙️",
+    description: "Modo oscuro/claro, moneda, idioma, pantalla táctil, respaldos y descargar B-POS.",
+  },
+  {
     title: "Mi plan",
     href: "/configuracion/plan",
     icon: "💳",
     description: "Tu suscripción a B-POS: Basic, Pro o Max, prueba gratis y sucursales.",
-  },
-  {
-    title: "Punto de venta",
-    href: "/configuracion/pos",
-    icon: "🖐️",
-    description: "Pantalla táctil: teclado en pantalla para textos y cantidades (en esta caja).",
   },
   {
     title: "Subir menú con IA",
@@ -58,22 +59,22 @@ const adminModules = [
     description: "Consumo de ingredientes por producto.",
   },
   {
-    title: "Usuarios",
+    title: "Usuarios y seguridad",
     href: "/configuracion/usuarios",
     icon: "👥",
-    description: "Empleados, roles y permisos.",
+    description: "Empleados, PIN, roles y permisos.",
   },
   {
     title: "Proveedores",
-    href: "/configuracion/proveedores",
+    href: "/compras",
     icon: "🏪",
     description: "Administración de proveedores.",
   },
   {
-    title: "Estaciones",
-    href: "/configuracion/estaciones",
+    title: "Estaciones de cocina",
+    href: "/configuracion/pos",
     icon: "👨‍🍳",
-    description: "Parrilla, Freidora, Barra y Cocina.",
+    description: "Nombre de cada estación, cuáles existen y a dónde va lo que no tiene estación.",
   },
   {
     title: "Impresoras",
@@ -82,46 +83,16 @@ const adminModules = [
     description: "Asignación de impresoras por estación.",
   },
   {
-    title: "Respaldos",
-    href: "/configuracion/respaldos",
-    icon: "💾",
-    description: "Copia diaria automática, descargar y restaurar.",
-  },
-  {
     title: "Métodos de pago",
     href: "/configuracion/pagos",
     icon: "💳",
     description: "Efectivo, Tarjeta, Uber, Didi, etc.",
   },
   {
-    title: "Promociones",
-    href: "/configuracion/promociones",
-    icon: "🏷️",
-    description: "Combos, descuentos y promociones.",
-  },
-  {
-    title: "Sucursales",
-    href: "/configuracion/sucursales",
-    icon: "🏬",
-    description: "Configuración multi sucursal.",
-  },
-  {
-    title: "Seguridad",
-    href: "/configuracion/seguridad",
-    icon: "🔐",
-    description: "Permisos y auditoría.",
-  },
-  {
     title: "Bitácora general",
     href: "/configuracion/auditoria",
     icon: "📒",
     description: "Auditoría de caja, ventas y acciones sensibles.",
-  },
-  {
-    title: "Sistema",
-    href: "/configuracion/sistema",
-    icon: "⚙️",
-    description: "Configuración general del sistema.",
   },
 ];
 
@@ -133,6 +104,7 @@ export default function ConfiguracionPage() {
         subtitle="Administra completamente tu negocio en B-POS."
       >
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
+          <PlatformAdminCard />
           {adminModules.map((module) => (
             <Link
               key={module.title}

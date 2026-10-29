@@ -101,3 +101,69 @@ html.sidebar-collapsed {
     print-color-adjust: exact;
   }
 }
+
+/* =============================================================
+   Modo claro (Configuración → Sistema o botón ☀️/🌙 de arriba).
+   Toda la app está diseñada en oscuro; aquí se invierte la paleta gris
+   (negro ↔ blanco, zinc-950 ↔ zinc-50…) y los tonos claros de texto de
+   color se oscurecen para que se lean sobre fondo blanco.
+   ============================================================= */
+html.theme-light {
+  color-scheme: light;
+  --background: #f1f1f3;
+  --foreground: #18181b;
+  --color-black: #eeeef1;
+  --color-white: #111114;
+  --color-zinc-950: #ffffff;
+  --color-zinc-900: #f4f4f5;
+  --color-zinc-800: #e1e1e5;
+  --color-zinc-700: #cfcfd5;
+  --color-zinc-600: #a1a1aa;
+  --color-zinc-500: #6b6b74;
+  --color-zinc-400: #52525b;
+  --color-zinc-300: #3f3f46;
+  --color-zinc-200: #27272a;
+  --color-zinc-100: #18181b;
+  --color-zinc-50: #09090b;
+  --color-orange-100: #9a3412;
+  --color-orange-200: #c2410c;
+  --color-orange-300: #c2410c;
+  --color-orange-400: #ea580c;
+  --color-red-200: #b91c1c;
+  --color-red-300: #b91c1c;
+  --color-red-400: #dc2626;
+  --color-green-200: #15803d;
+  --color-green-300: #15803d;
+  --color-green-400: #16a34a;
+  --color-emerald-200: #047857;
+  --color-emerald-300: #047857;
+  --color-emerald-400: #059669;
+  --color-yellow-200: #a16207;
+  --color-yellow-300: #a16207;
+  --color-yellow-400: #ca8a04;
+  --color-amber-200: #b45309;
+  --color-amber-300: #b45309;
+  --color-amber-400: #d97706;
+  --color-sky-200: #0369a1;
+  --color-sky-300: #0369a1;
+  --color-sky-400: #0284c7;
+  --color-blue-200: #1d4ed8;
+  --color-blue-300: #1d4ed8;
+  --color-blue-400: #2563eb;
+  --color-purple-200: #7e22ce;
+  --color-purple-300: #7e22ce;
+  --color-purple-400: #9333ea;
+  --color-cyan-300: #0e7490;
+  --color-cyan-400: #0891b2;
+}
+html.theme-light body {
+  background: var(--background);
+  color: var(--foreground);
+}
+/* text-black solo se usa sobre botones de color: sigue oscuro */
+html.theme-light .text-black {
+  color: #111114;
+}
+html.theme-light .bpos-scroll:hover::-webkit-scrollbar-thumb {
+  background: #c4c4cc;
+}

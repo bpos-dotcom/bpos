@@ -11,6 +11,8 @@ import { ModifierEditor, cleanModifierGroups, modifierEditorProblems } from "@/c
 import { MultiStationEditor } from "@/components/products/MultiStationEditor";
 import { compoundRouting, suggestExtraStations } from "@/lib/compound";
 import { stationLabel } from "@/lib/kds-config";
+import { SaleScheduleEditor, saveSchedule } from "@/components/products/SaleScheduleEditor";
+import { scheduleLabel } from "@/lib/sale-schedule";
 
 type DraftProduct = Product;
 
@@ -93,6 +95,9 @@ export default function ProductosAdminPage() {
     });
     if (!saved.noOwnTicket) delete saved.noOwnTicket;
     if (!saved.notSoldAlone) delete saved.notSoldAlone;
+    const schedule = saveSchedule(saved.saleSchedule);
+    if (schedule) saved.saleSchedule = schedule;
+    else delete saved.saleSchedule;
     const nextProducts = products.map((product) =>
       product.id === draft.id ? saved : product
     );
@@ -235,6 +240,7 @@ export default function ProductosAdminPage() {
                         {product.noOwnTicket ? "🍱 Combo · sale por sus opciones" : `👨‍🍳 ${product.station || "Cocina"}`}
                         {product.modifierGroups?.length ? ` · 🎛️ ${product.modifierGroups.length}` : ""}
                         {product.notSoldAlone ? " · 🚫 no se vende solo" : ""}
+                        {product.saleSchedule ? ` · 🕒 ${scheduleLabel(product.saleSchedule)}` : ""}
                       </p>
                     </div>
                   </div>
@@ -366,6 +372,10 @@ export default function ProductosAdminPage() {
                       </span>
                     </span>
                   </label>
+
+                  <div className="xl:col-span-2">
+                    <SaleScheduleEditor value={draft.saleSchedule} onChange={(saleSchedule) => setDraft({ ...draft, saleSchedule })} />
+                  </div>
 
                   <Field label="Emoji / icono temporal">
                     <input
