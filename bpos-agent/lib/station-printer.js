@@ -19,7 +19,10 @@ const { printImageEscPos } = require("./raw-printer");
 const VIRTUAL_PRINTER = "B-POS Agent Virtual Printer";
 const FALLBACK_MS = 45_000;
 const STATIONS = ["Parrilla", "Freidora", "Barra", "Cocina", "Caja"];
-const TICKET_WIDTH_PX = 576; // 80 mm a 203 dpi (el mismo ancho del HTML de los tickets)
+/** Ancho de dibujo = puntos del cabezal: 384 en 58 mm, 576 en 80 mm (203 dpi). Así la letra no se encoge. */
+function ticketWidthPx() {
+  return getConfig().paperWidthMm === 58 ? 384 : 576;
+}
 
 let config = null; // { printers: { Parrilla: "EPSON...", ... }, paperWidthMm: 80 }
 const printed = new Map(); // "plataforma:pedido" → { at, printers }
@@ -182,22 +185,23 @@ async function printPdf(filePath, printerName) {
 }
 
 /**
- * Ticket propio (HTML de B-POS) → imagen. Se dibuja a 576 px de ancho y se
+ * Ticket propio (HTML de B-POS) → imagen. Se dibuja al ancho del papel y se
  * captura como foto: así sale idéntico en cualquier térmica, sin depender
  * de cómo el controlador acomode el texto.
  */
 async function renderHtmlTicket(html) {
   // Ventana chica: así el alto medido es el del contenido y no el de la ventana
-  const win = new BrowserWindow({ show: false, width: TICKET_WIDTH_PX, height: 100, useContentSize: true });
+  const width = ticketWidthPx();
+  const win = new BrowserWindow({ show: false, width, height: 100, useContentSize: true });
   try {
     await loadHtml(win, html);
     const height = await win.webContents.executeJavaScript(
       "Promise.all([...document.images].map((i) => i.complete ? 0 : new Promise((r) => { i.onload = r; i.onerror = r; }))).then(() => Math.ceil(document.body.getBoundingClientRect().bottom))"
     );
     const h = Math.max(100, height);
-    win.setContentSize(TICKET_WIDTH_PX, h);
+    win.setContentSize(width, h);
     await new Promise((r) => setTimeout(r, 150)); // que repinte con el nuevo alto
-    const shot = await win.webContents.capturePage({ x: 0, y: 0, width: TICKET_WIDTH_PX, height: h });
+    const shot = await win.webContents.capturePage({ x: 0, y: 0, width, height: h });
     const size = shot.getSize();
     return { dataUrl: shot.toDataURL(), width: size.width, height: size.height };
   } finally {

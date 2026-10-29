@@ -12,7 +12,15 @@ export type BusinessSettings = {
   ticketFooter: string;
   ticketQrText: string; // URL o texto del QR ("" = sin QR)
   bagTicketEnabled: boolean;
+  /** Diseño de los tickets (térmica: todo en negro) */
+  ticketFontSize: TicketSize; // tamaño de letra
+  ticketLogoSize: TicketSize;
+  ticketShowCustomer: boolean;
+  ticketShowChoices: boolean; // elecciones ("Elige tu...: Kansas city") y notas ("Sin cebolla")
 };
+
+export type TicketSize = "normal" | "grande" | "extra";
+const SIZES: TicketSize[] = ["normal", "grande", "extra"];
 
 export const DEFAULT_TICKET_NOTICE =
   "Los repartidores de {plataforma} no trabajan directamente para {negocio}. Si tienes algún problema, estamos para ayudarte. Dudas y pedidos directos: {telefono}";
@@ -26,6 +34,10 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   ticketFooter: "¡Gracias por tu pedido!",
   ticketQrText: "",
   bagTicketEnabled: true,
+  ticketFontSize: "grande",
+  ticketLogoSize: "grande",
+  ticketShowCustomer: true,
+  ticketShowChoices: true,
 };
 
 function normalizePhone(value: string) {
@@ -45,6 +57,10 @@ function normalize(parsed: Partial<BusinessSettings>): BusinessSettings {
     ticketFooter: text(parsed.ticketFooter, DEFAULT_SETTINGS.ticketFooter).trim(),
     ticketQrText: text(parsed.ticketQrText, "").trim(),
     bagTicketEnabled: parsed.bagTicketEnabled !== false,
+    ticketFontSize: SIZES.includes(parsed.ticketFontSize as TicketSize) ? (parsed.ticketFontSize as TicketSize) : DEFAULT_SETTINGS.ticketFontSize,
+    ticketLogoSize: SIZES.includes(parsed.ticketLogoSize as TicketSize) ? (parsed.ticketLogoSize as TicketSize) : DEFAULT_SETTINGS.ticketLogoSize,
+    ticketShowCustomer: parsed.ticketShowCustomer !== false,
+    ticketShowChoices: parsed.ticketShowChoices !== false,
   };
 }
 

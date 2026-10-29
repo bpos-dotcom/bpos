@@ -39,7 +39,8 @@ async function imageToEscPos(dataUrl, widthMm) {
       for (let x = 0; x < dots; x += 1) {
         const i = ((top + y) * dots + x) * 4;
         const lum = 0.299 * pixels[i] + 0.587 * pixels[i + 1] + 0.114 * pixels[i + 2];
-        if (lum < 140) band[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
+        // 170: los bordes suavizados de las letras cuentan como negro (letra más gruesa y oscura)
+        if (lum < 170) band[y * bytesPerRow + (x >> 3)] |= 0x80 >> (x & 7);
       }
     }
     // GS v 0 m xL xH yL yH datos

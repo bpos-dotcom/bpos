@@ -9,10 +9,11 @@ import {
   getBusinessSettings,
   saveBusinessSettings,
   type BusinessSettings,
+  type TicketSize,
 } from "@/lib/business-settings";
 import type { DeliveryTicket } from "@/lib/bridge/delivery-ticket";
-import { qrSvg } from "@/lib/bridge/order-tickets";
-import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
+import { paperWidth, qrSvg } from "@/lib/bridge/order-tickets";
+import { bagTicketHtml, stationTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
 
 /** Pedido de ejemplo para la vista previa de los tickets. */
 const SAMPLE: DeliveryTicket = {
@@ -69,25 +70,35 @@ async function toThermalLogo(file: File): Promise<string> {
   }
 }
 
-function Preview({ html, label }: { html: string; label: string }) {
+/** Vista previa al ancho real de impresión (384 px en 58 mm, 576 px en 80 mm), mostrada a 288 px. */
+function Preview({ html, label, paper }: { html: string; label: string; paper: PaperWidth }) {
+  const width = paper === 58 ? 384 : 576;
+  const scale = 288 / width;
   return (
     <div>
       <p className="mb-2 text-xs font-black uppercase text-zinc-500">{label}</p>
-      <div className="overflow-hidden rounded-xl bg-white" style={{ width: 288, height: 520 }}>
+      <div className="overflow-hidden rounded-xl bg-white" style={{ width: 288, height: 560 }}>
         <iframe
           title={label}
           srcDoc={html}
-          style={{ width: 576, height: 1040, border: 0, transform: "scale(0.5)", transformOrigin: "0 0" }}
+          style={{ width, height: 560 / scale, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0" }}
         />
       </div>
     </div>
   );
 }
 
+const SIZE_OPTIONS: [TicketSize, string][] = [
+  ["normal", "Normal"],
+  ["grande", "Grande"],
+  ["extra", "Extra grande"],
+];
+
 export default function EmpresaConfigPage() {
   const [settings, setSettings] = useState<BusinessSettings | null>(null);
   const [saved, setSaved] = useState(false);
   const [qr, setQr] = useState("");
+  const [paper] = useState<PaperWidth>(() => (typeof window === "undefined" ? 80 : paperWidth()));
 
   useEffect(() => {
     setSettings(getBusinessSettings());
@@ -101,10 +112,10 @@ export default function EmpresaConfigPage() {
   const previews = useMemo(() => {
     if (!settings) return null;
     return {
-      parrilla: stationTicketHtml(SAMPLE, "Parrilla", settings),
-      bolsa: bagTicketHtml(SAMPLE, settings, qr),
+      parrilla: stationTicketHtml(SAMPLE, "Parrilla", settings, paper),
+      bolsa: bagTicketHtml(SAMPLE, settings, qr, paper),
     };
-  }, [settings, qr]);
+  }, [settings, qr, paper]);
 
   if (!settings) return null;
   const set = (patch: Partial<BusinessSettings>) => setSettings({ ...settings, ...patch });
@@ -223,6 +234,35 @@ export default function EmpresaConfigPage() {
                 <input value={settings.ticketFooter} onChange={(e) => set({ ticketFooter: e.target.value })} className={input} />
               </label>
 
+              <div className="grid gap-4 md:grid-cols-2">
+                <label>
+                  <span className={label}>Tamaño de letra</span>
+                  <select value={settings.ticketFontSize} onChange={(e) => set({ ticketFontSize: e.target.value as TicketSize })} className={input}>
+                    {SIZE_OPTIONS.map(([value, text]) => (
+                      <option key={value} value={value}>{text}</option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span className={label}>Tamaño del logo</span>
+                  <select value={settings.ticketLogoSize} onChange={(e) => set({ ticketLogoSize: e.target.value as TicketSize })} className={input}>
+                    {SIZE_OPTIONS.map(([value, text]) => (
+                      <option key={value} value={value}>{text}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+
+              <label className="flex items-center gap-3 text-sm font-bold text-zinc-300">
+                <input type="checkbox" checked={settings.ticketShowCustomer} onChange={(e) => set({ ticketShowCustomer: e.target.checked })} />
+                Mostrar nombre del cliente
+              </label>
+
+              <label className="flex items-center gap-3 text-sm font-bold text-zinc-300">
+                <input type="checkbox" checked={settings.ticketShowChoices} onChange={(e) => set({ ticketShowChoices: e.target.checked })} />
+                Mostrar opciones y notas de cada producto (ej. &quot;Sin cebolla&quot;)
+              </label>
+
               <label className="flex items-center gap-3 text-sm font-bold text-zinc-300">
                 <input type="checkbox" checked={settings.bagTicketEnabled} onChange={(e) => set({ bagTicketEnabled: e.target.checked })} />
                 Imprimir ticket de bolsa en Caja
@@ -231,8 +271,8 @@ export default function EmpresaConfigPage() {
 
             {previews && (
               <div className="flex flex-wrap gap-4">
-                <Preview label="Estación (ej. Parrilla)" html={previews.parrilla} />
-                <Preview label="Bolsa (Caja)" html={previews.bolsa} />
+                <Preview label={`Estación · papel ${paper} mm`} html={previews.parrilla} paper={paper} />
+                <Preview label={`Bolsa (Caja) · papel ${paper} mm`} html={previews.bolsa} paper={paper} />
               </div>
             )}
           </div>
