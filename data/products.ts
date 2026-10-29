@@ -60,6 +60,12 @@ export type Product = {
   noOwnTicket?: boolean;
   /** Multidestino: además de su estación, estas preparan una parte (con su indicación) */
   extraStations?: ExtraStation[];
+  /**
+   * No se vende por separado: no aparece en el POS, pero sirve para enlazarlo
+   * (parte de un combo, opción) o como equivalencia de un modificador de
+   * DiDi/Uber/Rappi ("Ranch aparte"): descuenta su receta y va a su estación.
+   */
+  notSoldAlone?: boolean;
   /** Opciones a elegir al venderlo (aderezos, salsas, término...) */
   modifierGroups?: ModifierGroup[];
 };

@@ -110,12 +110,15 @@ function PosScreen() {
     };
   }, []);
 
+  // Lo que no se vende por separado no aparece en el menú (sí sirve dentro de combos)
+  const sellable = useMemo(() => products.filter((product) => !product.notSoldAlone), [products]);
+
   const categories = useMemo(() => {
-    return ["Todos", ...Array.from(new Set(products.map((p) => p.category)))];
-  }, [products]);
+    return ["Todos", ...Array.from(new Set(sellable.map((p) => p.category)))];
+  }, [sellable]);
 
   const filteredProducts = useMemo(() => {
-    return products.filter((product) => {
+    return sellable.filter((product) => {
       const matchesCategory =
         selectedCategory === "Todos" || product.category === selectedCategory;
 
@@ -125,7 +128,7 @@ function PosScreen() {
 
       return matchesCategory && matchesSearch;
     });
-  }, [products, selectedCategory, search]);
+  }, [sellable, selectedCategory, search]);
 
   const subtotal = cart.reduce(
     (total, item) => total + item.price * item.quantity,

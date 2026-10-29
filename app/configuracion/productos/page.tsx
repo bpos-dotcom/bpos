@@ -92,6 +92,7 @@ export default function ProductosAdminPage() {
       else delete g.stations;
     });
     if (!saved.noOwnTicket) delete saved.noOwnTicket;
+    if (!saved.notSoldAlone) delete saved.notSoldAlone;
     const nextProducts = products.map((product) =>
       product.id === draft.id ? saved : product
     );
@@ -233,6 +234,7 @@ export default function ProductosAdminPage() {
                       <p className="mt-1 text-xs font-bold text-orange-400">
                         {product.noOwnTicket ? "🍱 Combo · sale por sus opciones" : `👨‍🍳 ${product.station || "Cocina"}`}
                         {product.modifierGroups?.length ? ` · 🎛️ ${product.modifierGroups.length}` : ""}
+                        {product.notSoldAlone ? " · 🚫 no se vende solo" : ""}
                       </p>
                     </div>
                   </div>
@@ -349,6 +351,21 @@ export default function ProductosAdminPage() {
                       </span>
                     </label>
                   </Field>
+
+                  <label className="flex cursor-pointer items-start gap-2 self-end text-sm text-zinc-300 xl:col-span-2">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(draft.notSoldAlone)}
+                      onChange={(event) => setDraft({ ...draft, notSoldAlone: event.target.checked })}
+                      className="mt-0.5 h-5 w-5 accent-orange-500"
+                    />
+                    <span>
+                      🚫 No se vende por separado
+                      <span className="block text-xs text-zinc-500">
+                        No aparece en el POS, pero se puede enlazar en combos y opciones, o usar como equivalencia de un modificador de DiDi, Uber o Rappi (ej. &quot;Ranch aparte&quot;): descuenta su receta y sale en su estación. En delivery no suma precio.
+                      </span>
+                    </span>
+                  </label>
 
                   <Field label="Emoji / icono temporal">
                     <input
