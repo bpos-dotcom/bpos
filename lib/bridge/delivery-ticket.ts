@@ -37,8 +37,8 @@ export type DeliveryTicket = {
 const QUANTIFIED = /^\s*(\d{1,4})\s*[xX×]\s*(.+?)\s*$/;
 const TRAILING_MONEY = /\s*(-?)\s*(?:MX\$|\$)\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:MXN)?\s*$/i;
 const CHARGE = /^(sub\s*total|total(?:\s+a\s+pagar|\s+pagado)?|dto\.?\s+de\s+producto|descuento[^$]*|promoci[oó]n[^$]*|tarifa\s+de\s+(?:entrega|servicio)|costo\s+de\s+env[ií]o|env[ií]o|propina|cargo[^$]*)\s*[:\-]?\s*-?\s*(?:MX\$|\$)/i;
+const NOTE = /^(sin|con|extra|poco|mucho|bien|t[eé]rmino|nota|notas|por favor|aparte)\b/i;
 const END_OF_ITEMS = /^(pago\s+(?:de|en|con)\b|hora\s+de|m[eé]todo\s+de\s+pago|forma\s+de\s+pago)/i;
-const QUESTION = /\?\s*$|^(¿|elige|selecciona|escoge|agrega|quieres|tus?\b)/i;
 
 function splitPrice(text: string): { text: string; price: number | null } {
   const match = text.match(TRAILING_MONEY);
@@ -62,7 +62,8 @@ export function buildDeliveryTicket(
   const items: TicketItem[] = [];
   const charges: { label: string; amount: number }[] = [];
   let current: TicketItem | null = null;
-  let question: string | null = null;
+  let question: string | null = null; // texto suelto pendiente: encabezado de grupo o nota
+  let lastQuestion: string | null = null; // último encabezado (para opciones seguidas)
   let inCharges = false;
 
   const lines = String(order.rawText || "").replace(/\r/g, "").split("\n");
@@ -70,13 +71,15 @@ export function buildDeliveryTicket(
     const line = raw.trim();
     if (!line) return;
 
-    if (CHARGE.test(line)) {
+    // Cargos y cierre solo cuentan después del primer producto: DiDi a veces pone
+    // "Hora de Aceptación de Pedido" arriba y cortaba la lectura antes de los productos
+    if (items.length && CHARGE.test(line)) {
       inCharges = true;
       const { text, price } = splitPrice(line);
       if (price !== null) charges.push({ label: text.replace(/\s*[:\-]$/, ""), amount: price });
       return;
     }
-    if (inCharges || END_OF_ITEMS.test(line)) {
+    if (inCharges || (items.length && END_OF_ITEMS.test(line))) {
       inCharges = true;
       return;
     }
@@ -85,14 +88,19 @@ export function buildDeliveryTicket(
     if (quantified) {
       const { text, price } = splitPrice(quantified[2]);
       const route = routing.get(index);
-      // Respuesta a una pregunta del renglón anterior ("¿Qué tal una bebida?" → "1x No, gracias")
-      if (current && question) {
-        current.choices.push({ qty: Number(quantified[1]), name: text, price, question });
+      // Opción del producto anterior: viene después de un encabezado de grupo
+      // ("Elige el aderezo:" → "1x BBQ"), o cuesta $0 aunque no tenga encabezado
+      // ("1x Bluecheese No, Gracias MX$0.00"). Una línea con precio y sin
+      // encabezado es un producto nuevo.
+      if (current && (question !== null || !price)) {
+        current.choices.push({ qty: Number(quantified[1]), name: text, price, question: question || lastQuestion || undefined });
         route?.stations.forEach((s) => current!.stations.includes(s) || current!.stations.push(s));
         if (route?.pending) current.pending = true;
+        if (question !== null) lastQuestion = question;
         question = null;
         return;
       }
+      if (current && question) current.notes.push(question); // texto suelto antes de un producto nuevo: nota
       current = {
         index,
         qty: Number(quantified[1]),
@@ -105,13 +113,23 @@ export function buildDeliveryTicket(
       };
       items.push(current);
       question = null;
+      lastQuestion = null;
       return;
     }
 
     if (!current) return; // encabezado: plataforma, dirección, notas generales
-    if (QUESTION.test(line)) question = line.replace(/\s+/g, " ");
-    else if (/[a-záéíóúñ]/i.test(line) && !TRAILING_MONEY.test(line)) current.notes.push(line);
+    if (!/[a-záéíóúñ]/i.test(line) || TRAILING_MONEY.test(line)) return;
+    const text = line.replace(/\s+/g, " ");
+    // Indicación de cocina ("Sin cebolla", "Extra queso"): siempre es nota
+    if (NOTE.test(text)) {
+      current.notes.push(text);
+      return;
+    }
+    // Texto suelto: encabezado de grupo si le sigue una opción; si no, nota
+    if (question) current.notes.push(question);
+    question = text;
   });
+  if (current && question) (current as TicketItem).notes.push(question);
 
   // Renglón que el Bridge no conoce y nadie ignoró: a Cocina, para que se prepare
   items.forEach((item) => {
