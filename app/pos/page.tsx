@@ -598,10 +598,12 @@ Gracias por pedir en ${businessName} 🚀`;
           </div>
         </header>
 
-        <div className="grid grid-cols-1 gap-4 p-6 xl:grid-cols-[1fr_330px_390px]">
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
+        {/* Tableta: productos a la izquierda (con su propio scroll) y datos + pedido a la derecha.
+            Celular: productos compactos en una caja con scroll y una barra para ir a cobrar. */}
+        <div className="grid grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_minmax(290px,370px)] xl:grid-cols-[1fr_330px_390px]">
+          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 md:row-span-2 md:sticky md:top-3 md:max-h-[calc(100dvh-1.5rem)] md:self-start md:overflow-y-auto xl:static xl:row-span-1 xl:max-h-none xl:overflow-visible">
             <h2 className="text-xl font-black">PRODUCTOS</h2>
-            <p className="mt-1 text-sm text-zinc-400">
+            <p className="mt-1 hidden text-sm text-zinc-400 sm:block">
               Busca por nombre o filtra por categoría.
             </p>
 
@@ -609,15 +611,15 @@ Gracias por pedir en ${businessName} 🚀`;
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Buscar producto..."
-              className="mt-5 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600"
+              className="mt-3 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600 sm:mt-5"
             />
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-3 flex gap-2 overflow-x-auto pb-1 sm:mt-4 sm:flex-wrap sm:overflow-visible">
               {categories.map((category) => (
                 <button
                   key={category}
                   onClick={() => setSelectedCategory(category)}
-                  className={`rounded-2xl border px-4 py-2 text-sm font-bold ${
+                  className={`shrink-0 rounded-2xl border px-4 py-2 text-sm font-bold ${
                     selectedCategory === category
                       ? "border-orange-500 bg-orange-500 text-black"
                       : "border-zinc-800 bg-black text-zinc-300 hover:border-orange-500"
@@ -628,7 +630,7 @@ Gracias por pedir en ${businessName} 🚀`;
               ))}
             </div>
 
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 2xl:grid-cols-4">
+            <div className="mt-3 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:mt-5 sm:gap-3 md:max-h-none md:overflow-visible md:pr-0 lg:grid-cols-3 2xl:grid-cols-4">
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}
@@ -640,11 +642,11 @@ Gracias por pedir en ${businessName} 🚀`;
             </div>
           </section>
 
-          <section className="space-y-4 xl:sticky xl:top-28 xl:self-start">
+          <section className="space-y-4 md:order-3 xl:order-none xl:sticky xl:top-28 xl:self-start">
             <OrderDetailsPanel details={details} onChange={setDetails} />
           </section>
 
-          <section className="space-y-4 xl:sticky xl:top-28 xl:self-start">
+          <section id="pedido-actual" className="scroll-mt-3 space-y-4 md:order-2 xl:order-none xl:sticky xl:top-28 xl:self-start">
             <CartPanel
               items={cart}
               discount={details.discount}
@@ -659,7 +661,18 @@ Gracias por pedir en ${businessName} 🚀`;
           </section>
         </div>
 
-        <div className="px-6 pb-6">
+        {/* Celular: barra para bajar directo al pedido y cobrar */}
+        {cart.length > 0 && (
+          <button
+            onClick={() => document.getElementById("pedido-actual")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            className="fixed bottom-16 left-3 right-3 z-30 flex items-center justify-between rounded-2xl bg-orange-500 px-5 py-4 font-black text-black shadow-2xl md:hidden"
+          >
+            <span>🛒 Ver pedido ({cart.reduce((n, item) => n + item.quantity, 0)})</span>
+            <span>${subtotal.toFixed(2)} · Cobrar ↓</span>
+          </button>
+        )}
+
+        <div className="px-3 pb-24 sm:px-6 md:pb-6">
 
           {orders.some((order) => Boolean((order as SavedOrder & { externalOrderNumber?: string }).externalOrderNumber)) && (
             <section className="mb-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
