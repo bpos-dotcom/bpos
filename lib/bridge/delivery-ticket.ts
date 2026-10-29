@@ -22,13 +22,16 @@ export type TicketItem = {
 };
 
 export type DeliveryTicket = {
-  platform: string; // "DiDi Food", "Uber Eats", "Rappi"...
+  /** delivery: pedido de plataforma; mostrador: venta del POS (sin aclaración de repartidores) */
+  kind?: "delivery" | "mostrador";
+  platform: string; // "DiDi Food", "Uber Eats", "Rappi" o el tipo de venta del POS ("Mostrador"...)
   orderId: string;
   customer: string | null;
   receivedAt: string;
   items: TicketItem[];
   charges: { label: string; amount: number }[];
   total: number | null;
+  payment?: string; // método de pago (ventas del POS)
 };
 
 const QUANTIFIED = /^\s*(\d{1,4})\s*[xX×]\s*(.+?)\s*$/;
@@ -118,6 +121,7 @@ export function buildDeliveryTicket(
 
   const totalCharge = [...charges].reverse().find((c) => /^total/i.test(c.label));
   return {
+    kind: "delivery",
     platform: platformLabel(order.platform),
     orderId: String(order.orderId || ""),
     customer: order.customer?.name?.trim() || null,

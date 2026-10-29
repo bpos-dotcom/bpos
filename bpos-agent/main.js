@@ -95,6 +95,31 @@ async function readTicket(buffer) {
   return { format: "text", filePath, text, extractionMethod: "texto" };
 }
 
+// Índice de tickets originales (plataforma, pedido → PDF) para reimprimirlos aunque B-POS se reinicie
+function originalsIndexFile() {
+  return path.join(app.getPath("userData"), "originales.json");
+}
+
+function readOriginalsIndex() {
+  try {
+    const list = JSON.parse(fs.readFileSync(originalsIndexFile(), "utf8"));
+    return Array.isArray(list) ? list.filter((j) => j && j.filePath && fs.existsSync(j.filePath)) : [];
+  } catch {
+    return [];
+  }
+}
+
+function rememberOriginal(job) {
+  if (!job.filePath || !job.platform || !job.orderId || job.format === "text") return;
+  try {
+    const list = readOriginalsIndex().filter((j) => !(j.platform === job.platform && j.orderId === job.orderId));
+    list.push({ platform: job.platform, orderId: job.orderId, filePath: job.filePath, receivedAt: job.receivedAt });
+    fs.writeFileSync(originalsIndexFile(), JSON.stringify(list.slice(-1000)));
+  } catch (error) {
+    console.error("No se pudo guardar el índice de originales:", error.message);
+  }
+}
+
 /** Encabezado "41 / Francisco / Plataforma" → "Francisco" (el renglón con letras que sigue al número). */
 function customerFromHeader(header) {
   const lines = String(header || "").split("\n").map((l) => l.trim()).filter(Boolean);
@@ -134,6 +159,7 @@ async function handlePrintJob(buffer) {
       if (name) parsed.customer = { ...(parsed.customer || {}), name };
     }
     Object.assign(job, parsed, { rawText: ticket.text });
+    rememberOriginal(job);
   } catch (error) {
     // Se manda igual: en el Bridge se ve el texto y se resuelve a mano
     job.parseError = error.message;
@@ -335,10 +361,11 @@ server.post("/print-original", async (req, res) => {
   try {
     const { platform, orderId, stations, force } = req.body || {};
     // El PDF se toma de la cola del Agent, nunca de una ruta que mande el navegador
-    const job = [...printQueue].reverse().find(
-      (j) => String(j.platform || "").toLowerCase() === String(platform || "").toLowerCase() &&
-        String(j.orderId || "").toUpperCase() === String(orderId || "").toUpperCase()
-    );
+    const same = (j) =>
+      String(j.platform || "").toLowerCase() === String(platform || "").toLowerCase() &&
+      String(j.orderId || "").toUpperCase() === String(orderId || "").toUpperCase();
+    // Primero la cola de esta sesión; si B-POS se reinició, el índice guardado en disco
+    const job = [...printQueue].reverse().find(same) || [...readOriginalsIndex()].reverse().find(same);
     if (!job) return res.status(404).json({ success: false, error: "El Agent no tiene el ticket original de ese pedido." });
     const result = await stationPrinter.printOriginal({
       platform,

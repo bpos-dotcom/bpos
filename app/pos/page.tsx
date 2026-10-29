@@ -17,7 +17,7 @@ import { Product } from "@/data/products";
 import { getAdminProducts } from "@/lib/admin";
 import { getCurrentUser, CurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
-import { createPrintJobsForOrder } from "@/lib/bridge/printManager";
+import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { Sidebar } from "@/components/layout/Sidebar";
 import RequirePermission from "@/components/auth/RequirePermission";
@@ -264,7 +264,12 @@ function PosScreen() {
 
     saveOrders([...orders, newOrder]);
     discountInventoryByOrder(newOrder.id, cart);
-    createPrintJobsForOrder(newOrder);
+    // Comandas por estación y ticket del cliente en Caja, directo a las térmicas
+    void printSale(newOrder, { stations: saleStations(newOrder), customer: true }, false)
+      .then((failed) => {
+        if (failed.length) alert(`Pedido cobrado, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`);
+      })
+      .catch(() => alert("Pedido cobrado, pero B-POS no pudo imprimir. Revisa que B-POS esté abierto en esta computadora y reimprime desde Impresiones."));
     addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por $${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
 
     alert(`Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);

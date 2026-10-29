@@ -1,7 +1,7 @@
 "use client";
 
 import { getAdminProducts } from "@/lib/admin";
-import { createPrintJobsForOrder } from "@/lib/bridge/printManager";
+import type { DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
 import { applyInventoryForOrder } from "@/lib/inventory";
 import { createKdsCriticalError, notifyKdsUpdated } from "@/lib/kds";
@@ -73,6 +73,8 @@ export type AutomaticSaleOrder = {
   kdsReleasedAt: string;
   kdsCompleted: boolean;
   kdsCompletedAt?: string;
+  /** Ticket armado por el Bridge con los renglones del pedido original (para reimprimir igual) */
+  deliveryTicket?: DeliveryTicket;
 };
 
 function readOrders(): AutomaticSaleOrder[] {
@@ -101,7 +103,7 @@ const LATE_SALE_MS = 15 * 60 * 1000;
 
 export function createAutomaticSale(
   payload: SaleReadyPayload,
-  options: { receivedAt?: string } = {}
+  options: { receivedAt?: string; ticket?: DeliveryTicket } = {}
 ): AutomaticSaleResult {
   if (typeof window === "undefined") {
     return {
@@ -235,6 +237,7 @@ export function createAutomaticSale(
     kdsReleasedAt: new Date().toISOString(),
     kdsCompleted: late,
     ...(late ? { kdsCompletedAt: new Date().toISOString() } : {}),
+    ...(options.ticket ? { deliveryTicket: options.ticket } : {}),
   };
 
   try {
@@ -255,7 +258,7 @@ export function createAutomaticSale(
     return { success: false, duplicate: false, error: message };
   }
 
-  createPrintJobsForOrder(order);
+  // Los tickets de estación y de bolsa ya los imprimió el Bridge (tickets propios); aquí no se generan comandas.
 
   // Bloque 4: usa el mismo motor de inventario que las ventas normales.
   // La protección por externalOrderKey evita descuentos duplicados.
