@@ -207,6 +207,8 @@ export function createAutomaticSale(
 
     items.push({
       ...product,
+      // Un producto que no se vende por separado es un modificador de la plataforma: su precio ya va en el renglón principal
+      ...(product.notSoldAlone ? { price: 0 } : {}),
       quantity,
       externalName: preparedProduct.externalName,
       // Combo: cada parte va a su estación y descuenta su receta

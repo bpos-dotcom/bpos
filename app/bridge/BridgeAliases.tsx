@@ -1,5 +1,6 @@
 "use client";
 
+import { ProductPicker } from "@/components/products/ProductPicker";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@/data/products";
 import type { Ingredient } from "@/data/inventory";
@@ -94,6 +95,7 @@ export default function BridgeAliases({
   // Equivalencia que se está editando (se guarda encima en lugar de borrarla)
   const [editing, setEditing] = useState<BridgeAlias | null>(null);
   const [aliasQuery, setAliasQuery] = useState("");
+  const [pickingProduct, setPickingProduct] = useState(false);
   const formRef = useRef<HTMLElement | null>(null);
   const [aiNote, setAiNote] = useState("");
   const [message, setMessage] = useState("");
@@ -536,18 +538,32 @@ export default function BridgeAliases({
         {actionType === "product" && (
           <label className="grid gap-2 text-sm font-bold text-zinc-300">
             Producto real en B-POS
-            <select
-              value={productId}
-              onChange={(event) => setProductId(event.target.value)}
-              className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 font-normal text-white outline-none transition focus:border-orange-500"
+            {/* Buscador en lugar de una lista gigante */}
+            <button
+              type="button"
+              onClick={() => setPickingProduct(true)}
+              className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-left font-normal text-white transition hover:border-orange-500"
             >
-              <option value="">Selecciona un producto</option>
-              {sortedProducts.map((product) => (
-                <option key={product.id} value={product.id}>
-                  {product.name}
-                </option>
-              ))}
-            </select>
+              <span className={productId ? "" : "text-zinc-500"}>
+                {(() => {
+                  const chosen = products.find((p) => String(p.id) === productId);
+                  return chosen ? `${chosen.emoji} ${chosen.name} · ${chosen.category}${chosen.notSoldAlone ? " · 🚫 no se vende solo" : ""}` : "🔍 Buscar producto";
+                })()}
+              </span>
+              <span className="text-xs font-black text-orange-400">{productId ? "Cambiar" : "Buscar"}</span>
+            </button>
+            {pickingProduct && (
+              <ProductPicker
+                title="Producto real en B-POS"
+                products={sortedProducts}
+                detail={(p) => (p.notSoldAlone ? "🚫 no se vende solo" : "")}
+                onClose={() => setPickingProduct(false)}
+                onPick={(p) => {
+                  setProductId(String(p.id));
+                  setPickingProduct(false);
+                }}
+              />
+            )}
 
             <span className="text-xs font-normal text-zinc-500">
               Al crear la venta, B-POS aplicará la receta configurada para este

@@ -45,7 +45,7 @@ export function ProductPicker({ title, products, onPick, onClose, detail }: Prop
                   <span className="block truncate font-black">{p.name}</span>
                   <span className="block text-xs text-zinc-400">
                     {p.category} · {p.station} · ${p.price.toFixed(2)}
-                    {detail ? ` · ${detail(p)}` : ""}
+                    {detail?.(p) ? ` · ${detail(p)}` : ""}
                   </span>
                 </span>
               </button>
