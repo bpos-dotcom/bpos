@@ -5,7 +5,7 @@
  *   npx tsx scripts/test-compuestos.ts
  */
 import type { ModifierGroup, Product } from "@/data/products";
-import { buildSelection, copyGroups, itemConsumption, kitchenItems, linkedOwner, migrateComponents, needsChoices, OWN_OPTIONS } from "@/lib/compound";
+import { buildSelection, compoundRouting, copyGroups, extrasPrice, itemConsumption, kitchenItems, linkedOwner, migrateComponents, needsChoices, OWN_OPTIONS } from "@/lib/compound";
 import { saleTicket } from "@/lib/bridge/sale-tickets";
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { stationsByLine } from "@/lib/bridge/station-routing";
@@ -91,7 +91,7 @@ const combo = products[5];
 // 1. Elegir: el refresco hay que elegirlo; lo fijo viene solo
 check("combo pide elegir (refresco)", needsChoices(combo, products));
 check("combo boneless pide elegir (salsas de los boneless)", needsChoices(products[6], products));
-check("alitas con refresco fijo no pide nada", !needsChoices(products[7], products));
+check("producto con otro producto enlazado abre la ventana (para instrucciones)", needsChoices(products[7], products));
 const sel = buildSelection(combo, products, { [OWN_OPTIONS]: { r: ["manz"] } });
 check("partes: hamburguesa, papas y manzanita", sel.parts?.map((p) => p.name).join(",") === "Hamburguesa Original,Salchipapas,Manzanita", sel.parts);
 check("combo sin comanda propia", sel.ownTicket === false);
@@ -183,6 +183,48 @@ check("copia: claves nuevas", copied[0].key !== salsas.key && copied[0].options[
 check("copia: marca de dónde vino", copied[0].copiedFrom?.productName === "Boneless Individuales" && copied[0].copiedFrom.edited === false);
 copied[0].options.push({ key: "x", name: "Búfalo" });
 check("copia: cambiar la copia no cambia el original", salsas.options.length === 2);
+
+// 10. Combo Favorito: hamburguesa a elegir (Parrilla), salchipapas con aderezo (Freidora) y refresco (Barra),
+// con instrucción solo para la hamburguesa
+const aderezos: ModifierGroup = { key: "ad", name: "Aderezo", min: 1, included: 1, extraPrice: 15, max: 0, options: [{ key: "ch", name: "Chipotle" }, { key: "qs", name: "Queso" }] };
+const catalog: Product[] = [
+  { id: 30, name: "Hamburguesa Polaca", category: "Burgers", price: 129, emoji: "🍔", station: "Parrilla" },
+  { id: 31, name: "Hamburguesa Sriracha", category: "Burgers", price: 139, emoji: "🍔", station: "Parrilla" },
+  { id: 32, name: "Salchipapas", category: "Snacks", price: 59, emoji: "🍟", station: "Freidora", modifierGroups: [aderezos] },
+  { id: 33, name: "Refresco", category: "Bebidas", price: 35, emoji: "🥤", station: "Barra" },
+];
+const favorito: Product = {
+  id: 40,
+  name: "Combo Favorito",
+  category: "Combos",
+  price: 189,
+  emoji: "🍱",
+  station: "Cocina",
+  noOwnTicket: true,
+  modifierGroups: [
+    { key: "h", name: "Hamburguesa", min: 1, included: 1, extraPrice: 0, max: 1, options: [{ key: "pol", name: "Hamburguesa Polaca", productId: 30 }, { key: "sri", name: "Hamburguesa Sriracha", productId: 31 }] },
+    fixed("sp", "Salchipapas", 32),
+    fixed("rf", "Refresco", 33),
+  ],
+};
+catalog.push(favorito);
+check("Combo Favorito abre la ventana", needsChoices(favorito, catalog));
+const selF = buildSelection(favorito, catalog, { [OWN_OPTIONS]: { h: ["pol"] }, [linkedOwner(32)]: { ad: ["ch", "qs"] } });
+const partsF = selF.parts!.map((p) => (p.productId === 30 ? { ...p, comment: "Sin cebolla, término medio" } : p));
+const favTicket = saleTicket({ id: 9, createdAt: new Date().toISOString(), items: [{ name: "Combo Favorito", price: 204, quantity: 1, station: "Cocina", parts: partsF, ownTicket: false }], total: 204 });
+check("Favorito: Parrilla, Freidora y Barra", favTicket.items[0].stations.join(",") === "Parrilla,Freidora,Barra", favTicket.items[0].stations);
+const parrillaF = stationTicketHtml(favTicket, "Parrilla", settings, 58);
+check("Parrilla: Hamburguesa Polaca con su instrucción", parrillaF.includes("Hamburguesa Polaca") && parrillaF.includes("Sin cebolla, término medio"), parrillaF.slice(-500));
+check("Parrilla: sin salchipapas ni aderezos", !parrillaF.includes("Salchipapas") && !parrillaF.includes("Chipotle"));
+const freidoraF = stationTicketHtml(favTicket, "Freidora", settings, 58);
+check("Freidora: Salchipapas con Chipotle y Queso", ["Salchipapas", "Chipotle", "Queso"].every((x) => freidoraF.includes(x)), freidoraF.slice(-500));
+check("Freidora: no le llega la instrucción de la hamburguesa", !freidoraF.includes("Sin cebolla"));
+check("Freidora: cobra el aderezo extra ($15)", extrasPrice(undefined, partsF) === 15);
+const kdsF = kitchenItems([{ id: 40, name: "Combo Favorito", quantity: 1, station: "Cocina", parts: partsF, ownTicket: false, comment: "Para llevar" }]);
+check("KDS: la hamburguesa lleva su instrucción y la del combo", kdsF[0].comment === "Para llevar · Sin cebolla, término medio", kdsF[0].comment);
+check("KDS: las salchipapas solo la del combo", kdsF[1].comment === "Para llevar", kdsF[1].comment);
+const reparto = compoundRouting(favorito, catalog).map((r) => `${r.station}: ${r.items.join(" + ")}`).join(" | ");
+check("editor: así se reparte", reparto === "Parrilla: Hamburguesa (a elegir: Hamburguesa Polaca, Hamburguesa Sriracha) | Freidora: Salchipapas | Barra: Refresco", reparto);
 
 console.log(`\n${ok} bien, ${bad} mal`);
 process.exit(bad ? 1 : 0);

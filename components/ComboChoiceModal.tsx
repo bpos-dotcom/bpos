@@ -36,6 +36,9 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
   const [picks, setPicks] = useState<Record<string, Picks>>({});
   const [withComment, setWithComment] = useState(false);
   const [comment, setComment] = useState("");
+  // Instrucción para una parte del combo (producto enlazado → texto)
+  const [partComments, setPartComments] = useState<Record<number, string>>({});
+  const [openPartComment, setOpenPartComment] = useState<number | null>(null);
   const pickedOf = (owner: string, groups: ModifierGroup[] | undefined) => ({ ...autoPicks(groups), ...(picks[owner] || {}) });
 
   const ownPicks = pickedOf(OWN_OPTIONS, product.modifierGroups);
@@ -134,6 +137,42 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
           })}
         </div>
 
+        {/* Producto compuesto: instrucción para cada producto que lleva (le llega solo a su estación) */}
+        {(result.parts?.length ?? 0) > 0 && (
+          <div className="mt-5 border-t border-zinc-800 pt-4">
+            <p className="text-sm font-black text-zinc-300">Instrucciones por producto</p>
+            <div className="mt-2 space-y-2">
+              {result.parts!.map((part) => (
+                <div key={part.productId} className="rounded-2xl border border-zinc-800 bg-black p-3">
+                  <div className="flex items-center justify-between gap-2 text-sm">
+                    <span className="font-bold">
+                      {part.quantity > 1 ? `${part.quantity}x ` : ""}
+                      {part.name} <span className="text-xs text-orange-400">· {part.station}</span>
+                    </span>
+                    <button
+                      onClick={() => setOpenPartComment(openPartComment === part.productId ? null : part.productId)}
+                      className="rounded-xl border border-zinc-700 px-2 py-1 text-xs font-black text-zinc-300"
+                    >
+                      💬 {partComments[part.productId] ? "Editar" : "Instrucción"}
+                    </button>
+                  </div>
+                  {partComments[part.productId] && openPartComment !== part.productId && <p className="mt-1 text-xs font-bold text-yellow-200">💬 {partComments[part.productId]}</p>}
+                  {openPartComment === part.productId && (
+                    <input
+                      autoFocus
+                      value={partComments[part.productId] || ""}
+                      onChange={(e) => setPartComments((prev) => ({ ...prev, [part.productId]: e.target.value }))}
+                      placeholder={`Ej. ${part.station === "Parrilla" ? "sin cebolla, término medio" : "bien dorado, sin sal"}`}
+                      aria-label={`Instrucción para ${part.name}`}
+                      className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+                    />
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Comentario para la cocina (opcional) */}
         <label className="mt-5 flex cursor-pointer items-center gap-3 border-t border-zinc-800 pt-4 font-black">
           <input type="checkbox" checked={withComment} onChange={(e) => setWithComment(e.target.checked)} className="h-5 w-5 accent-orange-500" />
@@ -156,7 +195,14 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
           <button onClick={onClose} className="flex-1 rounded-2xl border border-zinc-800 py-3 font-black">
             Cancelar
           </button>
-          <button onClick={() => onConfirm({ ...result, comment: withComment && comment.trim() ? comment.trim() : undefined })} disabled={Boolean(problem)} className="flex-1 rounded-2xl bg-orange-500 py-3 font-black text-black disabled:opacity-40">
+          <button
+            onClick={() =>
+              onConfirm({
+                ...result,
+                parts: result.parts?.map((p) => (partComments[p.productId]?.trim() ? { ...p, comment: partComments[p.productId].trim() } : p)),
+                comment: withComment && comment.trim() ? comment.trim() : undefined,
+              })
+            } disabled={Boolean(problem)} className="flex-1 rounded-2xl bg-orange-500 py-3 font-black text-black disabled:opacity-40">
             Agregar ${total.toFixed(2)}
           </button>
         </div>

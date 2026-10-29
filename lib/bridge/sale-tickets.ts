@@ -76,7 +76,7 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
               qty: (Number(p.quantity) || 1) * (Number(item.quantity) || 1),
               name: p.name,
               station: p.station,
-              ...(p.modifiers?.length ? { extras: [modifiersText(p.modifiers)] } : {}),
+              ...(p.modifiers?.length || p.comment ? { extras: [p.modifiers?.length ? modifiersText(p.modifiers) : "", p.comment ? `💬 ${p.comment}` : ""].filter(Boolean) } : {}),
             })),
           }
         : {}),

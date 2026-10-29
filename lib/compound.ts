@@ -39,6 +39,7 @@ export type SoldPart = {
   station: KitchenStation;
   label?: string; // grupo: "Refresco"
   modifiers?: SoldModifier[]; // opciones de ese producto (ej. salsas de los boneless del combo)
+  comment?: string; // instrucción solo para esta parte ("sin cebolla" a la hamburguesa del combo)
 };
 
 type ItemWithParts = { id: number; quantity: number; parts?: SoldPart[]; modifiers?: SoldModifier[] };
@@ -59,12 +60,33 @@ export function autoPicks(groups: ModifierGroup[] | undefined): Picks {
 }
 
 /** ¿Al agregarlo hay que preguntar algo? */
-export function needsChoices(product: Product, products: Product[]) {
+export function needsChoices(product: Product, _products?: Product[]) {
   const groups = product.modifierGroups || [];
   if (groups.some((g) => !isAutoGroup(g))) return true;
-  // Lo fijo puede ser un producto con sus propias opciones (los boneless del combo y sus salsas)
+  // Producto compuesto (lleva otros productos): se abre para poder dar instrucciones a cada uno
+  return groups.some((g) => g.options.some((o) => o.productId));
+}
+
+/**
+ * Cómo se reparte un producto compuesto en las estaciones, para el editor:
+ * [{ station: "Parrilla", items: ["Hamburguesa (a elegir)"] }, ...]
+ */
+export function compoundRouting(product: Product, products: Product[]) {
   const byId = new Map(products.map((p) => [Number(p.id), p]));
-  return groups.some((g) => g.options.some((o) => o.productId && byId.get(Number(o.productId))?.modifierGroups?.length));
+  const rows = new Map<KitchenStation, string[]>();
+  const add = (station: KitchenStation, text: string) => rows.set(station, [...(rows.get(station) || []), text]);
+  if (!product.noOwnTicket) add(product.station || "Cocina", `${product.name} (completo)`);
+  for (const group of product.modifierGroups || []) {
+    const linked = group.options.map((o) => (o.productId ? byId.get(Number(o.productId)) : undefined)).filter((p): p is Product => Boolean(p));
+    if (!linked.length) continue;
+    const stations = [...new Set(linked.map((p) => p.station || "Cocina"))];
+    for (const station of stations) {
+      const here = linked.filter((p) => (p.station || "Cocina") === station);
+      add(station, here.length === 1 && linked.length === 1 ? here[0].name : `${group.name} (a elegir: ${here.map((p) => p.name).join(", ")})`);
+    }
+  }
+  (product.extraStations || []).forEach((e) => add(e.station, e.text));
+  return [...rows.entries()].map(([station, items]) => ({ station, items }));
 }
 
 /** Cuántas de más eligió en un grupo (las que pasan de las incluidas). */
@@ -208,7 +230,7 @@ export function extrasPrice(modifiers?: SoldModifier[], parts?: SoldPart[]) {
 /** Renglón del carrito: el mismo producto con otras elecciones es otro renglón. */
 export function lineIdFor(productId: number, parts?: SoldPart[], modifiers?: SoldModifier[]) {
   const mods = (list?: SoldModifier[]) => (list || []).map((m) => `${m.group}:${m.name}`).join("+");
-  const partKey = (parts || []).map((p) => `${p.productId}x${p.quantity}${p.modifiers?.length ? `(${mods(p.modifiers)})` : ""}`).join(",");
+  const partKey = (parts || []).map((p) => `${p.productId}x${p.quantity}${p.modifiers?.length ? `(${mods(p.modifiers)})` : ""}${p.comment ? `[${p.comment}]` : ""}`).join(",");
   return [String(productId), partKey, mods(modifiers)].filter(Boolean).join("|");
 }
 
@@ -280,12 +302,15 @@ export function kitchenItems<
       ...item.parts.map((part, j) => {
         // En un combo sin comanda propia, las notas del combo viajan con cada parte
         const modifiers = [...(part.modifiers || []), ...(item.ownTicket ? [] : (item.modifiers || []).filter((m) => !m.extra))];
+        // Comentario del combo + instrucción de esta parte
+        const comment = [(item as { comment?: string }).comment, part.comment].filter(Boolean).join(" · ") || undefined;
         return {
           ...item,
           name: part.name,
           quantity: (Number(part.quantity) || 1) * (Number(item.quantity) || 1),
           station: part.station,
           modifiers: modifiers.length ? modifiers : undefined,
+          comment,
           fromCombo: item.name,
           lineKey: `${index}-${j}`,
         };
