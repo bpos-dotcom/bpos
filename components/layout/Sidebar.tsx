@@ -15,6 +15,7 @@ import {
   OPERATIONS_ALERT_EVENT,
 } from "@/lib/notifications/operationsCenter";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
+import { runDailyBackup } from "@/lib/cloud/backup";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
 
 const navItems = [
@@ -90,12 +91,15 @@ export function Sidebar() {
   useEffect(() => {
     setAcknowledgedSignature(localStorage.getItem(ACK_KEY) || "");
     void refreshOperations();
+    // Respaldo automático del día (una vez; lo guarda la computadora de la caja)
+    const backupTimer = window.setTimeout(() => void runDailyBackup(), 60_000);
     const timer = window.setInterval(() => void refreshOperations(), POLL_MS);
     const refresh = () => void refreshOperations();
     window.addEventListener(OPERATIONS_ALERT_EVENT, refresh);
     window.addEventListener("bpos:inventory-alerts-updated", refresh);
     window.addEventListener("bpos:critical-errors-updated", refresh);
     return () => {
+      window.clearTimeout(backupTimer);
       window.clearInterval(timer);
       window.removeEventListener(OPERATIONS_ALERT_EVENT, refresh);
       window.removeEventListener("bpos:inventory-alerts-updated", refresh);

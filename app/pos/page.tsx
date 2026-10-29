@@ -191,11 +191,11 @@ function PosScreen() {
     );
   }
 
-  function clearCart() {
+  async function clearCart() {
     if (cart.length === 0) return;
 
     if (currentUser?.role !== "Admin") {
-      const authorized = authorizeAdmin("limpiar pedido");
+      const authorized = await authorizeAdmin("limpiar pedido");
       if (!authorized) return;
     }
 
@@ -226,14 +226,14 @@ function PosScreen() {
     ) + 1;
   }
 
-  function confirmCheckout(data: {
+  async function confirmCheckout(data: {
     paymentMethod: PaymentMethod;
     cashReceived: number;
     cardAmount: number;
     transferAmount: number;
     discount: number;
   }) {
-    if (data.discount > 0 && !requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento")) return;
+    if (data.discount > 0 && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
 
     const total = Math.max(subtotal - data.discount, 0);
 
@@ -288,8 +288,8 @@ function PosScreen() {
     });
   }
 
-  function deleteOrder(id: number) {
-    if (!requirePermissionOrAdmin(currentUser, "pos.cancel", "cancelar o borrar una venta")) return;
+  async function deleteOrder(id: number) {
+    if (!(await requirePermissionOrAdmin(currentUser, "pos.cancel", "cancelar o borrar una venta"))) return;
 
     if (!confirm("¿Seguro que quieres borrar este pedido?")) return;
 

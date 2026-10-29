@@ -1,41 +1,35 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { setCurrentUser, UserRole } from "@/lib/auth";
+import { setCurrentUser } from "@/lib/auth";
 import { addAuditEvent } from "@/lib/audit";
-import { DEFAULT_USERS } from "@/lib/users";
-
-type SystemUser = {
-  id: number;
-  name: string;
-  pin: string;
-  role: UserRole;
-  active: boolean;
-};
-
-const USERS_KEY = "bpos_users";
+import { getUsers, migrateUserPins, type SystemUser } from "@/lib/users";
+import { verifyPin } from "@/lib/pin-hash";
 
 export default function LoginPage() {
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<SystemUser | null>(null);
   const [pin, setPin] = useState("");
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    const saved = localStorage.getItem(USERS_KEY);
-    const activeUsers: SystemUser[] = saved
-      ? JSON.parse(saved).filter((user: SystemUser) => user.active)
-      : DEFAULT_USERS.filter((user) => user.active);
-
-    setUsers(activeUsers);
+    const load = () => setUsers(getUsers().filter((user) => user.active));
+    // Los PIN viejos (texto) se cifran aquí la primera vez
+    void migrateUserPins().then(load);
+    window.addEventListener("bpos:users-updated", load);
+    return () => window.removeEventListener("bpos:users-updated", load);
   }, []);
 
-  function login() {
+  async function login() {
     if (!selectedUser) {
       alert("Selecciona un usuario.");
       return;
     }
 
-    if (selectedUser.pin !== pin) {
+    setChecking(true);
+    const ok = await verifyPin(pin, getUsers().find((u) => u.id === selectedUser.id) || selectedUser);
+    setChecking(false);
+    if (!ok) {
       addAuditEvent({category:"Seguridad",action:"login.failed",description:`PIN incorrecto para ${selectedUser.name}`,entityId:String(selectedUser.id),metadata:{userName:selectedUser.name}});
       alert("PIN incorrecto.");
       setPin("");
@@ -135,7 +129,7 @@ export default function LoginPage() {
               value={pin}
               onChange={(event) => setPin(event.target.value)}
               onKeyDown={(event) => {
-                if (event.key === "Enter") login();
+                if (event.key === "Enter" && !checking) void login();
               }}
               placeholder="••••"
               type="password"
@@ -145,10 +139,11 @@ export default function LoginPage() {
             />
 
             <button
-              onClick={login}
+              onClick={() => void login()}
+              disabled={checking}
               className="mt-6 w-full rounded-2xl bg-orange-500 py-4 font-black text-black transition hover:bg-orange-400"
             >
-              Entrar
+              {checking ? "Revisando..." : "Entrar"}
             </button>
           </>
         )}

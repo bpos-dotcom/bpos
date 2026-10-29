@@ -35,15 +35,16 @@ export function saveUserPermissions(userId:number,items:PermissionKey[]){const s
 export function resetUserPermissions(userId:number){const saved=JSON.parse(localStorage.getItem(KEY)||"{}");delete saved[userId];localStorage.setItem(KEY,JSON.stringify(saved));window.dispatchEvent(new Event("bpos:permissions-updated"));}
 // El Admin siempre puede todo: así los permisos nuevos (ej. owner.view) no le quedan bloqueados por una lista guardada antes.
 export function hasPermission(user:Pick<CurrentUser,"id"|"role">|null|undefined,key:PermissionKey){return !!user&&user.id>0&&(user.role==="Admin"||getUserPermissions(user.id,user.role).includes(key));}
-export function authorizeWithAdminPin(action:string, requestedBy?:CurrentUser|null):boolean{
+// El PIN se revisa contra su hash (lib/pin-hash.ts): por eso esperan (async)
+export async function authorizeWithAdminPin(action:string, requestedBy?:CurrentUser|null):Promise<boolean>{
  const pin=window.prompt(`Se requiere autorización de administrador para: ${action}\n\nIngresa PIN de administrador:`);
  if(!pin)return false;
- const admin=findActiveAdminByPin(pin);
+ const admin=await findActiveAdminByPin(pin);
  if(!admin){addAuditEvent({category:"Seguridad",action:"authorization.denied",description:`Autorización rechazada para ${action}`,userId:requestedBy?String(requestedBy.id):undefined,userName:requestedBy?.name,metadata:{action}});alert("PIN de administrador incorrecto.");return false;}
  addAuditEvent({category:"Seguridad",action:"authorization.approved",description:`${admin.name} autorizó: ${action}`,userId:String(admin.id),userName:admin.name,metadata:{action,requestedBy:requestedBy?.name}});
  return true;
 }
-export function requirePermissionOrAdmin(user:CurrentUser|null|undefined,key:PermissionKey,action:string){if(hasPermission(user,key))return true;return authorizeWithAdminPin(action,user);}
+export async function requirePermissionOrAdmin(user:CurrentUser|null|undefined,key:PermissionKey,action:string):Promise<boolean>{if(hasPermission(user,key))return true;return authorizeWithAdminPin(action,user);}
 
 export const ROUTE_PERMISSIONS:{prefix:string;permission:PermissionKey}[]=[
  {prefix:"/pos",permission:"pos.view"},{prefix:"/caja/historial",permission:"cash.history"},{prefix:"/caja",permission:"cash.view"},{prefix:"/cocina",permission:"kds.view"},{prefix:"/impresiones",permission:"printing.view"},{prefix:"/inventario",permission:"inventory.view"},{prefix:"/compras",permission:"purchases.view"},{prefix:"/bridge",permission:"bridge.view"},{prefix:"/reportes",permission:"reports.view"},{prefix:"/dueno",permission:"owner.view"},{prefix:"/configuracion/auditoria",permission:"audit.view"},{prefix:"/configuracion/usuarios",permission:"users.manage"},{prefix:"/configuracion",permission:"settings.view"},{prefix:"/",permission:"dashboard.view"},

@@ -59,9 +59,9 @@ export default function ImpresionesPage() {
     });
   }, [sales, query]);
 
-  function openReprint(sale: SaleForTickets) {
+  async function openReprint(sale: SaleForTickets) {
     const user = getCurrentUser();
-    if (!requirePermissionOrAdmin(user, "printing.reprint", "reimprimir un pedido")) return;
+    if (!(await requirePermissionOrAdmin(user, "printing.reprint", "reimprimir un pedido"))) return;
     setSelected(sale);
   }
 

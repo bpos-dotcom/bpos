@@ -34,10 +34,10 @@ export default function InventarioPage() {
     refreshInventory();
   }, []);
 
-  function handleAdjustment() {
+  async function handleAdjustment() {
     try {
       const user = getCurrentUser();
-      if (!requirePermissionOrAdmin(user, "inventory.adjust", "ajustar inventario")) return;
+      if (!(await requirePermissionOrAdmin(user, "inventory.adjust", "ajustar inventario"))) return;
       if (!ingredientId) {
         alert("Selecciona un ingrediente.");
         return;
