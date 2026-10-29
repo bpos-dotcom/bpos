@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { guardBridgeRequest } from "@/lib/bridge/api-guard";
+import { bridgeOrders, saveBridgeOrders } from "@/lib/bridge/orders-store";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
@@ -49,16 +50,8 @@ type BridgeOrder = {
   [key: string]: unknown;
 };
 
-declare global {
-  // eslint-disable-next-line no-var
-  var bposBridgeOrders: BridgeOrder[] | undefined;
-}
-
-const orders = globalThis.bposBridgeOrders ?? [];
-
-if (!globalThis.bposBridgeOrders) {
-  globalThis.bposBridgeOrders = orders;
-}
+// Guardados en disco: un pedido sin equivalencia sobrevive a reinicios
+const orders = bridgeOrders<BridgeOrder>();
 
 function normalizePlatform(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
@@ -134,6 +127,7 @@ export async function POST(request: NextRequest) {
     };
 
     orders.unshift(savedOrder);
+    saveBridgeOrders();
 
     console.log("Pedido recibido desde B-POS Agent:", {
       platform: savedOrder.platform,
@@ -259,6 +253,7 @@ export async function PATCH(request: NextRequest) {
       ...(body.stationPrint ? { stationPrint: body.stationPrint } : {}),
       bridgeUpdatedAt: now,
     };
+    saveBridgeOrders();
 
     return NextResponse.json({ success: true, order: orders[index] });
   } catch (error) {
@@ -280,5 +275,6 @@ export async function DELETE(request: NextRequest) {
   if (denied) return denied;
 
   orders.splice(0, orders.length);
+  saveBridgeOrders();
   return NextResponse.json({ success: true, count: 0, orders: [] });
 }

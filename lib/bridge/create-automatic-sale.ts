@@ -68,10 +68,11 @@ export type AutomaticSaleOrder = {
     inventoryAdjustments: SaleReadyPayload["inventoryAdjustments"];
     ignoredLines: SaleReadyPayload["ignoredLines"];
   };
-  status: "Nuevo";
+  status: "Nuevo" | "Entregado"; // "Entregado" si se equivaló tarde (cocina ya lo preparó)
   kdsReleased: true;
   kdsReleasedAt: string;
-  kdsCompleted: false;
+  kdsCompleted: boolean;
+  kdsCompletedAt?: string;
 };
 
 function readOrders(): AutomaticSaleOrder[] {
@@ -95,8 +96,12 @@ function nextOrderId(orders: AutomaticSaleOrder[]) {
   return orders.reduce((max, order) => Math.max(max, Number(order.id) || 0), 0) + 1;
 }
 
+/** Si se equivale después de esto, cocina ya lo preparó con el ticket impreso: entra al KDS como entregado. */
+const LATE_SALE_MS = 15 * 60 * 1000;
+
 export function createAutomaticSale(
-  payload: SaleReadyPayload
+  payload: SaleReadyPayload,
+  options: { receivedAt?: string } = {}
 ): AutomaticSaleResult {
   if (typeof window === "undefined") {
     return {
@@ -193,12 +198,16 @@ export function createAutomaticSale(
     };
   }
   const label = platformLabel(payload.platform);
+  // La venta lleva la hora real del pedido (no la de cuando se equivaló)
+  const received = Date.parse(options.receivedAt || "");
+  const createdAt = Number.isFinite(received) && received <= Date.now() ? new Date(received).toISOString() : new Date().toISOString();
+  const late = Date.now() - Date.parse(createdAt) > LATE_SALE_MS;
 
   const order: AutomaticSaleOrder = {
     id,
     localOrderNumber: sequence.localOrderNumber,
     shiftSessionId: sequence.shiftSessionId,
-    createdAt: new Date().toISOString(),
+    createdAt,
     items,
     details: {
       orderType: label,
@@ -221,10 +230,11 @@ export function createAutomaticSale(
       inventoryAdjustments: payload.inventoryAdjustments,
       ignoredLines: payload.ignoredLines,
     },
-    status: "Nuevo",
+    status: late ? "Entregado" : "Nuevo",
     kdsReleased: true,
     kdsReleasedAt: new Date().toISOString(),
-    kdsCompleted: false,
+    kdsCompleted: late,
+    ...(late ? { kdsCompletedAt: new Date().toISOString() } : {}),
   };
 
   try {

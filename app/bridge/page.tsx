@@ -513,7 +513,9 @@ export default function BridgePage() {
         saleCreationLocks.current.add(externalKey);
 
         try {
-          const result = createAutomaticSale(order.saleReadyPayload);
+          const result = createAutomaticSale(order.saleReadyPayload, {
+            receivedAt: order.bridgeReceivedAt || order.receivedAt,
+          });
 
           if (!result.success) {
             console.error(
@@ -669,6 +671,18 @@ export default function BridgePage() {
         ?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 50);
   }
+
+  // Desde la ventana de aviso (/bridge?equivaler=...&plataforma=...): abre el formulario con ese producto
+  const openedFromPrompt = useRef(false);
+  useEffect(() => {
+    if (openedFromPrompt.current || loading) return;
+    const params = new URLSearchParams(window.location.search);
+    const externalName = params.get("equivaler");
+    if (!externalName) return;
+    openedFromPrompt.current = true;
+    window.history.replaceState(null, "", "/bridge");
+    window.setTimeout(() => configureItem(externalName, params.get("plataforma") || ""), 0);
+  }, [loading]);
 
   return (
     <AppShell
