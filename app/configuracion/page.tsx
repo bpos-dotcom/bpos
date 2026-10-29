@@ -28,6 +28,12 @@ const adminModules = [
     description: "Alta, edición, precios, categorías y estaciones.",
   },
   {
+    title: "Mi plan",
+    href: "/configuracion/plan",
+    icon: "💳",
+    description: "Tu suscripción a B-POS: Basic, Pro o Max, prueba gratis y sucursales.",
+  },
+  {
     title: "Punto de venta",
     href: "/configuracion/pos",
     icon: "🖐️",
@@ -124,7 +130,7 @@ export default function ConfiguracionPage() {
     <RequireRole allow={["Admin"]}>
       <AppShell
         title="Centro de Administración"
-        subtitle="Administra completamente Burger Planet OS."
+        subtitle="Administra completamente tu negocio en B-POS."
       >
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           {adminModules.map((module) => (

@@ -1,7 +1,7 @@
 // Impresión de los pedidos de delivery en las impresoras del negocio.
 //
 // El Bridge solo lee el ticket de la plataforma para registrar la venta. Lo
-// que sale en papel son tickets propios de Burger Planet (printTickets):
+// que sale en papel son tickets propios del negocio (printTickets):
 // uno por estación con solo lo suyo, y el de la bolsa en Caja. Los arma la
 // pantalla del Bridge (conoce productos, recetas y equivalencias).
 //

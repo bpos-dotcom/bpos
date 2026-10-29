@@ -33,8 +33,13 @@ Reglas:
 - reason: en español, una frase corta que explique la elección (ej. "8 piezas = orden individual").
 - Regresa un elemento por cada renglón, en el mismo orden y con el texto del renglón tal cual en line.`;
 
-/** Sugerencias para los renglones; lanza error si la API falla (usar friendlyAiError). */
-export async function matchLines(key: string, lines: string[], platform: string, products: CatalogProduct[]): Promise<LineMatch[] | "refusal" | null> {
+/** Sugerencias para los renglones y lo que gastó; lanza error si la API falla (usar friendlyAiError). */
+export async function matchLines(
+  key: string,
+  lines: string[],
+  platform: string,
+  products: CatalogProduct[]
+): Promise<{ matches: LineMatch[] | "refusal" | null; usage?: { input_tokens: number; output_tokens: number } }> {
   const catalog = products.map((p) => `${p.id} | ${p.name} | ${p.category || ""} | $${p.price || 0}`).join("\n");
   const response = await anthropicClient(key).beta.messages.parse({
     model: AI_MODEL,
@@ -50,10 +55,11 @@ export async function matchLines(key: string, lines: string[], platform: string,
       },
     ],
   });
-  if (response.stop_reason === "refusal") return "refusal";
+  const usage = response.usage;
+  if (response.stop_reason === "refusal") return { matches: "refusal", usage };
   const parsed = response.parsed_output;
-  if (!parsed) return null;
+  if (!parsed) return { matches: null, usage };
   // Solo ids que existen de verdad
   const ids = new Set(products.map((p) => p.id));
-  return parsed.matches.map((m) => (m.action === "product" && !ids.has(m.productId) ? { ...m, action: "unknown" as const, productId: 0 } : m));
+  return { matches: parsed.matches.map((m) => (m.action === "product" && !ids.has(m.productId) ? { ...m, action: "unknown" as const, productId: 0 } : m)), usage };
 }

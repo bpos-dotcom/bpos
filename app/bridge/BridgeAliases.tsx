@@ -1,6 +1,7 @@
 "use client";
 
 import { ProductPicker } from "@/components/products/ProductPicker";
+import { aiFetch } from "@/lib/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@/data/products";
 import type { Ingredient } from "@/data/inventory";
@@ -310,9 +311,9 @@ export default function BridgeAliases({
     setAiNote("");
     setError("");
     try {
-      const response = await bridgeFetch("/api/ai/match", {
+      // IA de la nube (plan Max): la llave no está en esta computadora
+      const response = await aiFetch("/api/ai/match", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lines: [externalName.trim()],
           platform,

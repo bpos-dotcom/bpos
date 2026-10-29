@@ -1,6 +1,6 @@
-import { NextResponse, type NextRequest } from "next/server";
-import { guardBridgeRequest } from "@/lib/bridge/api-guard";
-import { friendlyAiError, readAnthropicKey } from "@/lib/ai/key-store";
+import type { NextRequest } from "next/server";
+import { friendlyAiError } from "@/lib/ai/key-store";
+import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 import { matchLines, type CatalogProduct } from "@/lib/ai/match";
 
 /**
@@ -11,12 +11,15 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-export async function POST(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+export function OPTIONS(request: NextRequest) {
+  return aiPreflight(request);
+}
 
-  const key = readAnthropicKey();
-  if (!key) return NextResponse.json({ success: false, error: "Primero guarda tu llave de Anthropic en Configuración → Subir menú con IA." }, { status: 400 });
+export async function POST(request: NextRequest) {
+  // En la nube con la llave de la plataforma: solo plan Max y dentro del presupuesto del mes
+  const session = await aiSession(request);
+  if ("error" in session) return session.error;
+  const { key } = session;
 
   let lines: string[] = [];
   let platform = "";
@@ -30,17 +33,18 @@ export async function POST(request: NextRequest) {
       .filter((p: CatalogProduct) => p.id && p.name)
       .slice(0, 600);
   } catch {
-    return NextResponse.json({ success: false, error: "Petición inválida." }, { status: 400 });
+    return aiReply(request, { success: false, error: "Petición inválida." }, 400);
   }
-  if (!lines.length) return NextResponse.json({ success: false, error: "No hay renglones para revisar." }, { status: 400 });
-  if (!products.length) return NextResponse.json({ success: false, error: "No hay productos en el catálogo." }, { status: 400 });
+  if (!lines.length) return aiReply(request, { success: false, error: "No hay renglones para revisar." }, 400);
+  if (!products.length) return aiReply(request, { success: false, error: "No hay productos en el catálogo." }, 400);
 
   try {
-    const matches = await matchLines(key, lines, platform, products);
-    if (matches === "refusal") return NextResponse.json({ success: false, error: "Claude no pudo revisar estos renglones." }, { status: 422 });
-    if (!matches) return NextResponse.json({ success: false, error: "Claude no regresó sugerencias. Intenta de nuevo." }, { status: 502 });
-    return NextResponse.json({ success: true, matches });
+    const { matches, usage } = await matchLines(key, lines, platform, products);
+    if (usage) await chargeAi(session, usage);
+    if (matches === "refusal") return aiReply(request, { success: false, error: "Claude no pudo revisar estos renglones." }, 422);
+    if (!matches) return aiReply(request, { success: false, error: "Claude no regresó sugerencias. Intenta de nuevo." }, 502);
+    return aiReply(request, { success: true, matches });
   } catch (error) {
-    return NextResponse.json({ success: false, error: friendlyAiError(error) }, { status: 502 });
+    return aiReply(request, { success: false, error: friendlyAiError(error) }, 502);
   }
 }

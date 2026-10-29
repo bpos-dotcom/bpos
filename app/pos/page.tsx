@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from "react";
 import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
 import { buildSelection, extrasPrice, lineIdFor, needsChoices } from "@/lib/compound";
+import { getBusinessSettings } from "@/lib/business-settings";
 import { CheckoutModal, PaymentMethod } from "@/components/CheckoutModal";
 import {
   OrderDetails,
@@ -496,7 +497,8 @@ function PosScreen() {
       )
       .join("\n");
 
-    const message = `🍔 *Burger Planet - Ticket #${formatOrderNumber(
+    const businessName = getBusinessSettings().businessName;
+    const message = `🧾 *${businessName} - Ticket #${formatOrderNumber(
       order as SavedOrder & { localOrderNumber?: number }
     )}*
 
@@ -511,7 +513,7 @@ Total: *$${order.total.toFixed(2)}*
 Tipo: ${order.details.orderType}
 Pago: ${order.details.paymentMethod}
 
-Gracias por pedir en Burger Planet 🚀`;
+Gracias por pedir en ${businessName} 🚀`;
 
     window.open(
       `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,

@@ -1,15 +1,18 @@
-import { NextResponse, type NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import type Anthropic from "@anthropic-ai/sdk";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import { guardBridgeRequest } from "@/lib/bridge/api-guard";
-import { AI_MODEL, anthropicClient, friendlyAiError, readAnthropicKey } from "@/lib/ai/key-store";
+import { AI_MODEL, anthropicClient, friendlyAiError } from "@/lib/ai/key-store";
+import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 
 /**
  * Configuración → Subir menú con IA.
  *   POST { files: [{ name, mediaType, data(base64) }], categories: [...] }
  * Claude lee las fotos o PDF del menú y regresa los productos. No guarda
  * nada: la pantalla los muestra para revisarlos antes de agregarlos.
+ * Corre en la nube (Vercel) con la llave de la plataforma: solo plan Max y
+ * dentro del presupuesto del mes (lib/ai/cloud.ts). La pantalla manda una
+ * página a la vez (Vercel acepta ~4.5 MB por solicitud).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -17,7 +20,7 @@ export const maxDuration = 300;
 
 const IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif"]);
 const MAX_FILES = 20;
-const MAX_BASE64 = 30 * 1024 * 1024; // el límite de Claude por solicitud es 32 MB
+const MAX_BASE64 = 4 * 1024 * 1024;
 
 const MenuSchema = z.object({
   items: z.array(
@@ -54,12 +57,13 @@ Reglas:
 - Si algo es ilegible o dudoso (precio borroso, producto repetido con precios distintos en dos fotos), inclúyelo con tu mejor lectura y avisa en warnings, en español y en pocas palabras.
 - Si una foto no es un menú, dilo en warnings.`;
 
-export async function POST(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+export function OPTIONS(request: NextRequest) {
+  return aiPreflight(request);
+}
 
-  const key = readAnthropicKey();
-  if (!key) return NextResponse.json({ success: false, error: "Primero guarda tu llave de Anthropic." }, { status: 400 });
+export async function POST(request: NextRequest) {
+  const session = await aiSession(request);
+  if ("error" in session) return session.error;
 
   let files: { name: string; mediaType: string; data: string }[] = [];
   let categories: string[] = [];
@@ -68,12 +72,12 @@ export async function POST(request: NextRequest) {
     files = Array.isArray(body?.files) ? body.files : [];
     categories = (Array.isArray(body?.categories) ? body.categories : []).filter((c: unknown) => typeof c === "string").slice(0, 100);
   } catch {
-    return NextResponse.json({ success: false, error: "Petición inválida." }, { status: 400 });
+    return aiReply(request, { success: false, error: "Petición inválida o archivo muy pesado. Sube una foto en lugar del PDF." }, 400);
   }
-  if (!files.length) return NextResponse.json({ success: false, error: "Sube al menos una foto o PDF del menú." }, { status: 400 });
-  if (files.length > MAX_FILES) return NextResponse.json({ success: false, error: `Máximo ${MAX_FILES} archivos por vez.` }, { status: 400 });
+  if (!files.length) return aiReply(request, { success: false, error: "Sube al menos una foto o PDF del menú." }, 400);
+  if (files.length > MAX_FILES) return aiReply(request, { success: false, error: `Máximo ${MAX_FILES} archivos por vez.` }, 400);
   if (files.reduce((n, f) => n + String(f.data || "").length, 0) > MAX_BASE64) {
-    return NextResponse.json({ success: false, error: "Los archivos pesan demasiado. Súbelos en dos tandas." }, { status: 400 });
+    return aiReply(request, { success: false, error: "Esta página pesa demasiado. Sube una foto en lugar del PDF." }, 413);
   }
 
   const content: Anthropic.Beta.BetaContentBlockParam[] = [];
@@ -87,7 +91,7 @@ export async function POST(request: NextRequest) {
         source: { type: "base64", media_type: file.mediaType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data },
       });
     } else {
-      return NextResponse.json({ success: false, error: `${file.name}: solo se aceptan fotos (JPG, PNG, WEBP) o PDF.` }, { status: 400 });
+      return aiReply(request, { success: false, error: `${file.name}: solo se aceptan fotos (JPG, PNG, WEBP) o PDF.` }, 400);
     }
   }
   content.push({
@@ -96,7 +100,7 @@ export async function POST(request: NextRequest) {
   });
 
   try {
-    const response = await anthropicClient(key).beta.messages.parse({
+    const response = await anthropicClient(session.key).beta.messages.parse({
       model: AI_MODEL,
       max_tokens: 32000,
       betas: ["server-side-fallback-2026-07-01"],
@@ -105,26 +109,22 @@ export async function POST(request: NextRequest) {
       system: SYSTEM,
       messages: [{ role: "user", content }],
     });
+    await chargeAi(session, response.usage);
 
     if (response.stop_reason === "refusal") {
-      return NextResponse.json({ success: false, error: "Claude no pudo procesar estos archivos. Prueba con otras fotos." }, { status: 422 });
+      return aiReply(request, { success: false, error: "Claude no pudo procesar estos archivos. Prueba con otras fotos." }, 422);
     }
     if (response.stop_reason === "max_tokens") {
-      return NextResponse.json({ success: false, error: "El menú es muy largo para una sola vez. Súbelo en dos tandas." }, { status: 422 });
+      return aiReply(request, { success: false, error: "El menú es muy largo para una sola vez. Súbelo en dos tandas." }, 422);
     }
     const parsed = response.parsed_output;
-    if (!parsed) return NextResponse.json({ success: false, error: "Claude no regresó la lista de productos. Intenta de nuevo." }, { status: 502 });
+    if (!parsed) return aiReply(request, { success: false, error: "Claude no regresó la lista de productos. Intenta de nuevo." }, 502);
 
     const items = parsed.items
       .map((item) => ({ ...item, name: item.name.trim(), category: item.category.trim() || "Sin categoría", price: Math.round(item.price * 100) / 100 }))
       .filter((item) => item.name && item.price > 0);
-    return NextResponse.json({
-      success: true,
-      items,
-      warnings: parsed.warnings,
-      usage: { input: response.usage.input_tokens, output: response.usage.output_tokens },
-    });
+    return aiReply(request, { success: true, items, warnings: parsed.warnings });
   } catch (error) {
-    return NextResponse.json({ success: false, error: friendlyAiError(error) }, { status: 502 });
+    return aiReply(request, { success: false, error: friendlyAiError(error) }, 502);
   }
 }

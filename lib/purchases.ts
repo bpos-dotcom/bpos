@@ -104,7 +104,7 @@ export function getPurchaseSuggestions():PurchaseSuggestion[]{
   .sort((a,b)=>(a.stock/a.minimum)-(b.stock/b.minimum));
 }
 
-export function buildSupplierOrderMessage(supplierName:string,lines:{name:string;quantity:number;unit:string}[],businessName="Burger Planet"){
+export function buildSupplierOrderMessage(supplierName:string,lines:{name:string;quantity:number;unit:string}[],businessName="B-POS"){
  const items=lines.map(l=>`• ${l.name}: ${Number(l.quantity.toFixed(2))} ${l.unit}`).join("\n");
  return `Hola${supplierName?` ${supplierName}`:""}, soy de ${businessName}. Quisiera hacer el siguiente pedido:\n\n${items}\n\n¿Me confirma disponibilidad y total? Gracias.`;
 }
