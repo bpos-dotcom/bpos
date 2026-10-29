@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@/data/products";
 import type { Ingredient } from "@/data/inventory";
 import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
@@ -91,6 +91,9 @@ export default function BridgeAliases({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  // Equivalencia que se está editando (se guarda encima en lugar de borrarla)
+  const [editing, setEditing] = useState<BridgeAlias | null>(null);
+  const formRef = useRef<HTMLElement | null>(null);
   const [aiNote, setAiNote] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -206,6 +209,7 @@ export default function BridgeAliases({
   );
 
   function resetForm() {
+    setEditing(null);
     setExternalName("");
     setPlatform("all");
     setActionType("product");
@@ -328,6 +332,30 @@ export default function BridgeAliases({
     }
   }
 
+  /** Carga una equivalencia guardada en el formulario para cambiarla. */
+  function editAlias(alias: BridgeAlias) {
+    setEditing(alias);
+    setExternalName(alias.externalName);
+    setPlatform(alias.platform || "all");
+    setActionType(alias.actionType);
+    setAiNote("");
+    setError("");
+    setMessage("");
+    if (alias.actionType === "product") {
+      setProductId(String(alias.targets[0]?.id || ""));
+      setTargets([createDraftTarget()]);
+    } else if (alias.actionType === "ignore") {
+      setProductId("");
+      setTargets([]);
+    } else {
+      setProductId("");
+      setTargets(
+        alias.targets.map((t) => ({ ...createDraftTarget(), ingredientId: String(t.id), quantity: String(t.quantity ?? "") }))
+      );
+    }
+    formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
   async function saveAlias() {
     setMessage("");
     setError("");
@@ -359,7 +387,12 @@ export default function BridgeAliases({
         throw new Error(result.error || "No se pudo guardar la equivalencia.");
       }
 
-      setMessage("Equivalencia guardada correctamente.");
+      // Si al editar se cambió el texto o la plataforma, la equivalencia vieja sobra
+      const old = editing;
+      if (old && (old.normalizedExternalName !== result.alias?.normalizedExternalName || (old.platform || null) !== (result.alias?.platform ?? null)) && old.id !== result.alias?.id) {
+        await bridgeFetch("/api/bridge/aliases", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: old.id }) });
+      }
+      setMessage(old ? "Equivalencia actualizada." : "Equivalencia guardada correctamente.");
       await refreshAliases();
       onSaved?.();
       resetForm();
@@ -414,7 +447,7 @@ export default function BridgeAliases({
   }
 
   return (
-    <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6 text-white">
+    <section ref={formRef} className="scroll-mt-28 rounded-3xl border border-zinc-800 bg-zinc-950 p-6 text-white">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-xl font-black text-orange-500">
@@ -649,8 +682,13 @@ export default function BridgeAliases({
           disabled={saving}
           className="w-full rounded-2xl bg-orange-500 py-3 font-black text-black transition hover:bg-orange-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {saving ? "Guardando..." : "Guardar equivalencia"}
+          {saving ? "Guardando..." : editing ? "Guardar cambios de la equivalencia" : "Guardar equivalencia"}
         </button>
+        {editing && (
+          <button type="button" onClick={resetForm} className="w-full rounded-2xl border border-zinc-700 py-3 text-sm font-black text-zinc-300">
+            Cancelar edición
+          </button>
+        )}
       </div>
 
       {showSavedAliases && (
@@ -702,7 +740,8 @@ export default function BridgeAliases({
                             key={`${alias.id}-${target.id}`}
                             className="text-sm text-zinc-400"
                           >
-                            → {target.name}
+                            {/* Nombre actual del producto: la equivalencia va por su número interno, no por el nombre */}
+                            → {(alias.actionType === "product" ? products.find((p) => String(p.id) === String(target.id))?.name : ingredients.find((i) => String(i.id) === String(target.id))?.name) || target.name}
                             {target.quantity !== undefined
                               ? ` · ${target.quantity}${
                                   target.unit ? ` ${target.unit}` : ""
@@ -730,13 +769,22 @@ export default function BridgeAliases({
                     )}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => void deleteAlias(alias)}
-                    className="shrink-0 rounded-xl border border-red-900 px-3 py-2 text-xs font-black text-red-400 transition hover:bg-red-950"
-                  >
-                    Eliminar
-                  </button>
+                  <div className="flex shrink-0 gap-2">
+                    <button
+                      type="button"
+                      onClick={() => editAlias(alias)}
+                      className="rounded-xl border border-zinc-700 px-3 py-2 text-xs font-black text-zinc-200 transition hover:border-orange-500 hover:text-orange-400"
+                    >
+                      Editar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void deleteAlias(alias)}
+                      className="rounded-xl border border-red-900 px-3 py-2 text-xs font-black text-red-400 transition hover:bg-red-950"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
                 </div>
               </article>
             ))
