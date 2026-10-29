@@ -28,7 +28,8 @@ initLogger(app.getPath("userData"));
 const server = express();
 
 server.use(cors());
-server.use(express.json());
+// Los tickets propios llevan el logo dentro (imagen): más que el límite de 100 KB por omisión
+server.use(express.json({ limit: "5mb" }));
 
 
 server.get("/", (req, res) => {
@@ -74,14 +75,14 @@ async function readTicket(buffer) {
       text = ocrResult.text;
       extractionMethod = "tesseract-ocr";
     }
-    return { format: "pdf", filePath, text, extractionMethod, ocrOrderId: ocrResult?.orderId };
+    return { format: "pdf", filePath, text, extractionMethod, ocrOrderId: ocrResult?.orderId, ocrHeader: ocrResult?.headerText };
   }
 
   const pkOffset = buffer.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
   if (pkOffset !== -1) {
     const filePath = saveJobFile("xps-jobs", `pedido-${Date.now()}.xps`, buffer.slice(pkOffset));
     const ocr = await extractPdfTextWithOcr(filePath);
-    return { format: "xps", filePath, text: ocr.text, extractionMethod: "tesseract-ocr", ocrOrderId: ocr.orderId };
+    return { format: "xps", filePath, text: ocr.text, extractionMethod: "tesseract-ocr", ocrOrderId: ocr.orderId, ocrHeader: ocr.headerText };
   }
 
   const filePath = saveJobFile("print-jobs", `job-${Date.now()}.bin`, buffer);
@@ -92,6 +93,14 @@ async function readTicket(buffer) {
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
     .trim();
   return { format: "text", filePath, text, extractionMethod: "texto" };
+}
+
+/** Encabezado "41 / Francisco / Plataforma" → "Francisco" (el renglón con letras que sigue al número). */
+function customerFromHeader(header) {
+  const lines = String(header || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  const numberAt = lines.findIndex((l) => /^#?\s*\w?\d+$/.test(l));
+  const candidate = lines.slice(numberAt + 1).find((l) => /[a-záéíóúñ]{2,}/i.test(l) && !/plataforma|entrega|recoger|didi/i.test(l));
+  return candidate ? candidate.replace(/[^\p{L}\s.-]/gu, "").trim() || null : null;
 }
 
 async function handlePrintJob(buffer) {
@@ -119,6 +128,11 @@ async function handlePrintJob(buffer) {
     const parsed = parseTicket(ticket.text);
     // El número del OCR especializado (encabezado) es más confiable en DiDi y XPS
     if (ticket.ocrOrderId && (parsed.platform === "didi" || ticket.format === "xps")) parsed.orderId = ticket.ocrOrderId;
+    // DiDi pone el nombre del cliente debajo del número: el OCR del encabezado lo lee mejor
+    if (!parsed.customer?.name && ticket.ocrHeader) {
+      const name = customerFromHeader(ticket.ocrHeader);
+      if (name) parsed.customer = { ...(parsed.customer || {}), name };
+    }
     Object.assign(job, parsed, { rawText: ticket.text });
   } catch (error) {
     // Se manda igual: en el Bridge se ve el texto y se resuelve a mano
@@ -299,17 +313,40 @@ server.post("/station-printers", (req, res) => {
   }
 });
 
-// El Bridge indica a qué estaciones va el ticket original de un pedido
+// El Bridge manda los tickets propios del pedido: uno por estación y el de la bolsa (Caja)
+server.post("/print-tickets", async (req, res) => {
+  try {
+    const { platform, orderId, tickets, force } = req.body || {};
+    if (!platform || !orderId || !Array.isArray(tickets) || !tickets.length) {
+      return res.status(400).json({ success: false, error: "Faltan pedido o tickets." });
+    }
+    const clean = tickets
+      .filter((t) => t && typeof t.html === "string" && typeof t.target === "string")
+      .map((t) => ({ target: t.target, html: t.html }));
+    const result = await stationPrinter.printTickets({ platform, orderId, tickets: clean, force: Boolean(force) });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// Ticket ORIGINAL de la plataforma (reimpresión desde el Bridge)
 server.post("/print-original", async (req, res) => {
   try {
-    const { platform, orderId, stations } = req.body || {};
+    const { platform, orderId, stations, force } = req.body || {};
     // El PDF se toma de la cola del Agent, nunca de una ruta que mande el navegador
     const job = [...printQueue].reverse().find(
       (j) => String(j.platform || "").toLowerCase() === String(platform || "").toLowerCase() &&
         String(j.orderId || "").toUpperCase() === String(orderId || "").toUpperCase()
     );
     if (!job) return res.status(404).json({ success: false, error: "El Agent no tiene el ticket original de ese pedido." });
-    const result = await stationPrinter.printOriginal({ platform, orderId, filePath: job.filePath, stations: Array.isArray(stations) ? stations : [] });
+    const result = await stationPrinter.printOriginal({
+      platform,
+      orderId,
+      filePath: job.filePath,
+      stations: Array.isArray(stations) ? stations : [],
+      force: Boolean(force),
+    });
     res.json({ success: true, ...result });
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });

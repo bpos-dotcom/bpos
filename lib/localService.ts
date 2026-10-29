@@ -34,7 +34,7 @@ export async function sendJobToLocalService(job: PrintJob) {
   return response.json();
 }
 export type StationPrintersConfig = {
-  printers: Partial<Record<"Parrilla" | "Freidora" | "Barra" | "Cocina", string>>;
+  printers: Partial<Record<"Parrilla" | "Freidora" | "Barra" | "Cocina" | "Caja", string>>;
   paperWidthMm?: 58 | 80;
 };
 
@@ -49,8 +49,8 @@ export async function syncStationPrinters(config: StationPrintersConfig) {
   return response.json();
 }
 
-/** Imprime el ticket original de la plataforma en las impresoras de esas estaciones. */
-export async function printOriginalTicket(input: { platform: string; orderId: string; stations: string[] }) {
+/** Imprime el ticket original de la plataforma en esas estaciones (force: reimpresión). */
+export async function printOriginalTicket(input: { platform: string; orderId: string; stations: string[]; force?: boolean }) {
   const response = await fetch(`${LOCAL_SERVICE_URL}/print-original`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -73,7 +73,30 @@ export async function printOriginalTicket(input: { platform: string; orderId: st
 export function toStationPrintersConfig(saved: Record<string, unknown>): StationPrintersConfig {
   const pick = (station: string) => (typeof saved?.[station] === "string" ? (saved[station] as string) : "");
   return {
-    printers: { Parrilla: pick("Parrilla"), Freidora: pick("Freidora"), Barra: pick("Barra"), Cocina: pick("Cocina") },
+    printers: { Parrilla: pick("Parrilla"), Freidora: pick("Freidora"), Barra: pick("Barra"), Cocina: pick("Cocina"), Caja: pick("Caja") },
     paperWidthMm: Number(saved?.paperWidthMm) === 58 ? 58 : 80,
   };
+}
+
+/** Tickets propios de un pedido de delivery: uno por estación y el de la bolsa (Caja). */
+export async function printDeliveryTickets(input: {
+  platform: string;
+  orderId: string;
+  tickets: { target: string; html: string }[];
+  force?: boolean;
+}) {
+  const response = await fetch(`${LOCAL_SERVICE_URL}/print-tickets`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  const payload = (await response.json().catch(() => ({}))) as {
+    success?: boolean;
+    error?: string;
+    alreadyPrinted?: boolean;
+    targets?: string[];
+    results?: { target: string; printer?: string; ok: boolean; error?: string }[];
+  };
+  if (!response.ok || !payload.success) throw new Error(payload.error || "El Agent no pudo imprimir los tickets.");
+  return payload;
 }

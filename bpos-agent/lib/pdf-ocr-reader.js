@@ -143,6 +143,7 @@ async function extractPdfTextWithOcr(filePath) {
   const pageTexts = [];
 
   let detectedOrderNumber = null;
+  let detectedHeaderText = "";
 
   try {
     for (
@@ -170,8 +171,11 @@ fs.writeFileSync(
 temporaryFiles.push(fullImagePath);
 
 // OCR GENERAL DEL TICKET
+// Modo 4 (una columna, por renglones): cada producto queda con su precio en
+// la misma línea ("1x Hamburguesa ... MX$129.99"); con el modo 3 los
+// importes salían todos juntos al final del texto.
 await worker.setParameters({
-  tessedit_pageseg_mode: "3",
+  tessedit_pageseg_mode: "4",
   tessedit_char_whitelist: "",
 });
 
@@ -213,6 +217,7 @@ const headerResult = await worker.recognize(headerImagePath);
         console.log("OCR encabezado:");
         console.log(headerText);
 
+        detectedHeaderText = headerText;
         detectedOrderNumber = findOrderNumber(headerText);
 
         if (!detectedOrderNumber) {
@@ -244,6 +249,8 @@ const headerResult = await worker.recognize(headerImagePath);
     return {
   text: finalText,
   orderId: detectedOrderNumber,
+  // Encabezado recortado (número y nombre del cliente en DiDi)
+  headerText: detectedHeaderText,
 };
   } finally {
     for (const temporaryFile of temporaryFiles) {

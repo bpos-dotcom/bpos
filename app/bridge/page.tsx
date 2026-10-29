@@ -3,8 +3,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes } from "@/lib/admin";
+import { buildOrderTickets } from "@/lib/bridge/order-tickets";
 import { stationsForOrder } from "@/lib/bridge/station-routing";
-import { printOriginalTicket, syncStationPrinters, toStationPrintersConfig } from "@/lib/localService";
+import { getBusinessSettings } from "@/lib/business-settings";
+import { printDeliveryTickets, printOriginalTicket, syncStationPrinters, toStationPrintersConfig } from "@/lib/localService";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
@@ -559,9 +561,10 @@ export default function BridgePage() {
     };
   }, [automaticSaleSignature, activeOrders, loadData]);
 
-  // Ticket original → impresoras de estación. El Bridge solo lee: en cuanto
-  // un pedido está interpretado (aunque falten equivalencias, esas van a
-  // Cocina) se manda el papel original a cada estación que tiene algo.
+  // Tickets propios de Burger Planet. El Bridge solo lee el ticket de la
+  // plataforma: en cuanto un pedido está interpretado (aunque falten
+  // equivalencias, esas van a Cocina) cada estación recibe un ticket con solo
+  // lo suyo y Caja el de la bolsa con precios. El original queda guardado.
   const stationPrintLocks = useRef(new Set<string>());
 
   useEffect(() => {
@@ -577,7 +580,7 @@ export default function BridgePage() {
   useEffect(() => {
     let cancelled = false;
 
-    const printOriginals = async () => {
+    const printTickets = async () => {
       let changed = false;
       for (const order of orders) {
         if (cancelled) break;
@@ -590,15 +593,20 @@ export default function BridgePage() {
         stationPrintLocks.current.add(key);
 
         try {
-          const stations = stationsForOrder(order.interpretation, catalogProducts, getAdminRecipes());
-          const result = await printOriginalTicket({ platform: order.platform, orderId: order.orderId, stations });
+          const { tickets } = await buildOrderTickets(
+            order,
+            { products: catalogProducts, recipes: getAdminRecipes() },
+            getBusinessSettings()
+          );
+          const result = await printDeliveryTickets({ platform: order.platform, orderId: order.orderId, tickets });
+          const printers = (result.results || []).filter((r) => r.ok && r.printer).map((r) => r.printer as string);
           await bridgeFetch("/api/bridge/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               platform: order.platform,
               orderId: order.orderId,
-              stationPrint: { at: new Date().toISOString(), stations, printers: result.printers || [] },
+              stationPrint: { at: new Date().toISOString(), stations: tickets.map((t) => t.target), printers },
             }),
           });
           changed = true;
@@ -611,11 +619,33 @@ export default function BridgePage() {
       if (!cancelled && changed) await loadData();
     };
 
-    void printOriginals();
+    void printTickets();
     return () => {
       cancelled = true;
     };
   }, [orders, catalogProducts, loadData]);
+
+  /** Reimpresión a mano: los tickets propios otra vez, o el ticket original de la plataforma. */
+  async function reprintOrder(order: AgentOrder, kind: "tickets" | "original") {
+    if (!order.platform || !order.orderId) return;
+    try {
+      if (kind === "original") {
+        const stations = stationsForOrder(order.interpretation, catalogProducts, getAdminRecipes());
+        await printOriginalTicket({ platform: order.platform, orderId: order.orderId, stations, force: true });
+        return;
+      }
+      const { tickets } = await buildOrderTickets(
+        order,
+        { products: catalogProducts, recipes: getAdminRecipes() },
+        getBusinessSettings()
+      );
+      const result = await printDeliveryTickets({ platform: order.platform, orderId: order.orderId, tickets, force: true });
+      const failed = (result.results || []).filter((r) => !r.ok);
+      if (failed.length) alert(`No salió en: ${failed.map((f) => `${f.target} (${f.error})`).join(", ")}`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo reimprimir. Revisa que B-POS esté abierto en esta computadora.");
+    }
+  }
 
   const pendingCount = useMemo(
     () =>
@@ -764,6 +794,25 @@ export default function BridgePage() {
                       <p className="mt-1 text-sm text-zinc-400">
                         {order.customer?.name || "Cliente sin nombre"}
                       </p>
+                      <div className="mt-3 flex flex-wrap items-center gap-2">
+                        {order.stationPrint && (
+                          <span className="text-xs text-zinc-500">
+                            🖨️ Impreso: {order.stationPrint.stations.join(", ")}
+                          </span>
+                        )}
+                        <button
+                          onClick={() => void reprintOrder(order, "tickets")}
+                          className="rounded-xl border border-zinc-700 px-3 py-1 text-xs font-black text-zinc-300 hover:border-orange-500"
+                        >
+                          Reimprimir tickets
+                        </button>
+                        <button
+                          onClick={() => void reprintOrder(order, "original")}
+                          className="rounded-xl border border-zinc-700 px-3 py-1 text-xs font-black text-zinc-300 hover:border-orange-500"
+                        >
+                          Imprimir original
+                        </button>
+                      </div>
                     </div>
 
                     <span
