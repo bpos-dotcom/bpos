@@ -559,9 +559,13 @@ Gracias por pedir en ${businessName} 🚀`;
       <Sidebar />
 
       <section className="bpos-main">
-        <header className="sticky top-0 z-20 border-b border-zinc-800 bg-black/90 px-6 py-4 backdrop-blur">
-          <div className="flex items-stretch gap-3">
-          <div className="grid flex-1 grid-cols-1 gap-3 xl:grid-cols-5">
+        <header className="z-20 border-b border-zinc-800 bg-black/90 px-3 py-3 backdrop-blur sm:px-6 sm:py-4 lg:sticky lg:top-0">
+          {/* Celular y tableta: logo, hora y tema arriba (dejando lugar al botón Menú) y los datos en 2-3 columnas */}
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch">
+          <div className="flex pr-28 lg:justify-end lg:pr-0 xl:order-last">
+            <TopCorner />
+          </div>
+          <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-5">
             <TopStatus title="Caja" value="Abierta" detail="Fondo: $1,500.00" />
             <TopStatus
               title="Usuario"
@@ -583,7 +587,7 @@ Gracias por pedir en ${businessName} 🚀`;
 
             <button
               onClick={logout}
-              className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-left font-black text-red-400"
+              className="col-span-2 rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-left font-black text-red-400 sm:col-span-1 sm:p-4"
             >
               Cerrar sesión
               <p className="mt-1 text-sm font-normal text-red-300/70">
@@ -591,7 +595,6 @@ Gracias por pedir en ${businessName} 🚀`;
               </p>
             </button>
           </div>
-          <TopCorner />
           </div>
         </header>
 
@@ -719,10 +722,10 @@ function TopStatus({
   detail: string;
 }) {
   return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
+    <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 sm:p-4">
       <p className="text-xs font-bold text-zinc-500">{title}</p>
-      <p className="mt-1 text-lg font-black text-white">{value}</p>
-      <p className="text-sm text-zinc-400">{detail}</p>
+      <p className="mt-1 truncate text-base font-black text-white sm:text-lg">{value}</p>
+      <p className="text-xs text-zinc-400 sm:text-sm">{detail}</p>
     </div>
   );
 }
