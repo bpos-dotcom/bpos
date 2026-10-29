@@ -1,21 +1,24 @@
-// Impresión del ticket ORIGINAL en las impresoras de cada estación.
+// Impresión de los pedidos de delivery en las impresoras del negocio.
 //
-// El Bridge solo lee el ticket para registrar la venta; el papel que llega
-// a Parrilla, Freidora, Barra o Cocina es el ticket de la plataforma tal
-// cual (el PDF que entró por la impresora virtual), una copia por estación.
+// El Bridge solo lee el ticket de la plataforma para registrar la venta. Lo
+// que sale en papel son tickets propios de Burger Planet (printTickets):
+// uno por estación con solo lo suyo, y el de la bolsa en Caja. Los arma la
+// pantalla del Bridge (conoce productos, recetas y equivalencias).
 //
-// Quién decide las estaciones: la pantalla del Bridge (conoce productos,
-// recetas y equivalencias) y llama a printOriginal(). Si nadie lo pide en
-// FALLBACK_MS (Bridge cerrado, sin internet...), se imprime en Cocina para
-// que el pedido nunca se quede sin papel.
+// Respaldo: si nadie pide imprimir en FALLBACK_MS (Bridge cerrado, sin
+// internet...), sale el ticket ORIGINAL de la plataforma en Cocina para que
+// el pedido nunca se quede sin papel. El original también se puede
+// reimprimir a mano (printOriginal con force).
 const { app, BrowserWindow } = require("electron");
 const fs = require("fs");
+const os = require("os");
 const path = require("path");
 const { createCanvas } = require("@napi-rs/canvas");
 
 const VIRTUAL_PRINTER = "B-POS Agent Virtual Printer";
 const FALLBACK_MS = 45_000;
-const STATIONS = ["Parrilla", "Freidora", "Barra", "Cocina"];
+const STATIONS = ["Parrilla", "Freidora", "Barra", "Cocina", "Caja"];
+const TICKET_WIDTH_PX = 576; // 80 mm a 203 dpi (el mismo ancho del HTML de los tickets)
 
 let config = null; // { printers: { Parrilla: "EPSON...", ... }, paperWidthMm: 80 }
 const printed = new Map(); // "plataforma:pedido" → { at, printers }
@@ -126,22 +129,35 @@ async function renderTicketStrip(filePath) {
   return { dataUrl: `data:image/png;base64,${strip.toBuffer("image/png").toString("base64")}`, width: strip.width, height: strip.height };
 }
 
-/** Manda el PDF a una impresora de Windows sin mostrar diálogos. */
-async function printPdf(filePath, printerName) {
+/**
+ * Carga HTML desde un archivo temporal: como dirección "data:" falla cuando
+ * el ticket es largo o lleva imágenes (límite de ~2 MB de Chromium).
+ */
+async function loadHtml(win, html) {
+  const file = path.join(os.tmpdir(), `bpos-ticket-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
+  fs.writeFileSync(file, html, "utf8");
+  try {
+    await win.loadFile(file);
+  } finally {
+    fs.rm(file, { force: true }, () => {});
+  }
+}
+
+/** Manda una imagen (tira del ancho del ticket) a una impresora de Windows sin diálogos. */
+async function printImage(image, printerName) {
   if (printerName === VIRTUAL_PRINTER) throw new Error("No se puede imprimir en la impresora virtual de B-POS.");
-  const strip = await renderTicketStrip(filePath);
   const widthMm = getConfig().paperWidthMm || 80;
   // Papel continuo: el alto es el del ticket completo (en micras)
-  const pageSize = { width: widthMm * 1000, height: Math.max(10000, Math.round(widthMm * 1000 * (strip.height / strip.width))) };
+  const pageSize = { width: widthMm * 1000, height: Math.max(10000, Math.round(widthMm * 1000 * (image.height / image.width))) };
 
   const html = `<!doctype html><html><head><meta charset="utf-8"><style>
     @page { margin: 0; } html, body { margin: 0; padding: 0; background: #fff; }
     img { display: block; width: 100%; height: auto; }
-  </style></head><body><img src="${strip.dataUrl}"></body></html>`;
+  </style></head><body><img src="${image.dataUrl}"></body></html>`;
 
   const win = new BrowserWindow({ show: false });
   try {
-    await win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(html)}`);
+    await loadHtml(win, html);
     await win.webContents.executeJavaScript(
       "Promise.all([...document.images].map((i) => i.complete ? 0 : new Promise((r) => { i.onload = r; i.onerror = r; })))"
     );
@@ -156,36 +172,104 @@ async function printPdf(filePath, printerName) {
   }
 }
 
+async function printPdf(filePath, printerName) {
+  await printImage(await renderTicketStrip(filePath), printerName);
+}
+
+/**
+ * Ticket propio (HTML de B-POS) → imagen. Se dibuja a 576 px de ancho y se
+ * captura como foto: así sale idéntico en cualquier térmica, sin depender
+ * de cómo el controlador acomode el texto.
+ */
+async function renderHtmlTicket(html) {
+  // Ventana chica: así el alto medido es el del contenido y no el de la ventana
+  const win = new BrowserWindow({ show: false, width: TICKET_WIDTH_PX, height: 100, useContentSize: true });
+  try {
+    await loadHtml(win, html);
+    const height = await win.webContents.executeJavaScript(
+      "Promise.all([...document.images].map((i) => i.complete ? 0 : new Promise((r) => { i.onload = r; i.onerror = r; }))).then(() => Math.ceil(document.body.getBoundingClientRect().bottom))"
+    );
+    const h = Math.max(100, height);
+    win.setContentSize(TICKET_WIDTH_PX, h);
+    await new Promise((r) => setTimeout(r, 150)); // que repinte con el nuevo alto
+    const shot = await win.webContents.capturePage({ x: 0, y: 0, width: TICKET_WIDTH_PX, height: h });
+    const size = shot.getSize();
+    return { dataUrl: shot.toDataURL(), width: size.width, height: size.height };
+  } finally {
+    win.destroy();
+  }
+}
+
 function orderKey(platform, orderId) {
   return `${String(platform || "").toLowerCase()}:${String(orderId || "").toUpperCase()}`;
 }
 
+/** Impresora de cada destino: estación sin impresora → la de Cocina; Caja no se reemplaza. */
+function printerFor(target) {
+  const { printers } = getConfig();
+  if (target === "Caja") return printers.Caja || null;
+  return printers[target] || printers.Cocina || null;
+}
+
 /**
- * Imprime el ticket original en las impresoras de las estaciones indicadas
- * (una sola vez por pedido). Estaciones sin impresora van a la de Cocina.
- * @param {{ platform: string, orderId: string, filePath: string, stations: string[], reason?: string }} req
+ * Tickets propios de un pedido: uno por estación y el de la bolsa en Caja.
+ * Una sola vez por pedido salvo `force` (reimpresión desde el Bridge).
+ * @param {{ platform: string, orderId: string, tickets: { target: string, html: string }[], force?: boolean }} req
+ */
+async function printTickets(req) {
+  const key = orderKey(req.platform, req.orderId);
+  clearTimeout(fallbackTimers.get(key));
+  fallbackTimers.delete(key);
+  if (printed.has(key) && !req.force) return { alreadyPrinted: true, ...printed.get(key) };
+
+  const record = { at: new Date().toISOString(), targets: req.tickets.map((t) => t.target), reason: req.force ? "reimpresion" : "bridge" };
+  printed.set(key, record);
+
+  const results = [];
+  for (const ticket of req.tickets) {
+    const printer = printerFor(ticket.target);
+    if (!printer) {
+      results.push({ target: ticket.target, ok: false, error: `Sin impresora asignada para ${ticket.target}.` });
+      console.warn(`Sin impresora para ${ticket.target}: el ticket ${key} no se imprimió ahí.`);
+      continue;
+    }
+    try {
+      await printImage(await renderHtmlTicket(ticket.html), printer);
+      results.push({ target: ticket.target, printer, ok: true });
+      console.log(`Ticket ${key} (${ticket.target}) impreso en "${printer}"`);
+    } catch (error) {
+      results.push({ target: ticket.target, printer, ok: false, error: error.message });
+      console.error(`No se pudo imprimir ${key} (${ticket.target}) en "${printer}":`, error.message);
+    }
+  }
+  if (!results.some((r) => r.ok) && !req.force) printed.delete(key); // nada salió: se puede reintentar
+  return { ...record, results };
+}
+
+/**
+ * Ticket original de la plataforma en las impresoras de esas estaciones:
+ * respaldo automático (Cocina) o reimpresión a mano desde el Bridge (force).
+ * @param {{ platform: string, orderId: string, filePath: string, stations: string[], reason?: string, force?: boolean }} req
  */
 async function printOriginal(req) {
   const key = orderKey(req.platform, req.orderId);
   clearTimeout(fallbackTimers.get(key));
   fallbackTimers.delete(key);
-  if (printed.has(key)) return { alreadyPrinted: true, ...printed.get(key) };
+  if (printed.has(key) && !req.force) return { alreadyPrinted: true, ...printed.get(key) };
   if (!req.filePath || !fs.existsSync(req.filePath)) throw new Error("No está el PDF original de este pedido.");
 
-  const { printers } = getConfig();
   const targets = new Map(); // impresora → estaciones (si dos estaciones comparten impresora, sale un solo papel)
   const missing = [];
   for (const station of new Set(req.stations?.length ? req.stations : ["Cocina"])) {
-    const printer = printers[station] || printers.Cocina;
+    const printer = printerFor(station);
     if (!printer) {
       missing.push(station);
       continue;
     }
     targets.set(printer, [...(targets.get(printer) || []), station]);
   }
-  // Se marca antes de imprimir: si llegan dos pedidos iguales a la vez, sale un solo papel
   const record = { at: new Date().toISOString(), printers: [...targets.keys()], stations: req.stations, reason: req.reason || "bridge" };
-  printed.set(key, record);
+  if (!req.force) printed.set(key, record); // se marca antes de imprimir: un solo papel aunque lleguen dos peticiones
 
   const results = [];
   for (const [printer, stations] of targets) {
@@ -199,11 +283,11 @@ async function printOriginal(req) {
     }
   }
   if (missing.length) console.warn(`Sin impresora asignada para ${missing.join(", ")} ni para Cocina: el ticket ${key} no se imprimió ahí.`);
-  if (!results.some((r) => r.ok)) printed.delete(key); // nada salió: se puede reintentar
+  if (!results.some((r) => r.ok) && !req.force) printed.delete(key);
   return { ...record, results, missing };
 }
 
-/** Al llegar un pedido: si el Bridge no lo manda a estaciones a tiempo, sale en Cocina. */
+/** Al llegar un pedido: si el Bridge no pide sus tickets a tiempo, sale el original en Cocina. */
 function scheduleFallback(job) {
   if (!job?.filePath || !job.platform || !job.orderId) return;
   const key = orderKey(job.platform, job.orderId);
@@ -212,7 +296,7 @@ function scheduleFallback(job) {
     key,
     setTimeout(() => {
       fallbackTimers.delete(key);
-      console.warn(`El Bridge no indicó estaciones para ${key}: se imprime en Cocina.`);
+      console.warn(`El Bridge no pidió los tickets de ${key}: sale el original en Cocina.`);
       printOriginal({ platform: job.platform, orderId: job.orderId, filePath: job.filePath, stations: ["Cocina"], reason: "respaldo" }).catch((e) =>
         console.error(`Respaldo de impresión ${key}:`, e.message)
       );
@@ -220,4 +304,4 @@ function scheduleFallback(job) {
   );
 }
 
-module.exports = { listPrinters, printOriginal, scheduleFallback, getConfig, setConfig, renderTicketStrip, VIRTUAL_PRINTER };
+module.exports = { listPrinters, printTickets, printOriginal, scheduleFallback, getConfig, setConfig, renderTicketStrip, renderHtmlTicket, VIRTUAL_PRINTER };

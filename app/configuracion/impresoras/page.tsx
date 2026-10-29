@@ -15,6 +15,7 @@ const STATIONS = [
   "Freidora",
   "Barra",
   "Cocina",
+  "Caja",
 ] as const;
 
 type Station = (typeof STATIONS)[number];
@@ -33,6 +34,7 @@ export default function PrinterSettingsPage() {
     Freidora: "",
     Barra: "",
     Cocina: "",
+    Caja: "",
     paperWidthMm: 80,
   });
 
@@ -83,8 +85,8 @@ export default function PrinterSettingsPage() {
       <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
 
         <p className="text-sm text-zinc-400">
-          Los pedidos de delivery (Rappi, Uber Eats, DiDi Food) imprimen el <b className="text-zinc-200">ticket original</b> en
-          cada estación que tenga algo del pedido. Lo que no tenga equivalencia o estación sale en <b className="text-zinc-200">Cocina</b>.
+          Los pedidos de delivery (Rappi, Uber Eats, DiDi Food) imprimen un <b className="text-zinc-200">ticket de Burger Planet</b> en
+          cada estación, solo con lo que le toca, y el <b className="text-zinc-200">ticket de la bolsa</b> en Caja. Lo que no tenga equivalencia sale en <b className="text-zinc-200">Cocina</b>.
         </p>
 
         <button
@@ -107,6 +109,7 @@ export default function PrinterSettingsPage() {
               <p className="mb-3 text-lg font-black text-orange-500">
                 {station}
                 {station === "Cocina" && <span className="ml-2 text-xs font-bold text-zinc-500">también recibe lo que no tenga estación</span>}
+                {station === "Caja" && <span className="ml-2 text-xs font-bold text-zinc-500">ticket para grapar en la bolsa</span>}
               </p>
 
               <select
@@ -119,7 +122,7 @@ export default function PrinterSettingsPage() {
                 }
                 className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3"
               >
-                <option value="">{station === "Cocina" ? "Sin asignar" : "Sin asignar (usa la de Cocina)"}</option>
+                <option value="">{station === "Cocina" || station === "Caja" ? "Sin asignar" : "Sin asignar (usa la de Cocina)"}</option>
 
                 {config[station] && !printers.some((p) => p.name === config[station]) && (
                   <option value={config[station]}>{config[station]} (no encontrada)</option>
