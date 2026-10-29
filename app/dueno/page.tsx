@@ -23,6 +23,8 @@ import {
   promptInstall,
   setupOwnerApp,
 } from "@/lib/owner-app";
+import { disablePush, enablePush, getPushPrefs, pushEnabled, pushSupported, savePushPrefs } from "@/lib/push/client";
+import { DEFAULT_PUSH_PREFS, type PushPrefs } from "@/lib/push/rules";
 import {
   buildReport,
   loadCloudOrders,
@@ -62,6 +64,10 @@ function OwnerApp() {
   const [now, setNow] = useState(() => Date.now());
   const [showCosts, setShowCosts] = useState(false);
   const [notify, setNotify] = useState(false);
+  const [pushOn, setPushOn] = useState(false);
+  const [prefs, setPrefs] = useState<PushPrefs>(DEFAULT_PUSH_PREFS);
+  const [pushError, setPushError] = useState("");
+  const [busy, setBusy] = useState(false);
   const [canInstall, setCanInstall] = useState(false);
   const [installed, setInstalled] = useState(true);
   const [ios, setIos] = useState(false);
@@ -109,7 +115,8 @@ function OwnerApp() {
       const today = presetRange("hoy");
       const todays = next.orders.filter(({ order }) => new Date(order.createdAt) >= today.from);
       const ids = new Set(todays.map(orderKey));
-      if (seenOrders.current && notificationsEnabled()) {
+      // Con avisos push, las ventas ya llegan desde la nube (no repetir aquí)
+      if (seenOrders.current && notificationsEnabled() && !pushEnabled()) {
         const fresh = todays.filter((o) => !seenOrders.current!.has(orderKey(o)));
         if (fresh.length > 0) {
           const total = fresh.reduce((s, o) => s + (Number(o.order.total) || 0), 0);
@@ -138,6 +145,8 @@ function OwnerApp() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setShowCosts(canViewCosts(getCurrentUser().role));
     setNotify(notificationsEnabled());
+    setPushOn(pushEnabled());
+    setPrefs(getPushPrefs());
     setInstalled(isInstalled());
     setIos(isIOS());
     setCanInstall(canPromptInstall());
@@ -183,14 +192,35 @@ function OwnerApp() {
   }, [data, branch, range, preset]);
 
   async function toggleNotifications() {
-    if (notify) {
-      disableNotifications();
-      setNotify(false);
-      return;
+    if (busy) return;
+    setBusy(true);
+    try {
+      if (notify) {
+        disableNotifications();
+        await disablePush();
+        setNotify(false);
+        setPushOn(false);
+        return;
+      }
+      const ok = await enableNotifications();
+      setNotify(ok);
+      if (!ok) {
+        alert("No se activaron. Revisa que el navegador tenga permiso de notificaciones para B-POS.");
+        return;
+      }
+      // Avisos aunque la app esté cerrada
+      const error = pushSupported() ? await enablePush(prefs).catch((e: Error) => e.message) : "Este navegador no permite avisos con la app cerrada.";
+      setPushError(error);
+      setPushOn(!error);
+    } finally {
+      setBusy(false);
     }
-    const ok = await enableNotifications();
-    setNotify(ok);
-    if (!ok) alert("No se activaron. Revisa que el navegador tenga permiso de notificaciones para B-POS.");
+  }
+
+  function changePrefs(patch: Partial<PushPrefs>) {
+    const next = { ...prefs, ...patch };
+    setPrefs(next);
+    void savePushPrefs(next).catch(() => {});
   }
 
   const seconds = updatedAt ? Math.max(0, Math.round((now - updatedAt.getTime()) / 1000)) : null;
@@ -320,8 +350,46 @@ function OwnerApp() {
                     Para instalarla en iPhone: abre esta página en Safari, toca <b>Compartir</b> y luego <b>Agregar a pantalla de inicio</b>.
                   </p>
                 )}
+                {notify && pushOn && (
+                  <div className="space-y-2 rounded-2xl border border-zinc-800 p-3">
+                    <p className="text-xs font-black text-emerald-400">✅ Te llegan avisos aunque la app esté cerrada</p>
+                    {(
+                      [
+                        ["delivery", "🛵 Pedidos de delivery (Rappi, Uber Eats, DiDi)"],
+                        ["todasVentas", "Cada venta de mostrador"],
+                        ["cancelaciones", "❌ Ventas canceladas"],
+                        ["caja", "🔒 Cortes de caja"],
+                        ["seguridad", "🔐 Respaldos, usuarios y permisos"],
+                      ] as [keyof PushPrefs, string][]
+                    ).map(([key, label]) => (
+                      <label key={key} className="flex items-center justify-between gap-3 text-sm text-zinc-300">
+                        {label}
+                        <input type="checkbox" checked={Boolean(prefs[key])} onChange={(e) => changePrefs({ [key]: e.target.checked })} className="h-5 w-5 accent-orange-500" />
+                      </label>
+                    ))}
+                    <label className="flex items-center justify-between gap-3 text-sm text-zinc-300">
+                      💰 Venta grande desde
+                      <input
+                        type="number"
+                        min={0}
+                        step={50}
+                        value={prefs.ventaGrande}
+                        onChange={(e) => changePrefs({ ventaGrande: Math.max(0, Number(e.target.value) || 0) })}
+                        className="w-24 rounded-xl border border-zinc-800 bg-black px-2 py-1 text-right"
+                      />
+                    </label>
+                    <p className="text-xs text-zinc-600">Pon 0 para no avisar de ventas grandes.</p>
+                  </div>
+                )}
+                {notify && !pushOn && pushError && (
+                  <p className="rounded-2xl border border-orange-500/40 bg-orange-500/10 p-3 text-xs text-orange-200">
+                    Solo te avisaremos con la app abierta: {pushError}
+                  </p>
+                )}
                 <p className="text-xs text-zinc-600">
-                  Te avisamos de ventas nuevas y alertas críticas mientras la app esté abierta o en segundo plano.
+                  {pushOn
+                    ? "Los avisos salen de la nube en cuanto la caja registra el evento. Las alertas críticas llegan con la app abierta."
+                    : "Te avisamos de ventas nuevas y alertas críticas mientras la app esté abierta o en segundo plano."}
                 </p>
               </div>
             </Panel>

@@ -1,6 +1,7 @@
 // Service worker de B-POS (bloque 12).
 // Muestra las notificaciones de la App del dueño y abre B-POS al tocarlas.
-// El evento "push" queda listo para cuando haya servidor de envío (bloque 13).
+// El evento "push" muestra los avisos que manda B-POS en Vercel (app/api/push/notify)
+// aunque la app esté cerrada.
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => event.waitUntil(self.clients.claim()));

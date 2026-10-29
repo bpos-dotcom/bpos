@@ -14,6 +14,7 @@ import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
 import { createAutomaticSale } from "@/lib/bridge/create-automatic-sale";
 import BridgeAliases from "./BridgeAliases";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
+import { addAuditEvent } from "@/lib/audit";
 
 type AliasActionType = "product" | "ingredient" | "bundle" | "ignore";
 
@@ -526,6 +527,17 @@ export default function BridgePage() {
               result.error
             );
             continue;
+          }
+
+          if (!result.duplicate) {
+            const sale = result.order;
+            addAuditEvent({
+              category: "Venta",
+              action: "delivery.received",
+              description: `Pedido ${sale.externalPlatform} ${sale.externalOrderNumber} por $${sale.total.toFixed(2)} (${sale.items.reduce((n, i) => n + i.quantity, 0)} productos)`,
+              entityId: String(sale.id),
+              metadata: { platform: sale.externalPlatform, orderNumber: sale.externalOrderNumber, total: sale.total },
+            });
           }
 
           const patchResponse = await bridgeFetch("/api/bridge/orders", {
