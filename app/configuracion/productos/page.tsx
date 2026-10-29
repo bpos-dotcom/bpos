@@ -25,7 +25,14 @@ export default function ProductosAdminPage() {
   const [listQuery, setListQuery] = useState("");
 
   const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
-  const visibleProducts = products.filter((p) => !listQuery.trim() || plain(`${p.name} ${p.category}`).includes(plain(listQuery.trim())));
+  const [category, setCategory] = useState(""); // "" = todas
+  const [pickingCategory, setPickingCategory] = useState(false);
+  const categories = [...products.reduce((map, p) => map.set(p.category, (map.get(p.category) || 0) + 1), new Map<string, number>())].sort((a, b) =>
+    a[0].localeCompare(b[0], "es")
+  );
+  const visibleProducts = products.filter(
+    (p) => (!category || p.category === category) && (!listQuery.trim() || plain(`${p.name} ${p.category}`).includes(plain(listQuery.trim())))
+  );
 
   const recipeOf = (list: RecipeItem[], productId: number | undefined) =>
     list.filter((r) => Number(r.productId) === Number(productId)).map((r) => ({ ingredientId: Number(r.ingredientId), quantity: Number(r.quantity) }));
@@ -150,13 +157,56 @@ export default function ProductosAdminPage() {
               </button>
             </div>
 
-            <input
-              value={listQuery}
-              onChange={(event) => setListQuery(event.target.value)}
-              placeholder="🔍 Buscar producto o categoría"
-              className="mt-4 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm"
-            />
-            <p className="mt-2 text-xs text-zinc-500">{visibleProducts.length} de {products.length} producto(s)</p>
+            <div className="mt-4 flex gap-2">
+              <input
+                value={listQuery}
+                onChange={(event) => setListQuery(event.target.value)}
+                placeholder="🔍 Buscar producto"
+                className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm"
+              />
+              <button
+                onClick={() => setPickingCategory(true)}
+                className={`shrink-0 rounded-2xl border px-4 py-3 text-sm font-black ${category ? "border-orange-500 bg-orange-500/15 text-orange-300" : "border-zinc-800 bg-black text-zinc-300"}`}
+              >
+                📂 {category ? "Categoría" : "Categorías"}
+              </button>
+            </div>
+            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-zinc-500">
+              {category && (
+                <button onClick={() => setCategory("")} className="rounded-full bg-orange-500/15 px-3 py-1 font-black text-orange-300">
+                  📂 {category} ✕
+                </button>
+              )}
+              <span>
+                {visibleProducts.length} de {products.length} producto(s)
+              </span>
+            </div>
+
+            {pickingCategory && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={() => setPickingCategory(false)}>
+                <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
+                  <h3 className="text-lg font-black">📂 Categorías</h3>
+                  <div className="mt-4 grid flex-1 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
+                    {[["", products.length] as const, ...categories].map(([name, count]) => (
+                      <button
+                        key={name || "todas"}
+                        onClick={() => {
+                          setCategory(name);
+                          setPickingCategory(false);
+                        }}
+                        className={`rounded-2xl border p-4 text-left ${category === name ? "border-orange-500 bg-orange-500/15" : "border-zinc-800 bg-black hover:border-orange-500"}`}
+                      >
+                        <span className="block font-black">{name || "Todas"}</span>
+                        <span className="text-xs text-zinc-400">{count} producto(s)</span>
+                      </button>
+                    ))}
+                  </div>
+                  <button onClick={() => setPickingCategory(false)} className="mt-4 rounded-2xl border border-zinc-800 py-3 font-black">
+                    Cerrar
+                  </button>
+                </div>
+              </div>
+            )}
 
             <div className="bpos-scroll -mr-2 mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2">
               {visibleProducts.map((product) => (
