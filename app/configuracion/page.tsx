@@ -64,6 +64,12 @@ const adminModules = [
     description: "Asignación de impresoras por estación.",
   },
   {
+    title: "Respaldos",
+    href: "/configuracion/respaldos",
+    icon: "💾",
+    description: "Copia diaria automática, descargar y restaurar.",
+  },
+  {
     title: "Métodos de pago",
     href: "/configuracion/pagos",
     icon: "💳",

@@ -27,6 +27,7 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_bridge_pending_signature",
   "bpos_device_role",
   "bpos_owner_notify",
+  "bpos_last_backup",
 ]);
 
 /** Llaves compartidas por todas las sucursales del negocio */
