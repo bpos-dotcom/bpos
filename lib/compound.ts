@@ -21,9 +21,11 @@ import type { KitchenStation, ModifierGroup, Product, ProductComponent } from "@
 export type SoldModifier = {
   group: string; // "Aderezo"
   name: string; // "Ranch aparte"
-  price: number; // extra por pieza
+  price: number; // lo que se cobra por pieza (solo en el renglón de extras)
   ingredientId?: number;
   quantity?: number; // del insumo, por pieza
+  /** Renglón de cobro: "Salsas extra (1)" */
+  extra?: number;
 };
 
 export type SoldPart = {
@@ -53,25 +55,37 @@ export function needsChoices(product: Product, products: Product[]) {
   return (product.components || []).some((c) => byId.get(Number(c.options[0]))?.modifierGroups?.length);
 }
 
-/** Opción elegida de un grupo → lo que se guarda en la venta. */
+/** Cuántas de más eligió en un grupo (las que pasan de las incluidas). */
+export function extraCount(group: ModifierGroup, picked: number) {
+  return Math.max(0, picked - (Number(group.included) || 0));
+}
+
+/**
+ * Opciones elegidas → lo que se guarda en la venta. `chosen`: grupo → keys
+ * elegidas (una opción puede repetirse: doble BBQ). Si pasa de las incluidas
+ * se agrega un renglón de cobro "Salsas extra (n)".
+ */
 export function soldModifiers(groups: ModifierGroup[] | undefined, chosen: Record<string, string[]>): SoldModifier[] {
-  return (groups || []).flatMap((group) =>
-    (chosen[group.key] || []).flatMap((optionKey) => {
+  return (groups || []).flatMap((group) => {
+    const picked = (chosen[group.key] || []).flatMap((optionKey) => {
       const option = group.options.find((o) => o.key === optionKey);
       if (!option) return [];
       return [
         {
           group: group.name,
           name: option.name,
-          price: Number(option.price) || 0,
+          price: 0,
           ...(option.ingredientId && option.quantity ? { ingredientId: option.ingredientId, quantity: option.quantity } : {}),
         },
       ];
-    })
-  );
+    });
+    const extras = extraCount(group, picked.length);
+    const charge = extras && Number(group.extraPrice) > 0 ? [{ group: group.name, name: `${group.name} extra (${extras})`, price: extras * Number(group.extraPrice), extra: extras }] : [];
+    return [...picked, ...charge];
+  });
 }
 
-/** Grupo obligatorio sin elegir o con más de las permitidas (texto del problema o ""). */
+/** Grupo obligatorio sin elegir o pasado del tope (texto del problema o ""). */
 export function modifierProblem(groups: ModifierGroup[] | undefined, chosen: Record<string, string[]>, owner = "") {
   for (const group of groups || []) {
     const count = (chosen[group.key] || []).length;
@@ -80,6 +94,19 @@ export function modifierProblem(groups: ModifierGroup[] | undefined, chosen: Rec
     if (group.max > 0 && count > group.max) return `${prefix}${group.name} permite máximo ${group.max}.`;
   }
   return "";
+}
+
+/** Las opciones elegidas juntando repetidas: [{ name: "BBQ", qty: 2 }, ...] (sin el renglón de cobro). */
+export function groupedPicks(modifiers?: SoldModifier[]) {
+  const rows: { group: string; name: string; qty: number }[] = [];
+  (modifiers || [])
+    .filter((m) => !m.extra)
+    .forEach((m) => {
+      const row = rows.find((r) => r.group === m.group && r.name === m.name);
+      if (row) row.qty += 1;
+      else rows.push({ group: m.group, name: m.name, qty: 1 });
+    });
+  return rows;
 }
 
 /**
@@ -126,10 +153,10 @@ export function lineIdFor(productId: number, parts?: SoldPart[], modifiers?: Sol
   return [String(productId), partKey, mods(modifiers)].filter(Boolean).join("|");
 }
 
-/** "Aderezo: Ranch aparte · Salsas: BBQ, Búfalo" */
+/** "Aderezo: Ranch aparte · Salsas: 2x BBQ, Búfalo" */
 export function modifiersText(modifiers?: SoldModifier[]) {
   const byGroup = new Map<string, string[]>();
-  (modifiers || []).forEach((m) => byGroup.set(m.group, [...(byGroup.get(m.group) || []), m.name]));
+  groupedPicks(modifiers).forEach((r) => byGroup.set(r.group, [...(byGroup.get(r.group) || []), `${r.qty > 1 ? `${r.qty}x ` : ""}${r.name}`]));
   return [...byGroup.entries()].map(([group, names]) => `${group}: ${names.join(", ")}`).join(" · ");
 }
 

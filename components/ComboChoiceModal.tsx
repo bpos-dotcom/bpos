@@ -6,7 +6,8 @@
  */
 import { useMemo, useState } from "react";
 import type { ModifierGroup, Product } from "@/data/products";
-import { extrasPrice, modifierProblem, resolveParts, soldModifiers, type SoldModifier, type SoldPart } from "@/lib/compound";
+import { extraCount, extrasPrice, modifierProblem, resolveParts, soldModifiers, type SoldModifier, type SoldPart } from "@/lib/compound";
+import { describeGroup } from "@/components/products/ModifierEditor";
 
 type Props = {
   product: Product;
@@ -40,16 +41,22 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
     }),
   ];
 
-  const toggle = (owner: string, group: ModifierGroup, optionKey: string) =>
-    setPicks((prev) => {
-      const current = prev[owner]?.[group.key] || [];
-      let next: string[];
-      if (current.includes(optionKey)) next = current.filter((k) => k !== optionKey);
-      else if (group.max === 1) next = [optionKey];
-      else if (current.length >= group.max) return prev; // ya eligió el máximo
-      else next = [...current, optionKey];
-      return { ...prev, [owner]: { ...(prev[owner] || {}), [group.key]: next } };
-    });
+  // Grupo de una sola opción (ej. ranch Sí/No): tocar cambia la elección.
+  // Si no: cada toque suma una (se puede repetir, doble BBQ) hasta el máximo.
+  const single = (group: ModifierGroup) => group.max === 1;
+  const setGroup = (owner: string, group: ModifierGroup, next: string[]) =>
+    setPicks((prev) => ({ ...prev, [owner]: { ...(prev[owner] || {}), [group.key]: next } }));
+  const add = (owner: string, group: ModifierGroup, optionKey: string) => {
+    const current = picks[owner]?.[group.key] || [];
+    if (single(group)) return setGroup(owner, group, current[0] === optionKey ? [] : [optionKey]);
+    if (group.max > 0 && current.length >= group.max) return; // ya eligió el máximo
+    setGroup(owner, group, [...current, optionKey]);
+  };
+  const remove = (owner: string, group: ModifierGroup, optionKey: string) => {
+    const current = picks[owner]?.[group.key] || [];
+    const i = current.lastIndexOf(optionKey);
+    if (i >= 0) setGroup(owner, group, [...current.slice(0, i), ...current.slice(i + 1)]);
+  };
 
   const missingPart = components.find((c) => c.options.length > 1 && chosen[c.key] === undefined);
   const problem = missingPart
@@ -112,27 +119,37 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
               {owner.key !== OWN && <p className="text-sm font-black text-orange-400">Opciones de {owner.title}</p>}
               {owner.groups.map((group) => {
                 const selected = picks[owner.key]?.[group.key] || [];
+                const extras = extraCount(group, selected.length);
                 return (
                   <div key={group.key}>
-                    <p className="mb-2 font-black">
-                      {group.name}{" "}
-                      <span className="text-xs font-bold text-zinc-500">
-                        {group.min > 0 ? "obligatorio" : "opcional"}
-                        {group.max > 1 ? ` · hasta ${group.max}` : ""}
-                      </span>
+                    <p className="font-black">{group.name}</p>
+                    <p className="mb-2 text-xs font-bold text-zinc-500">
+                      {describeGroup(group)} · elegidas {selected.length}
+                      {extras > 0 && (
+                        <span className="text-orange-400">
+                          {" "}
+                          · {extras} extra{group.extraPrice > 0 ? ` +${(extras * group.extraPrice).toFixed(2)}` : ""}
+                        </span>
+                      )}
                     </p>
                     <div className="grid grid-cols-2 gap-2">
                       {group.options.map((option) => {
-                        const active = selected.includes(option.key);
+                        const count = selected.filter((k) => k === option.key).length;
                         return (
-                          <button
+                          <div
                             key={option.key}
-                            onClick={() => toggle(owner.key, group, option.key)}
-                            className={`rounded-2xl border p-3 text-left text-sm font-bold ${active ? "border-orange-500 bg-orange-500/15 text-white" : "border-zinc-800 bg-black text-zinc-300"}`}
+                            className={`flex items-center rounded-2xl border text-sm font-bold ${count ? "border-orange-500 bg-orange-500/15 text-white" : "border-zinc-800 bg-black text-zinc-300"}`}
                           >
-                            {option.name}
-                            {option.price > 0 && <span className="ml-1 text-orange-400">+${option.price.toFixed(2)}</span>}
-                          </button>
+                            <button onClick={() => add(owner.key, group, option.key)} className="flex-1 p-3 text-left">
+                              {option.name}
+                              {count > 1 && <span className="ml-1 text-orange-400">×{count}</span>}
+                            </button>
+                            {count > 0 && !single(group) && (
+                              <button onClick={() => remove(owner.key, group, option.key)} className="px-3 py-3 text-lg font-black text-zinc-400" aria-label={`Quitar ${option.name}`}>
+                                −
+                              </button>
+                            )}
+                          </div>
                         );
                       })}
                     </div>

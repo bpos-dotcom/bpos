@@ -6,7 +6,7 @@ import { paperWidth, qrSvg, type OrderTicket } from "@/lib/bridge/order-tickets"
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
 import { formatOrderNumber } from "@/lib/order-sequence";
-import { extrasPrice, modifiersText, type SoldModifier, type SoldPart } from "@/lib/compound";
+import { extrasPrice, groupedPicks, modifiersText, type SoldModifier, type SoldPart } from "@/lib/compound";
 
 /**
  * Tickets de cualquier venta guardada (POS de mostrador o delivery) para
@@ -53,7 +53,11 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
       name: item.name,
       // El precio del renglón trae sumadas las opciones: en el ticket van aparte
       price: (Number(item.price) - extrasPrice(item.modifiers, item.parts)) * (Number(item.quantity) || 1),
-      choices: (item.modifiers || []).map((m) => ({ qty: 1, name: m.name, price: m.price ? m.price * (Number(item.quantity) || 1) : null, question: m.group })),
+      // Opciones (repetidas juntas: "2x BBQ") y, si pasó de las incluidas, el renglón de cobro
+      choices: [
+        ...groupedPicks(item.modifiers).map((r) => ({ qty: r.qty, name: r.name, price: null, question: r.group })),
+        ...(item.modifiers || []).filter((m) => m.extra).map((m) => ({ qty: 1, name: m.name, price: m.price * (Number(item.quantity) || 1) })),
+      ],
       notes: [],
       // Combo: va a las estaciones de sus partes
       stations: item.parts?.length

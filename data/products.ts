@@ -18,21 +18,23 @@ export type ProductComponent = {
 
 /**
  * Modificador: opción que no se vende sola ("Ranch: Sí / No, gracias /
- * Aparte", "Salsas a elegir"). Puede costar extra y descontar un insumo.
+ * Aparte", "Salsas a elegir"). Puede descontar un insumo. No tiene precio:
+ * el grupo trae unas incluidas gratis y cobra solo las que pasen de ahí.
  */
 export type ModifierOption = {
   key: string;
   name: string;
-  price: number; // extra que se cobra (0 = sin costo)
   ingredientId?: number;
-  quantity?: number; // del insumo, por pieza
+  quantity?: number; // del insumo, por cada vez que se elige
 };
 
 export type ModifierGroup = {
   key: string;
   name: string; // "Aderezo", "Salsas"
   min: number; // 1 o más = obligatorio
-  max: number; // cuántas puede elegir
+  included: number; // cuántas van gratis
+  extraPrice: number; // precio de cada una de más (0 = no se cobran)
+  max: number; // tope total (0 = sin tope)
   options: ModifierOption[];
 };
 

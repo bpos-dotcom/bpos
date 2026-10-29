@@ -1,8 +1,9 @@
 "use client";
 /**
  * Opciones para elegir de un producto (modificadores): grupos como
- * "Aderezo" (obligatorio, elegir 1) o "Salsas" (hasta 4). Cada opción puede
- * cobrar extra y descontar un insumo.
+ * "Aderezo" (obligatorio, 1 incluido) o "Salsas" (4 incluidas, cada extra
+ * $15). Las opciones no tienen precio: solo se cobra lo que pase de las
+ * incluidas. Cada opción puede descontar un insumo.
  */
 import type { Ingredient } from "@/data/inventory";
 import type { ModifierGroup, ModifierOption } from "@/data/products";
@@ -14,7 +15,27 @@ type Props = {
 };
 
 const newKey = () => `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
-const newOption = (): ModifierOption => ({ key: newKey(), name: "", price: 0 });
+const newOption = (): ModifierOption => ({ key: newKey(), name: "" });
+
+function NumberField({ label, value, onChange, prefix, hint }: { label: string; value: number; onChange: (n: number) => void; prefix?: string; hint?: string }) {
+  return (
+    <label>
+      <span className="mb-1 block text-xs font-bold text-zinc-400">{label}</span>
+      <span className="flex items-center gap-1">
+        {prefix && <span className="text-sm text-zinc-400">{prefix}</span>}
+        <input
+          type="number"
+          min={0}
+          step={prefix ? "0.5" : "1"}
+          value={value}
+          onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
+          className="w-20 rounded-xl border border-zinc-800 bg-black px-3 py-2 text-right"
+        />
+      </span>
+      {hint && <span className="mt-1 block text-[11px] text-zinc-500">{hint}</span>}
+    </label>
+  );
+}
 
 export function ModifierEditor({ groups, ingredients, onChange }: Props) {
   const byId = new Map(ingredients.map((i) => [i.id, i]));
@@ -26,13 +47,13 @@ export function ModifierEditor({ groups, ingredients, onChange }: Props) {
     <section className="mt-6 rounded-3xl border border-zinc-800 bg-black p-6">
       <h3 className="text-xl font-black text-orange-500">🎛️ Opciones para elegir</h3>
       <p className="mt-2 text-sm text-zinc-400">
-        Lo que la cajera elige al venderlo: aderezos, salsas, término de la carne... Una opción puede cobrar extra y descontar un insumo del inventario.
+        Lo que la cajera elige al venderlo: aderezos, salsas, término de la carne... Las incluidas van gratis y solo se cobra cada una de más. Cada opción puede descontar un insumo.
       </p>
 
       <div className="mt-4 space-y-4">
         {groups.map((group) => (
           <div key={group.key} className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
-            <div className="flex flex-wrap items-end gap-3">
+            <div className="flex flex-wrap items-start gap-3">
               <label className="min-w-40 flex-1">
                 <span className="mb-1 block text-xs font-bold text-zinc-400">Grupo</span>
                 <input
@@ -42,7 +63,7 @@ export function ModifierEditor({ groups, ingredients, onChange }: Props) {
                   className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2"
                 />
               </label>
-              <label className="flex items-center gap-2 pb-2 text-sm font-bold">
+              <label className="flex items-center gap-2 pt-7 text-sm font-bold">
                 <input
                   type="checkbox"
                   checked={group.min > 0}
@@ -51,23 +72,14 @@ export function ModifierEditor({ groups, ingredients, onChange }: Props) {
                 />
                 Obligatorio
               </label>
-              <label>
-                <span className="mb-1 block text-xs font-bold text-zinc-400">Puede elegir hasta</span>
-                <input
-                  type="number"
-                  min={1}
-                  value={group.max}
-                  onChange={(e) => {
-                    const max = Math.max(1, Math.round(Number(e.target.value) || 1));
-                    updateGroup(group.key, { max, min: Math.min(group.min, max) });
-                  }}
-                  className="w-20 rounded-xl border border-zinc-800 bg-black px-3 py-2 text-right"
-                />
-              </label>
-              <button onClick={() => onChange(groups.filter((g) => g.key !== group.key))} className="rounded-xl border border-red-500/40 px-3 py-2 text-sm font-black text-red-400">
+              <NumberField label="Incluidas gratis" value={group.included} onChange={(n) => updateGroup(group.key, { included: Math.round(n) })} />
+              <NumberField label="Precio por cada extra" prefix="$" value={group.extraPrice} onChange={(n) => updateGroup(group.key, { extraPrice: n })} hint="0 = no se cobran" />
+              <NumberField label="Máximo" value={group.max} onChange={(n) => updateGroup(group.key, { max: Math.round(n) })} hint="0 = sin tope" />
+              <button onClick={() => onChange(groups.filter((g) => g.key !== group.key))} className="mt-6 rounded-xl border border-red-500/40 px-3 py-2 text-sm font-black text-red-400">
                 Quitar grupo
               </button>
             </div>
+            <p className="mt-2 text-xs text-orange-300">{describeGroup(group)}</p>
 
             <div className="mt-3 space-y-2">
               {group.options.map((option) => {
@@ -77,20 +89,9 @@ export function ModifierEditor({ groups, ingredients, onChange }: Props) {
                     <input
                       value={option.name}
                       onChange={(e) => updateOption(group, option.key, { name: e.target.value })}
-                      placeholder="Opción (ej. Ranch aparte, No, gracias)"
+                      placeholder="Opción (ej. BBQ, Ranch aparte, No, gracias)"
                       className="min-w-40 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1"
                     />
-                    <label className="flex items-center gap-1 text-xs text-zinc-400">
-                      +$
-                      <input
-                        type="number"
-                        min={0}
-                        step="0.5"
-                        value={option.price}
-                        onChange={(e) => updateOption(group, option.key, { price: Math.max(0, Number(e.target.value) || 0) })}
-                        className="w-20 rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1 text-right text-white"
-                      />
-                    </label>
                     <select
                       value={option.ingredientId || ""}
                       onChange={(e) => {
@@ -134,7 +135,7 @@ export function ModifierEditor({ groups, ingredients, onChange }: Props) {
       </div>
 
       <button
-        onClick={() => onChange([...groups, { key: newKey(), name: "", min: 1, max: 1, options: [newOption(), newOption()] }])}
+        onClick={() => onChange([...groups, { key: newKey(), name: "", min: 1, included: 1, extraPrice: 0, max: 0, options: [newOption(), newOption()] }])}
         className="mt-4 rounded-2xl border border-orange-500 px-4 py-2 font-black text-orange-500"
       >
         + Agregar grupo de opciones
@@ -143,14 +144,24 @@ export function ModifierEditor({ groups, ingredients, onChange }: Props) {
   );
 }
 
+/** "4 incluidas gratis · cada extra $15 · máximo 8" */
+export function describeGroup(group: ModifierGroup) {
+  const parts = [
+    group.min > 0 ? "obligatorio" : "opcional",
+    `${group.included} incluida${group.included === 1 ? "" : "s"} gratis`,
+    group.extraPrice > 0 ? `cada extra $${group.extraPrice}` : "extras sin costo",
+    group.max > 0 ? `máximo ${group.max}` : "sin tope",
+  ];
+  return parts.join(" · ");
+}
+
 /** Problemas que impiden guardar las opciones (vacío si está bien). */
 export function modifierEditorProblems(groups: ModifierGroup[] | undefined) {
   for (const [i, group] of (groups || []).entries()) {
     const label = group.name.trim() || `el grupo ${i + 1}`;
     if (!group.name.trim()) return `Ponle nombre al grupo de opciones ${i + 1}.`;
-    const options = group.options.filter((o) => o.name.trim());
-    if (!options.length) return `${label} no tiene opciones.`;
-    if (group.min > options.length) return `${label} pide elegir más opciones de las que tiene.`;
+    if (!group.options.some((o) => o.name.trim())) return `${label} no tiene opciones.`;
+    if (group.max > 0 && group.min > group.max) return `En ${label}, el máximo no puede ser menor que lo obligatorio.`;
     if (group.options.some((o) => o.ingredientId && !(Number(o.quantity) > 0))) return `En ${label}, pon cuánto descuenta cada insumo.`;
   }
   return "";

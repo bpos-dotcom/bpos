@@ -1,10 +1,11 @@
 /**
- * Prueba de modificadores (opciones para elegir): obligatorios, máximo,
- * precio extra, inventario, comandas y combos con opciones en sus partes.
+ * Prueba de modificadores (opciones para elegir): incluidas gratis, cobro
+ * solo de las de más, repetidas, obligatorios, tope, inventario, comandas y
+ * combos con opciones en sus partes.
  *   npx tsx scripts/test-modificadores.ts
  */
 import type { ModifierGroup, Product } from "@/data/products";
-import { extrasPrice, itemConsumption, kitchenItems, lineIdFor, modifierProblem, needsChoices, resolveParts, soldModifiers, type SoldModifier } from "@/lib/compound";
+import { extrasPrice, itemConsumption, kitchenItems, lineIdFor, modifierProblem, modifiersText, needsChoices, resolveParts, soldModifiers, type SoldModifier } from "@/lib/compound";
 import { saleTicket } from "@/lib/bridge/sale-tickets";
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { getBusinessSettings } from "@/lib/business-settings";
@@ -17,26 +18,31 @@ const check = (name: string, cond: boolean, extra?: unknown) => {
   console.log(`${cond ? "OK   " : "FALLA"} ${name}${!cond && extra !== undefined ? ` → ${JSON.stringify(extra)}` : ""}`);
 };
 
+// Ranch: obligatorio, 1 incluido, uno de más cuesta $15
 const ranch: ModifierGroup = {
   key: "ranch",
   name: "Aderezo ranch",
   min: 1,
-  max: 1,
+  included: 1,
+  extraPrice: 15,
+  max: 0,
   options: [
-    { key: "si", name: "Sí", price: 0, ingredientId: 200, quantity: 30 },
-    { key: "no", name: "No, gracias", price: 0 },
-    { key: "aparte", name: "Ranch aparte", price: 15, ingredientId: 200, quantity: 60 },
+    { key: "si", name: "Ranch", ingredientId: 200, quantity: 30 },
+    { key: "no", name: "No, gracias" },
   ],
 };
+// Salsas: 4 incluidas, cada extra $15, máximo 8
 const salsas: ModifierGroup = {
   key: "salsas",
   name: "Salsas",
   min: 0,
-  max: 2,
+  included: 4,
+  extraPrice: 15,
+  max: 8,
   options: [
-    { key: "bbq", name: "BBQ", price: 0, ingredientId: 201, quantity: 20 },
-    { key: "bufalo", name: "Búfalo", price: 0, ingredientId: 202, quantity: 20 },
-    { key: "mango", name: "Mango habanero", price: 0 },
+    { key: "bbq", name: "BBQ", ingredientId: 201, quantity: 20 },
+    { key: "bufalo", name: "Búfalo", ingredientId: 202, quantity: 20 },
+    { key: "mango", name: "Mango habanero" },
   ],
 };
 const products: Product[] = [
@@ -62,44 +68,51 @@ const combo = products[2];
 check("pide elegir: producto con opciones", needsChoices(boneless, products));
 check("pide elegir: combo cuya parte tiene opciones", needsChoices(combo, products));
 check("ranch obligatorio sin elegir → aviso", modifierProblem(boneless.modifierGroups, {}) !== "");
-check("máximo 2 salsas", modifierProblem(boneless.modifierGroups, { ranch: ["no"], salsas: ["bbq", "bufalo", "mango"] }).includes("máximo 2"));
-check("ranch elegido y 2 salsas → bien", modifierProblem(boneless.modifierGroups, { ranch: ["aparte"], salsas: ["bbq", "bufalo"] }) === "");
+check("tope de 8 salsas", modifierProblem(boneless.modifierGroups, { ranch: ["no"], salsas: Array(9).fill("bbq") }).includes("máximo 8"));
+check("5 salsas sí se permiten (hay tope de 8)", modifierProblem(boneless.modifierGroups, { ranch: ["si"], salsas: ["bbq", "bbq", "bufalo", "mango", "bufalo"] }) === "");
 
-// Lo vendido
-const mods = soldModifiers(boneless.modifierGroups, { ranch: ["aparte"], salsas: ["bbq", "bufalo"] });
-check("opciones vendidas", mods.map((m) => `${m.group}:${m.name}`).join(",") === "Aderezo ranch:Ranch aparte,Salsas:BBQ,Salsas:Búfalo", mods);
-check("precio extra $15", extrasPrice(mods) === 15);
-check("otra elección = otro renglón", lineIdFor(1, undefined, mods) !== lineIdFor(1, undefined, soldModifiers(boneless.modifierGroups, { ranch: ["no"] })));
+// Dentro de lo incluido: gratis
+const cuatro = soldModifiers(boneless.modifierGroups, { ranch: ["si"], salsas: ["bbq", "bbq", "bufalo", "mango"] });
+check("4 salsas y 1 ranch: $0 extra", extrasPrice(cuatro) === 0, cuatro);
+check("texto: doble BBQ junta", modifiersText(cuatro) === "Aderezo ranch: Ranch · Salsas: 2x BBQ, Búfalo, Mango habanero", modifiersText(cuatro));
 
-// Inventario: 2 boneless con ranch aparte (60 ml) + BBQ + Búfalo
-const used = itemConsumption({ id: 1, quantity: 2, modifiers: mods }, () => []);
-check("inventario: 120 ml de ranch", used.get(200) === 120, [...used]);
-check("inventario: 40 g de BBQ y 40 g de búfalo", used.get(201) === 40 && used.get(202) === 40);
-const sinRanch = itemConsumption({ id: 1, quantity: 1, modifiers: soldModifiers(boneless.modifierGroups, { ranch: ["no"] }) }, () => []);
-check("inventario: 'No, gracias' no descuenta", !sinRanch.has(200));
+// De más: solo se cobra lo que pasa
+const seis = soldModifiers(boneless.modifierGroups, { ranch: ["si", "si"], salsas: ["bbq", "bbq", "bufalo", "mango", "bufalo", "bbq"] });
+check("2 ranch (1 extra) + 6 salsas (2 extra) = $45", extrasPrice(seis) === 45, seis.filter((m) => m.extra));
+check("renglones de cobro", seis.filter((m) => m.extra).map((m) => m.name).join(",") === "Aderezo ranch extra (1),Salsas extra (2)");
+check("otra elección = otro renglón del carrito", lineIdFor(1, undefined, cuatro) !== lineIdFor(1, undefined, seis));
+const sinCobro = soldModifiers([{ ...salsas, extraPrice: 0 }], { salsas: Array(6).fill("bbq") });
+check("extras sin costo si el precio por extra es 0", extrasPrice(sinCobro) === 0 && !sinCobro.some((m) => m.extra));
 
-// Tickets: el renglón vale 129+15=144; el ticket muestra $129 y el ranch +$15 aparte
+// Inventario: cada elección descuenta, incluidas y extras
+const used = itemConsumption({ id: 1, quantity: 2, modifiers: seis }, () => []);
+check("inventario: 2 boneless × 2 ranch × 30 ml = 120 ml", used.get(200) === 120, [...used]);
+check("inventario: 2 × 3 BBQ × 20 g = 120 g", used.get(201) === 120);
+const noGracias = itemConsumption({ id: 1, quantity: 1, modifiers: soldModifiers(boneless.modifierGroups, { ranch: ["no"] }) }, () => []);
+check("inventario: 'No, gracias' no descuenta", !noGracias.has(200));
+
+// Tickets: renglón vale 129 + 45 = 174
 const settings = { ...getBusinessSettings(), ticketLogo: "" };
-const sale = { id: 1, createdAt: new Date().toISOString(), items: [{ name: "Boneless Individuales", price: 144, quantity: 1, station: "Freidora", modifiers: mods }], total: 144 };
+const sale = { id: 1, createdAt: new Date().toISOString(), items: [{ name: "Boneless Individuales", price: 174, quantity: 1, station: "Freidora", modifiers: seis }], total: 174 };
 const t = saleTicket(sale);
-check("ticket: producto a $129 + opción $15", t.items[0].price === 129 && t.items[0].choices.find((c) => c.name === "Ranch aparte")?.price === 15, t.items[0]);
+check("ticket: producto a $129", t.items[0].price === 129, t.items[0].price);
+check("ticket: 3x BBQ junto", t.items[0].choices.some((c) => c.name === "BBQ" && c.qty === 3));
+check("ticket: cobro de salsas extra $30", t.items[0].choices.find((c) => c.name === "Salsas extra (2)")?.price === 30);
 const freidora = stationTicketHtml(t, "Freidora", settings, 58);
-check("comanda Freidora: ranch aparte y salsas", freidora.includes("Ranch aparte") && freidora.includes("BBQ") && freidora.includes("Búfalo"));
+check("comanda Freidora: salsas y ranch", freidora.includes("BBQ") && freidora.includes("Búfalo") && freidora.includes("Ranch"));
 const cliente = bagTicketHtml(t, settings, "", 58);
-check("ticket cliente: $129.00, $15.00 y total $144.00", cliente.includes("$129.00") && cliente.includes("$15.00") && cliente.includes("$144.00"));
+check("ticket cliente: $129.00, $15.00, $30.00 y total $174.00", ["$129.00", "$15.00", "$30.00", "$174.00"].every((x) => cliente.includes(x)));
 
 // Combo con opciones en su parte
-const parts = resolveParts(combo, products, {}, { b: soldModifiers(boneless.modifierGroups, { ranch: ["aparte"] }) });
-check("combo: la parte boneless lleva su ranch", parts[0].modifiers?.[0]?.name === "Ranch aparte", parts);
-check("combo: cobra extra por la opción de la parte", extrasPrice(undefined, parts) === 15);
-const comboUsed = itemConsumption({ id: 10, quantity: 1, parts }, () => []);
-check("combo: descuenta el ranch de la parte", comboUsed.get(200) === 60);
+const parts = resolveParts(combo, products, {}, { b: soldModifiers(boneless.modifierGroups, { ranch: ["si"], salsas: ["bbq", "bbq", "bbq", "bbq", "mango"] }) });
+check("combo: la parte boneless lleva sus opciones", modifiersText(parts[0].modifiers) === "Aderezo ranch: Ranch · Salsas: 4x BBQ, Mango habanero", modifiersText(parts[0].modifiers));
+check("combo: cobra la salsa extra de la parte ($15)", extrasPrice(undefined, parts) === 15);
 const kds = kitchenItems([{ id: 10, name: "Combo Boneless", quantity: 1, station: "Cocina", parts, modifiers: undefined as SoldModifier[] | undefined }]);
-check("KDS: la parte boneless muestra su ranch", kds[0].modifiers?.[0]?.name === "Ranch aparte" && !kds[1].modifiers);
+check("KDS: la parte boneless muestra sus opciones y el refresco no", Boolean(kds[0].modifiers?.length) && !kds[1].modifiers);
 const comboTicket = saleTicket({ id: 2, createdAt: new Date().toISOString(), items: [{ name: "Combo Boneless", price: 184, quantity: 1, station: "Cocina", parts }], total: 184 });
 check("ticket combo: precio base $169", comboTicket.items[0].price === 169, comboTicket.items[0].price);
 const freidoraCombo = stationTicketHtml(comboTicket, "Freidora", settings, 58);
-check("comanda Freidora del combo: boneless con ranch aparte, sin refresco", freidoraCombo.includes("Ranch aparte") && !freidoraCombo.includes("Coca-Cola"));
+check("comanda Freidora del combo: boneless con sus salsas, sin refresco", freidoraCombo.includes("4x BBQ") && !freidoraCombo.includes("Coca-Cola"));
 
 console.log(`\n${ok} bien, ${bad} mal`);
 process.exit(bad ? 1 : 0);
