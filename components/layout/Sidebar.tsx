@@ -16,6 +16,7 @@ import {
 } from "@/lib/notifications/operationsCenter";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { runDailyBackup } from "@/lib/cloud/backup";
+import { flushCloudAudit } from "@/lib/cloud/audit-outbox";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
 
 const navItems = [
@@ -93,6 +94,9 @@ export function Sidebar() {
     void refreshOperations();
     // Respaldo automático del día (una vez; lo guarda la computadora de la caja)
     const backupTimer = window.setTimeout(() => void runDailyBackup(), 60_000);
+    // Bitácora pendiente de subir (ej. se hizo algo sin internet)
+    const auditTimer = window.setInterval(() => void flushCloudAudit(), 60_000);
+    void flushCloudAudit();
     const timer = window.setInterval(() => void refreshOperations(), POLL_MS);
     const refresh = () => void refreshOperations();
     window.addEventListener(OPERATIONS_ALERT_EVENT, refresh);
@@ -100,6 +104,7 @@ export function Sidebar() {
     window.addEventListener("bpos:critical-errors-updated", refresh);
     return () => {
       window.clearTimeout(backupTimer);
+      window.clearInterval(auditTimer);
       window.clearInterval(timer);
       window.removeEventListener(OPERATIONS_ALERT_EVENT, refresh);
       window.removeEventListener("bpos:inventory-alerts-updated", refresh);

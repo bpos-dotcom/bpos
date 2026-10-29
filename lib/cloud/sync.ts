@@ -28,6 +28,7 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_device_role",
   "bpos_owner_notify",
   "bpos_last_backup",
+  "bpos_audit_outbox",
 ]);
 
 /** Llaves compartidas por todas las sucursales del negocio */

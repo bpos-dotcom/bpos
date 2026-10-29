@@ -15,7 +15,10 @@ Si el archivo `.env.local` no existe, B-POS funciona igual que antes (solo local
 3. SQL Editor → New query → pega `supabase/migrations/0003_bpos_vistas.sql` → Run.
    Crea las tablas de consulta (`bpos_ventas`, `bpos_insumos`, `bpos_cortes_caja`, ...)
    que ves en Table Editor. Se puede correr más de una vez.
-4. Authentication → Sign In / Providers → Email: puedes apagar **Confirm email**
+4. SQL Editor → New query → pega `supabase/migrations/0004_bpos_bitacora.sql` → Run.
+   Bitácora en la nube que nadie puede editar ni borrar, y protección para que
+   las ventas no se puedan borrar (solo cancelar con motivo).
+5. Authentication → Sign In / Providers → Email: puedes apagar **Confirm email**
    para que la cuenta quede lista sin revisar el correo.
 
 ## 2. En la computadora de la caja

@@ -230,7 +230,7 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
   const recipes = makeRecipeIndex(src.recipes);
   const productById = new Map(src.products.map((p) => [p.id, p]));
 
-  const orders = src.orders.filter((o) => inRange(o.createdAt, range)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const orders = src.orders.filter((o) => !(o as { cancelled?: boolean }).cancelled && inRange(o.createdAt, range)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const byDay = new Map<string, Row>();
   const byHour = new Map<string, Row>();
@@ -420,7 +420,7 @@ export function salesByBranch(
   const byBranch = new Map<string, Row>();
   branches.forEach((b) => byBranch.set(b.name, emptyRow(b.name)));
   orders.forEach(({ branchName, order }) => {
-    if (!inRange(order.createdAt, range)) return;
+    if ((order as { cancelled?: boolean }).cancelled || !inRange(order.createdAt, range)) return;
     bump(byBranch, branchName, { count: 1, sales: Number(order.total) || 0 });
   });
   return finish(byBranch);

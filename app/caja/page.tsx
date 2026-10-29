@@ -10,6 +10,7 @@ import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { addAuditEvent } from "@/lib/audit";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { saveCashCloseRecord } from "@/lib/cash-history";
+import { isCancelled } from "@/lib/sale-cancel";
 
 type CashMovement = {
   id: number;
@@ -100,6 +101,7 @@ export default function CajaPage() {
     const orders: SavedOrder[] = savedOrders ? JSON.parse(savedOrders) : [];
 
     return orders.filter((order) => {
+      if (isCancelled(order)) return false; // canceladas no cuentan en el corte
       if (order.shiftSessionId) {
         return order.shiftSessionId === shift.sessionId;
       }
