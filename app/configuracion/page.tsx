@@ -28,6 +28,12 @@ const adminModules = [
     description: "Alta, edición, precios, categorías y estaciones.",
   },
   {
+    title: "Subir menú con IA",
+    href: "/configuracion/menu-ia",
+    icon: "🤖",
+    description: "Fotos o PDF de tu menú: Claude registra tus productos y tú los revisas.",
+  },
+  {
     title: "Ingredientes",
     href: "/configuracion/ingredientes",
     icon: "🥩",
