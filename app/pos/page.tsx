@@ -171,8 +171,9 @@ function PosScreen() {
   }
 
   // El precio del renglón ya incluye lo que cuestan las opciones elegidas
-  function addLine(product: Product, { parts, modifiers, ownTicket }: Pick<CartItem, "parts" | "modifiers" | "ownTicket">) {
-    const lineId = lineIdFor(product.id, parts, modifiers);
+  function addLine(product: Product, { parts, modifiers, ownTicket, comment }: Pick<CartItem, "parts" | "modifiers" | "ownTicket" | "comment">) {
+    // Con otro comentario es otro renglón (cada uno sale con su nota en la comanda)
+    const lineId = lineIdFor(product.id, parts, modifiers) + (comment ? `|c:${comment}` : "");
     const price = product.price + extrasPrice(modifiers, parts);
     setCart((currentCart) => {
       const existingItem = currentCart.find((item) => cartLineId(item) === lineId);
@@ -187,9 +188,21 @@ function PosScreen() {
 
       return [
         ...currentCart,
-        { ...product, price, quantity: 1, lineId, ...(parts?.length ? { parts, ownTicket } : {}), ...(modifiers?.length ? { modifiers } : {}) },
+        { ...product, price, quantity: 1, lineId, ...(parts?.length ? { parts, ownTicket } : {}), ...(modifiers?.length ? { modifiers } : {}), ...(comment ? { comment } : {}) },
       ];
     });
+  }
+
+  // Comentario de un renglón ya en el carrito (vacío lo quita)
+  function setLineComment(lineId: string, comment: string) {
+    setCart((currentCart) =>
+      currentCart.map((item) => {
+        if (cartLineId(item) !== lineId) return item;
+        const next = { ...item, comment: comment.trim() || undefined };
+        if (!next.comment) delete next.comment;
+        return next;
+      })
+    );
   }
 
   function increaseQuantity(lineId: string) {
@@ -526,7 +539,7 @@ Gracias por pedir en Burger Planet 🚀`;
 
       <Sidebar />
 
-      <section className="lg:ml-64">
+      <section className="bpos-main">
         <header className="sticky top-0 z-20 border-b border-zinc-800 bg-black/90 px-6 py-4 backdrop-blur">
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
             <TopStatus title="Caja" value="Abierta" detail="Fondo: $1,500.00" />
@@ -613,6 +626,7 @@ Gracias por pedir en Burger Planet 🚀`;
               validationMessage={validationMessage}
               onIncrease={increaseQuantity}
               onDecrease={decreaseQuantity}
+              onComment={setLineComment}
               onClear={clearCart}
               onCheckout={openCheckout}
             />

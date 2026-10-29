@@ -26,7 +26,7 @@ import { describeGroup } from "@/components/products/ModifierEditor";
 type Props = {
   product: Product;
   products: Product[];
-  onConfirm: (result: { parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket: boolean }) => void;
+  onConfirm: (result: { parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket: boolean; comment?: string }) => void;
   onClose: () => void;
 };
 
@@ -34,6 +34,8 @@ type Picks = Record<string, string[]>;
 
 export function ComboChoiceModal({ product, products, onConfirm, onClose }: Props) {
   const [picks, setPicks] = useState<Record<string, Picks>>({});
+  const [withComment, setWithComment] = useState(false);
+  const [comment, setComment] = useState("");
   const pickedOf = (owner: string, groups: ModifierGroup[] | undefined) => ({ ...autoPicks(groups), ...(picks[owner] || {}) });
 
   const ownPicks = pickedOf(OWN_OPTIONS, product.modifierGroups);
@@ -132,12 +134,29 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
           })}
         </div>
 
+        {/* Comentario para la cocina (opcional) */}
+        <label className="mt-5 flex cursor-pointer items-center gap-3 border-t border-zinc-800 pt-4 font-black">
+          <input type="checkbox" checked={withComment} onChange={(e) => setWithComment(e.target.checked)} className="h-5 w-5 accent-orange-500" />
+          💬 Comentarios
+        </label>
+        {withComment && (
+          <textarea
+            autoFocus
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            placeholder="Ej. sin cebolla, bien cocido, para llevar..."
+            aria-label="Comentario"
+            rows={2}
+            className="mt-2 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm"
+          />
+        )}
+
         {problem && <p className="mt-4 text-sm text-zinc-400">{problem}</p>}
         <div className="mt-6 flex gap-3">
           <button onClick={onClose} className="flex-1 rounded-2xl border border-zinc-800 py-3 font-black">
             Cancelar
           </button>
-          <button onClick={() => onConfirm(result)} disabled={Boolean(problem)} className="flex-1 rounded-2xl bg-orange-500 py-3 font-black text-black disabled:opacity-40">
+          <button onClick={() => onConfirm({ ...result, comment: withComment && comment.trim() ? comment.trim() : undefined })} disabled={Boolean(problem)} className="flex-1 rounded-2xl bg-orange-500 py-3 font-black text-black disabled:opacity-40">
             Agregar ${total.toFixed(2)}
           </button>
         </div>

@@ -20,6 +20,10 @@ export default function ProductosAdminPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [recipes, setRecipes] = useState<RecipeItem[]>([]);
   const [recipeDraft, setRecipeDraft] = useState<RecipeLine[]>([]);
+  const [listQuery, setListQuery] = useState("");
+
+  const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const visibleProducts = products.filter((p) => !listQuery.trim() || plain(`${p.name} ${p.category}`).includes(plain(listQuery.trim())));
 
   const recipeOf = (list: RecipeItem[], productId: number | undefined) =>
     list.filter((r) => Number(r.productId) === Number(productId)).map((r) => ({ ingredientId: Number(r.ingredientId), quantity: Number(r.quantity) }));
@@ -115,8 +119,9 @@ export default function ProductosAdminPage() {
         title="Administración de Productos"
         subtitle="Edita productos, precios, categorías y estación de preparación."
       >
-        <div className="grid grid-cols-1 gap-6 xl:grid-cols-[380px_1fr]">
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+        <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[380px_1fr]">
+          {/* La lista tiene su propio deslizador: la página no crece con cada producto */}
+          <section className="flex max-h-[70vh] flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-6 xl:sticky xl:top-36 xl:max-h-[calc(100vh-10rem)]">
             <div className="flex items-center justify-between gap-4">
               <div>
                 <h2 className="text-xl font-black text-orange-500">Productos</h2>
@@ -133,8 +138,16 @@ export default function ProductosAdminPage() {
               </button>
             </div>
 
-            <div className="mt-6 space-y-3">
-              {products.map((product) => (
+            <input
+              value={listQuery}
+              onChange={(event) => setListQuery(event.target.value)}
+              placeholder="🔍 Buscar producto o categoría"
+              className="mt-4 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm"
+            />
+            <p className="mt-2 text-xs text-zinc-500">{visibleProducts.length} de {products.length} producto(s)</p>
+
+            <div className="bpos-scroll -mr-2 mt-3 min-h-0 flex-1 space-y-3 overflow-y-auto pr-2">
+              {visibleProducts.map((product) => (
                 <button
                   key={product.id}
                   onClick={() => selectProduct(product)}

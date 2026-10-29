@@ -28,6 +28,12 @@ const adminModules = [
     description: "Alta, edición, precios, categorías y estaciones.",
   },
   {
+    title: "Punto de venta",
+    href: "/configuracion/pos",
+    icon: "🖐️",
+    description: "Pantalla táctil: teclado en pantalla para textos y cantidades (en esta caja).",
+  },
+  {
     title: "Subir menú con IA",
     href: "/configuracion/menu-ia",
     icon: "🤖",

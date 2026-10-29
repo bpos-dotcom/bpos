@@ -1,3 +1,6 @@
+"use client";
+
+import { useState } from "react";
 import { Product } from "@/data/products";
 import { modifiersText, type SoldModifier, type SoldPart } from "@/lib/compound";
 
@@ -11,9 +14,57 @@ export type CartItem = Product & {
   modifiers?: SoldModifier[];
   /** Con opciones enlazadas: el producto también manda su propia comanda (falso en combos) */
   ownTicket?: boolean;
+  /** Comentario para la cocina ("sin cebolla") */
+  comment?: string;
 };
 
 export const cartLineId = (item: CartItem) => item.lineId || String(item.id);
+
+/** Comentario del renglón: se agrega o cambia desde el carrito. */
+function CommentBox({ comment, onSave }: { comment?: string; onSave: (text: string) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [text, setText] = useState(comment || "");
+  if (!editing) {
+    return (
+      <button
+        onClick={() => {
+          setText(comment || "");
+          setEditing(true);
+        }}
+        className="h-9 rounded-xl border border-zinc-700 px-3 text-xs font-black text-zinc-300"
+      >
+        💬 {comment ? "Editar comentario" : "Comentario"}
+      </button>
+    );
+  }
+  return (
+    <div className="mt-2 w-full">
+      <textarea
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="Ej. sin cebolla, bien cocido..."
+        aria-label="Comentario"
+        rows={2}
+        className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm"
+      />
+      <div className="mt-1 flex gap-2">
+        <button onClick={() => setEditing(false)} className="flex-1 rounded-xl border border-zinc-800 py-2 text-xs font-black">
+          Cancelar
+        </button>
+        <button
+          onClick={() => {
+            onSave(text);
+            setEditing(false);
+          }}
+          className="flex-1 rounded-xl bg-orange-500 py-2 text-xs font-black text-black"
+        >
+          Guardar
+        </button>
+      </div>
+    </div>
+  );
+}
 
 type CartPanelProps = {
   items: CartItem[];
@@ -22,6 +73,7 @@ type CartPanelProps = {
   validationMessage: string;
   onIncrease: (lineId: string) => void;
   onDecrease: (lineId: string) => void;
+  onComment: (lineId: string, comment: string) => void;
   onClear: () => void;
   onCheckout: () => void;
 };
@@ -33,6 +85,7 @@ export function CartPanel({
   validationMessage,
   onIncrease,
   onDecrease,
+  onComment,
   onClear,
   onCheckout,
 }: CartPanelProps) {
@@ -81,6 +134,7 @@ export function CartPanel({
                       👨‍🍳 {item.station || "Cocina"}
                     </p>
                   )}
+                  {item.comment && <p className="mt-1 text-xs font-bold text-yellow-200">💬 {item.comment}</p>}
                 </div>
 
                 <p className="font-black text-orange-500">
@@ -88,7 +142,7 @@ export function CartPanel({
                 </p>
               </div>
 
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   onClick={() => onDecrease(cartLineId(item))}
                   className="h-9 w-9 rounded-xl bg-zinc-800 font-black"
@@ -102,6 +156,8 @@ export function CartPanel({
                 >
                   +
                 </button>
+
+                <CommentBox comment={item.comment} onSave={(text) => onComment(cartLineId(item), text)} />
               </div>
             </div>
           ))

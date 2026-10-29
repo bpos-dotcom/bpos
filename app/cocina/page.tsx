@@ -461,6 +461,7 @@ export default function CocinaPage() {
                           {item.modifiers?.length ? (
                             <p className="mt-1 pl-4 text-sm font-bold text-yellow-200">* {modifiersText(item.modifiers)}</p>
                           ) : null}
+                          {item.comment && <p className="mt-1 pl-4 text-sm font-black text-yellow-300">💬 {item.comment}</p>}
                           {item.fromCombo && (
                             <p className="mt-1 pl-4 text-sm text-orange-300">↳ Del combo: {item.fromCombo}</p>
                           )}

@@ -26,6 +26,24 @@ body {
 }
 
 /* Barra de desplazamiento discreta (menú lateral y paneles) */
+/* Barra lateral: ancho normal o desplegada solo con íconos (ver Sidebar) */
+:root {
+  --sidebar-w: 16rem;
+}
+html.sidebar-collapsed {
+  --sidebar-w: 5rem;
+}
+@media (min-width: 1024px) {
+  .bpos-main {
+    margin-left: var(--sidebar-w);
+    transition: margin-left 0.2s ease;
+  }
+  .bpos-sidebar {
+    width: var(--sidebar-w);
+    transition: width 0.2s ease;
+  }
+}
+
 .bpos-scroll {
   scrollbar-width: thin;
   scrollbar-color: transparent transparent;
@@ -66,7 +84,7 @@ body {
   section {
     break-inside: avoid;
   }
-  .lg\:ml-64 {
+  .bpos-main {
     margin-left: 0 !important;
   }
   header {
