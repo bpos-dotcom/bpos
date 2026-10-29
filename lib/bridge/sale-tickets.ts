@@ -1,7 +1,7 @@
 "use client";
 import type { KitchenStation } from "@/data/products";
 import { getBusinessSettings } from "@/lib/business-settings";
-import { platformLabel, type DeliveryTicket } from "@/lib/bridge/delivery-ticket";
+import { platformLabel, realCustomerName, type DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { paperWidth, qrSvg, type OrderTicket } from "@/lib/bridge/order-tickets";
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
@@ -37,7 +37,7 @@ export function isDeliverySale(sale: SaleForTickets) {
 
 /** Datos del ticket de una venta (el del Bridge si es delivery). */
 export function saleTicket(sale: SaleForTickets): DeliveryTicket {
-  if (sale.deliveryTicket) return sale.deliveryTicket;
+  if (sale.deliveryTicket) return { ...sale.deliveryTicket, customer: realCustomerName(sale.deliveryTicket.customer) };
   const delivery = isDeliverySale(sale);
   const discount = Number(sale.details?.discount || 0);
   const subtotal = Number(sale.subtotal ?? sale.items.reduce((s, i) => s + i.price * i.quantity, 0));
@@ -45,7 +45,7 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
     kind: delivery ? "delivery" : "mostrador",
     platform: delivery ? platformLabel(sale.externalPlatform) : sale.details?.orderType || "Mostrador",
     orderId: delivery && sale.externalOrderNumber ? String(sale.externalOrderNumber) : formatOrderNumber(sale),
-    customer: sale.details?.customerName?.trim() || null,
+    customer: realCustomerName(sale.details?.customerName),
     receivedAt: sale.createdAt,
     items: sale.items.map((item, index) => ({
       index,

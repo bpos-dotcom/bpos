@@ -1,3 +1,4 @@
+import { realCustomerName } from "@/lib/bridge/delivery-ticket";
 import { SavedOrder } from "@/components/OrderHistoryPanel";
 
 type TicketPreviewProps = {
@@ -15,7 +16,7 @@ export function TicketPreview({ order }: TicketPreviewProps) {
 
       <hr className="my-4 border-dashed border-black" />
 
-      <p>Cliente: {order.details.customerName || "Mostrador"}</p>
+      <p>Cliente: {realCustomerName(order.details.customerName) || "Mostrador"}</p>
       <p>Tipo: {order.details.orderType}</p>
       <p>Pago: {order.details.paymentMethod}</p>
 

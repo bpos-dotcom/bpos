@@ -90,6 +90,8 @@ export default function BridgeAliases({
   const [targets, setTargets] = useState<DraftTarget[]>([createDraftTarget()]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiNote, setAiNote] = useState("");
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
 
@@ -143,6 +145,7 @@ export default function BridgeAliases({
 
     setExternalName(selectedExternalName);
     setPlatform(selectedPlatform || "all");
+    setAiNote("");
     setMessage("");
     setError("");
   }, [selectedExternalName, selectedPlatform, selectionToken]);
@@ -287,6 +290,44 @@ export default function BridgeAliases({
     return cleanedTargets;
   }
 
+  // Claude propone el producto (o ignorar); la persona revisa y guarda
+  async function suggestWithAi() {
+    setAiBusy(true);
+    setAiNote("");
+    setError("");
+    try {
+      const response = await bridgeFetch("/api/ai/match", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lines: [externalName.trim()],
+          platform,
+          products: products.map((p) => ({ id: p.id, name: p.name, category: p.category, price: p.price })),
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok || !result.success) throw new Error(result.error || "No se pudo consultar a la IA.");
+      const match = result.matches?.[0];
+      if (!match || match.action === "unknown") {
+        setAiNote("🤖 No encontré un producto que corresponda con seguridad. Elígelo tú.");
+        return;
+      }
+      if (match.action === "ignore") {
+        setActionType("ignore");
+        setAiNote(`🤖 Sugiero ignorarlo: ${match.reason} Revisa y toca Guardar.`);
+        return;
+      }
+      setActionType("product");
+      setProductId(String(match.productId));
+      const name = products.find((p) => p.id === match.productId)?.name || "";
+      setAiNote(`🤖 ${name} (confianza ${match.confidence}): ${match.reason} Revisa y toca Guardar.`);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "No se pudo consultar a la IA.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
   async function saveAlias() {
     setMessage("");
     setError("");
@@ -406,6 +447,18 @@ export default function BridgeAliases({
             className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 font-normal text-white outline-none transition focus:border-orange-500"
           />
         </label>
+
+        <div className="flex flex-wrap items-center gap-3">
+          <button
+            type="button"
+            onClick={() => void suggestWithAi()}
+            disabled={!externalName.trim() || aiBusy}
+            className="rounded-2xl border border-sky-500/60 bg-sky-500/10 px-4 py-2 text-sm font-black text-sky-200 disabled:opacity-40"
+          >
+            {aiBusy ? "🤖 Revisando..." : "🤖 Sugerir con IA"}
+          </button>
+          {aiNote && <p className="text-sm text-sky-200">{aiNote}</p>}
+        </div>
 
         <div className="grid gap-4 md:grid-cols-2">
           <label className="grid gap-2 text-sm font-bold text-zinc-300">
@@ -655,6 +708,22 @@ export default function BridgeAliases({
                                   target.unit ? ` ${target.unit}` : ""
                                 }`
                               : ""}
+                            {/* El producto se borró o cambió de id (ej. al subir el menú): hay que volver a enlazar */}
+                            {alias.actionType === "product" && !products.some((p) => String(p.id) === String(target.id)) && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setExternalName(alias.externalName);
+                                  setPlatform(alias.platform || "all");
+                                  setActionType("product");
+                                  setProductId("");
+                                  setAiNote("");
+                                }}
+                                className="ml-2 rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-black text-red-300"
+                              >
+                                ⚠️ Ese producto ya no existe · volver a enlazar
+                              </button>
+                            )}
                           </p>
                         ))}
                       </div>

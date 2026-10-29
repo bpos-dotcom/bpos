@@ -49,6 +49,15 @@ function splitPrice(text: string): { text: string; price: number | null } {
   return { text: text.slice(0, match.index).trim().replace(/[.\s]+$/, ""), price: match[1] ? -amount : amount };
 }
 
+// Nombres que las plataformas ponen cuando no hay nombre real (no se imprimen)
+const GENERIC_NAMES = /^(usuario|user|cliente|customer|invitado|guest|sin nombre|n\/?a|-+|\.+|didi|didi food|rappi|uber|uber eats|cliente de plataforma|mostrador)$/i;
+
+/** Nombre del cliente para el ticket, o null si es genérico ("Usuario"). */
+export function realCustomerName(name: string | null | undefined) {
+  const clean = String(name || "").replace(/\s+/g, " ").trim();
+  return clean && !GENERIC_NAMES.test(clean) ? clean : null;
+}
+
 export function platformLabel(platform: string | undefined) {
   const p = String(platform || "").toLowerCase();
   if (p.includes("didi")) return "DiDi Food";
@@ -145,7 +154,7 @@ export function buildDeliveryTicket(
     kind: "delivery",
     platform: platformLabel(order.platform),
     orderId: String(order.orderId || ""),
-    customer: order.customer?.name?.trim() || null,
+    customer: realCustomerName(order.customer?.name),
     receivedAt: order.bridgeReceivedAt || order.receivedAt || new Date().toISOString(),
     items,
     charges: charges.filter((c) => !/^total/i.test(c.label)),
