@@ -24,7 +24,7 @@ export function RecipeEditor({ lines, ingredients, compound, onChange }: Props) 
       <h3 className="text-xl font-black text-orange-500">📖 {compound ? "Receta propia del combo (opcional)" : "Receta"}</h3>
       <p className="mt-2 text-sm text-zinc-400">
         {compound
-          ? "Las partes del combo ya descuentan su propia receta. Aquí pon solo lo extra del combo, como la bolsa o la caja."
+          ? "Los productos enlazados en sus opciones ya descuentan su propia receta. Aquí pon solo lo extra del combo, como la bolsa o la caja."
           : "Lo que lleva una pieza de este producto. Se descuenta del inventario cada vez que se vende (también dentro de combos)."}
       </p>
 

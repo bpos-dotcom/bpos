@@ -5,7 +5,7 @@
  *   npx tsx scripts/test-modificadores.ts
  */
 import type { ModifierGroup, Product } from "@/data/products";
-import { extrasPrice, itemConsumption, kitchenItems, lineIdFor, modifierProblem, modifiersText, needsChoices, resolveParts, soldModifiers, type SoldModifier } from "@/lib/compound";
+import { buildSelection, extrasPrice, itemConsumption, kitchenItems, lineIdFor, linkedOwner, modifierProblem, modifiersText, needsChoices, soldModifiers, type SoldModifier } from "@/lib/compound";
 import { saleTicket } from "@/lib/bridge/sale-tickets";
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { getBusinessSettings } from "@/lib/business-settings";
@@ -55,9 +55,10 @@ const products: Product[] = [
     price: 169,
     emoji: "🍱",
     station: "Cocina",
-    components: [
-      { key: "b", label: "Boneless", quantity: 1, options: [1] },
-      { key: "r", label: "Refresco", quantity: 1, options: [2] },
+    noOwnTicket: true,
+    modifierGroups: [
+      { key: "b", name: "Boneless", min: 1, included: 1, extraPrice: 0, max: 1, options: [{ key: "b1", name: "Boneless", productId: 1 }] },
+      { key: "r", name: "Refresco", min: 1, included: 1, extraPrice: 0, max: 1, options: [{ key: "r1", name: "Coca-Cola", productId: 2 }] },
     ],
   },
 ];
@@ -104,7 +105,7 @@ const cliente = bagTicketHtml(t, settings, "", 58);
 check("ticket cliente: $129.00, $15.00, $30.00 y total $174.00", ["$129.00", "$15.00", "$30.00", "$174.00"].every((x) => cliente.includes(x)));
 
 // Combo con opciones en su parte
-const parts = resolveParts(combo, products, {}, { b: soldModifiers(boneless.modifierGroups, { ranch: ["si"], salsas: ["bbq", "bbq", "bbq", "bbq", "mango"] }) });
+const parts = buildSelection(combo, products, { [linkedOwner(1)]: { ranch: ["si"], salsas: ["bbq", "bbq", "bbq", "bbq", "mango"] } }).parts!;
 check("combo: la parte boneless lleva sus opciones", modifiersText(parts[0].modifiers) === "Aderezo ranch: Ranch · Salsas: 4x BBQ, Mango habanero", modifiersText(parts[0].modifiers));
 check("combo: cobra la salsa extra de la parte ($15)", extrasPrice(undefined, parts) === 15);
 const kds = kitchenItems([{ id: 10, name: "Combo Boneless", quantity: 1, station: "Cocina", parts, modifiers: undefined as SoldModifier[] | undefined }]);

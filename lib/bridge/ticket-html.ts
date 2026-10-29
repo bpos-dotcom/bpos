@@ -111,7 +111,7 @@ export function stationTicketHtml(ticket: DeliveryTicket, station: KitchenStatio
     <div class="station">${esc(station.toUpperCase())}</div>
     ${items.map((i) => itemBlock(i, settings, false, station)).join("")}
     <div class="rule"></div>
-    <div class="center meta">${items.reduce((s, i) => s + (i.parts?.length ? i.parts.filter((p) => p.station === station).reduce((n, p) => n + p.qty, 0) : i.qty), 0)} producto(s) · ${esc(station)}</div>`
+    <div class="center meta">${items.reduce((s, i) => s + (i.parts?.some((p) => p.station === station) ? i.parts.filter((p) => p.station === station).reduce((n, p) => n + p.qty, 0) : i.qty), 0)} producto(s) · ${esc(station)}</div>`
   );
 }
 

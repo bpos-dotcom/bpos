@@ -5,7 +5,8 @@ import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
  * ¿A qué estaciones va cada línea de un pedido de delivery?
  *
  * - Producto del POS → su estación (Parrilla, Freidora, Barra, Cocina).
- * - Combo → las estaciones de sus partes.
+ * - Producto con opciones enlazadas (combo) → la estación de cada producto
+ *   enlazado, y la suya salvo que sea un combo sin comanda propia.
  * - Ingrediente o grupo (ej. "Combo especial" = carne + papas) → la estación
  *   de los productos que usan ese ingrediente en su receta.
  * - Línea sin equivalencia o con error → Cocina, para que nadie se quede
@@ -24,7 +25,8 @@ type RoutingProduct = {
   id: number | string;
   name?: string;
   station?: KitchenStation | string;
-  components?: { label?: string; quantity?: number; options: number[] }[];
+  noOwnTicket?: boolean;
+  modifierGroups?: { name: string; min: number; included: number; options: { productId?: number }[] }[];
 };
 
 export function stationsByLine(
@@ -36,12 +38,21 @@ export function stationsByLine(
   if (!interpretation) return byLine;
 
   const productStation = new Map(products.map((p) => [String(p.id), (p.station || "Cocina") as KitchenStation]));
-  // Combo: estaciones de sus partes (la primera opción de cada una)
-  const productStations = (id: string): KitchenStation[] => {
-    const product = products.find((p) => String(p.id) === id);
-    if (!product?.components?.length) return [productStation.get(id) || "Cocina"];
-    return product.components.map((c) => productStation.get(String(c.options[0])) || "Cocina");
-  };
+  // Partes de un producto: un renglón por cada grupo con productos enlazados
+  // (con varias opciones va con el nombre del grupo, "Refresco"; el sabor viene en el ticket)
+  const linkedParts = (product: RoutingProduct | undefined) =>
+    (product?.modifierGroups || []).flatMap((g) => {
+      const first = g.options.find((o) => o.productId);
+      if (!first?.productId) return [];
+      const linked = products.find((x) => String(x.id) === String(first.productId));
+      return [
+        {
+          name: g.options.length > 1 ? g.name : linked?.name || g.name,
+          quantity: Math.max(1, Number(g.min) || Number(g.included) || 1),
+          station: productStation.get(String(first.productId)) || ("Cocina" as KitchenStation),
+        },
+      ];
+    });
 
   // Estación más usada por los productos que llevan cada ingrediente
   const ingredientStation = new Map<string, KitchenStation>();
@@ -69,19 +80,11 @@ export function stationsByLine(
 
   interpretation.products.forEach((p) => {
     const l = line(p.sourceIndex);
-    productStations(String(p.productId)).forEach((s) => l.stations.add(s));
-    const combo = products.find((x) => String(x.id) === String(p.productId));
-    if (combo?.components?.length) {
-      // Parte a elegir: va con su nombre corto ("Refresco"); el sabor viene en las opciones del ticket
-      l.parts = combo.components.map((c) => {
-        const first = products.find((x) => String(x.id) === String(c.options[0]));
-        return {
-          name: c.options.length > 1 ? c.label || first?.name || "Parte" : first?.name || c.label || "Parte",
-          quantity: c.quantity || 1,
-          station: productStation.get(String(c.options[0])) || "Cocina",
-        };
-      });
-    }
+    const product = products.find((x) => String(x.id) === String(p.productId));
+    const parts = linkedParts(product);
+    if (!parts.length || !product?.noOwnTicket) l.stations.add(productStation.get(String(p.productId)) || "Cocina");
+    parts.forEach((part) => l.stations.add(part.station));
+    if (parts.length) l.parts = parts;
   });
   interpretation.ingredients.forEach((i) => line(i.sourceIndex).stations.add(forIngredient(i.ingredientId)));
   interpretation.bundles.forEach((b) => b.targets.forEach((t) => line(b.sourceIndex).stations.add(forIngredient(t.ingredientId))));

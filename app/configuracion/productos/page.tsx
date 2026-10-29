@@ -6,8 +6,6 @@ import { AppShell } from "@/components/layout/AppShell";
 import { KitchenStation, Product } from "@/data/products";
 import type { Ingredient, RecipeItem } from "@/data/inventory";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes, saveAdminProducts, saveAdminRecipes } from "@/lib/admin";
-import { isCompound } from "@/lib/compound";
-import { CompoundEditor, compoundProblems } from "@/components/products/CompoundEditor";
 import { RecipeEditor, type RecipeLine } from "@/components/products/RecipeEditor";
 import { ModifierEditor, cleanModifierGroups, modifierEditorProblems } from "@/components/products/ModifierEditor";
 
@@ -60,22 +58,16 @@ export default function ProductosAdminPage() {
       return;
     }
 
-    const problem = compoundProblems(draft) || modifierEditorProblems(draft.modifierGroups);
+    const problem = modifierEditorProblems(draft.modifierGroups);
     if (problem) {
       alert(problem);
       return;
     }
-    if (isCompound(draft)) {
-      const usedIn = products.find((p) => p.id !== draft.id && p.components?.some((c) => c.options.includes(draft.id)));
-      if (usedIn) {
-        alert(`${draft.name} es parte de "${usedIn.name}". Un combo no puede ir dentro de otro combo.`);
-        return;
-      }
-    }
 
     const saved: Product = { ...draft, name: draft.name.trim(), modifierGroups: cleanModifierGroups(draft.modifierGroups) };
-    if (saved.components === undefined) delete saved.components;
+    delete saved.components;
     if (saved.modifierGroups === undefined) delete saved.modifierGroups;
+    if (!saved.noOwnTicket) delete saved.noOwnTicket;
     const nextProducts = products.map((product) =>
       product.id === draft.id ? saved : product
     );
@@ -163,7 +155,8 @@ export default function ProductosAdminPage() {
                         {product.category} · ${product.price.toFixed(2)}
                       </p>
                       <p className="mt-1 text-xs font-bold text-orange-400">
-                        {isCompound(product) ? `🧩 Compuesto · ${product.components!.length} parte(s)` : `👨‍🍳 ${product.station || "Cocina"}`}
+                        {product.noOwnTicket ? "🍱 Combo · sale por sus opciones" : `👨‍🍳 ${product.station || "Cocina"}`}
+                        {product.modifierGroups?.length ? ` · 🎛️ ${product.modifierGroups.length}` : ""}
                       </p>
                     </div>
                   </div>
@@ -265,6 +258,18 @@ export default function ProductosAdminPage() {
                         </option>
                       ))}
                     </select>
+                    <label className="mt-2 flex cursor-pointer items-start gap-2 text-sm text-zinc-300">
+                      <input
+                        type="checkbox"
+                        checked={Boolean(draft.noOwnTicket)}
+                        onChange={(event) => setDraft({ ...draft, noOwnTicket: event.target.checked })}
+                        className="mt-0.5 h-5 w-5 accent-orange-500"
+                      />
+                      <span>
+                        Es un combo: no manda comanda propia
+                        <span className="block text-xs text-zinc-500">Solo salen sus opciones enlazadas, cada una en la comanda de su estación.</span>
+                      </span>
+                    </label>
                   </Field>
 
                   <Field label="Emoji / icono temporal">
@@ -278,26 +283,23 @@ export default function ProductosAdminPage() {
                   </Field>
                 </div>
 
-                <CompoundEditor
-                  product={draft}
-                  products={products}
-                  onChange={(components) => setDraft({ ...draft, components })}
-                />
-
                 <ModifierEditor
                   groups={draft.modifierGroups || []}
                   ingredients={ingredients}
+                  products={products}
+                  productId={draft.id}
+                  productName={draft.name}
                   onChange={(modifierGroups) => setDraft({ ...draft, modifierGroups })}
                 />
 
                 <RecipeEditor
                   lines={recipeDraft}
                   ingredients={ingredients}
-                  compound={isCompound(draft)}
+                  compound={Boolean(draft.noOwnTicket)}
                   onChange={setRecipeDraft}
                 />
 
-                <p className="mt-4 text-sm text-zinc-500">Los cambios de compuesto y receta se guardan con el botón Guardar cambios.</p>
+                <p className="mt-4 text-sm text-zinc-500">Los cambios de opciones y receta se guardan con el botón Guardar cambios.</p>
               </>
             )}
           </section>
