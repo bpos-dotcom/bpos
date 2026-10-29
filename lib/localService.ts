@@ -36,6 +36,8 @@ export async function sendJobToLocalService(job: PrintJob) {
 export type StationPrintersConfig = {
   printers: Partial<Record<"Parrilla" | "Freidora" | "Barra" | "Cocina" | "Caja", string>>;
   paperWidthMm?: 58 | 80;
+  /** escpos: directo a la térmica (recomendado); windows: por el controlador, para impresoras de hoja */
+  printMode?: "escpos" | "windows";
 };
 
 /** Le pasa al Agent qué impresora tiene cada estación (lo usa para el ticket original y el respaldo). */
@@ -75,6 +77,7 @@ export function toStationPrintersConfig(saved: Record<string, unknown>): Station
   return {
     printers: { Parrilla: pick("Parrilla"), Freidora: pick("Freidora"), Barra: pick("Barra"), Cocina: pick("Cocina"), Caja: pick("Caja") },
     paperWidthMm: Number(saved?.paperWidthMm) === 58 ? 58 : 80,
+    printMode: saved?.printMode === "windows" ? "windows" : "escpos",
   };
 }
 

@@ -22,7 +22,7 @@ type Station = (typeof STATIONS)[number];
 
 const STORAGE_KEY = "bpos_station_printers";
 
-type SavedConfig = Record<Station, string> & { paperWidthMm?: 58 | 80 };
+type SavedConfig = Record<Station, string> & { paperWidthMm?: 58 | 80; printMode?: "escpos" | "windows" };
 
 export default function PrinterSettingsPage() {
   const [printers, setPrinters] = useState<Printer[]>([]);
@@ -36,6 +36,7 @@ export default function PrinterSettingsPage() {
     Cocina: "",
     Caja: "",
     paperWidthMm: 80,
+    printMode: "escpos",
   });
 
   useEffect(() => {
@@ -148,6 +149,21 @@ export default function PrinterSettingsPage() {
               <option value={80}>80 mm (térmica estándar)</option>
               <option value={58}>58 mm</option>
             </select>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-black p-5">
+            <p className="mb-3 text-lg font-black text-orange-500">Tipo de impresora</p>
+            <select
+              value={config.printMode === "windows" ? "windows" : "escpos"}
+              onChange={(e) => setConfig({ ...config, printMode: e.target.value === "windows" ? "windows" : "escpos" })}
+              className="w-full rounded-xl border border-zinc-800 bg-zinc-900 p-3"
+            >
+              <option value="escpos">Térmica de tickets (recomendado)</option>
+              <option value="windows">Impresora de hojas (usa el controlador de Windows)</option>
+            </select>
+            <p className="mt-2 text-xs text-zinc-500">
+              Las térmicas (XP-58, EPSON, etc.) reciben el ticket directo en su idioma (ESC/POS). Si un ticket sale en blanco, revisa que aquí diga Térmica.
+            </p>
           </div>
         </div>
 

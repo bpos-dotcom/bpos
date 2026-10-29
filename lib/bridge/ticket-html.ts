@@ -1,13 +1,19 @@
 import type { KitchenStation } from "@/data/products";
-import type { BusinessSettings } from "@/lib/business-settings";
+import type { BusinessSettings, TicketSize } from "@/lib/business-settings";
 import type { DeliveryTicket, TicketItem } from "@/lib/bridge/delivery-ticket";
 
 /**
- * Tickets propios (HTML) que el Agent convierte en imagen y manda a la
- * térmica. Ancho fijo de 576 px = 80 mm a 203 dpi; en 58 mm se escala.
- * Todo en negro sobre blanco: las térmicas no imprimen color.
+ * Tickets propios (HTML) que el Agent dibuja al ancho real del papel y manda
+ * a la térmica: 384 puntos en 58 mm, 576 en 80 mm (203 dpi).
+ *
+ * Reglas de térmica: todo en negro sólido (sin grises, sin cursivas ni
+ * letra delgada, que salen tenues) y sin bloques negros grandes (en 58 mm
+ * salen rayados): la estación va en un recuadro con marco grueso.
  */
-const WIDTH = 576;
+export type PaperWidth = 58 | 80;
+
+const FONT_SCALE: Record<TicketSize, number> = { normal: 1, grande: 1.2, extra: 1.45 };
+const LOGO_HEIGHT: Record<TicketSize, number> = { normal: 70, grande: 100, extra: 135 };
 
 function esc(value: unknown) {
   return String(value ?? "")
@@ -29,70 +35,79 @@ function time(iso: string) {
   return d.toLocaleString("es-MX", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
 }
 
-const STYLE = `
+function style(settings: BusinessSettings, paper: PaperWidth) {
+  // Tamaño base pensado para leerse a un brazo de distancia
+  const b = (paper === 58 ? 21 : 27) * FONT_SCALE[settings.ticketFontSize];
+  const logo = LOGO_HEIGHT[settings.ticketLogoSize] * (paper === 58 ? 1 : 1.35);
+  return `
   * { box-sizing: border-box; }
-  html, body { margin: 0; padding: 0; background: #fff; color: #000; }
-  body { width: ${WIDTH}px; padding: 18px 22px 28px; font-family: Arial, Helvetica, sans-serif; font-size: 26px; line-height: 1.25; }
+  html, body { margin: 0; padding: 0; background: #fff; color: #000; overflow: hidden; }
+  ::-webkit-scrollbar { display: none; }
+  body { width: 100%; padding: 6px 4px 14px; font-family: Arial, Helvetica, sans-serif; font-size: ${b}px; line-height: 1.2; font-weight: 700; }
   .center { text-align: center; }
-  .logo { display: block; margin: 0 auto 10px; max-width: 78%; max-height: 190px; }
-  .platform { font-size: 34px; font-weight: 900; }
-  .order { font-size: 44px; font-weight: 900; margin-top: 2px; }
-  .muted { font-size: 22px; }
-  .banner { margin: 14px 0 10px; padding: 8px 0; background: #000; color: #fff; font-size: 38px; font-weight: 900; letter-spacing: 2px; text-align: center; }
-  .rule { border-top: 3px dashed #000; margin: 12px 0; }
-  .item { margin: 10px 0; }
-  .row { display: flex; justify-content: space-between; gap: 12px; }
-  .row .name { flex: 1; }
-  .qty { font-weight: 900; }
-  .big { font-size: 32px; font-weight: 900; }
-  .sub { padding-left: 34px; font-size: 23px; }
-  .note { padding-left: 34px; font-size: 23px; font-style: italic; }
-  .warn { padding-left: 34px; font-size: 22px; font-weight: 900; }
-  .total { font-size: 34px; font-weight: 900; }
-  .notice { font-size: 21px; text-align: center; margin-top: 8px; }
-  .qr { display: block; margin: 12px auto 4px; width: 210px; height: 210px; }
+  .logo { display: block; margin: 0 auto 6px; max-width: 100%; max-height: ${logo}px; }
+  .platform { font-size: ${b * 1.25}px; font-weight: 900; }
+  .order { font-size: ${b * 1.7}px; font-weight: 900; }
+  .meta { font-size: ${b}px; }
+  .station { margin: 8px 0; padding: 4px 0; border: 5px solid #000; font-size: ${b * 1.6}px; font-weight: 900; letter-spacing: 1px; text-align: center; }
+  .rule { border-top: 3px solid #000; margin: 8px 0; }
+  .item { margin: 7px 0; }
+  .row { display: flex; justify-content: space-between; gap: 8px; }
+  .row .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+  .price { flex-shrink: 0; white-space: nowrap; }
+  .main { font-size: ${b * 1.3}px; font-weight: 900; }
+  .main.priced { font-size: ${b * 1.1}px; }
+  .sub { padding-left: ${b * 0.9}px; font-size: ${b}px; }
+  .total { font-size: ${b * 1.45}px; font-weight: 900; }
+  .notice { font-size: ${b * 0.95}px; text-align: center; margin-top: 6px; }
+  .qr { display: block; margin: 8px auto 2px; width: ${b * 8}px; height: ${b * 8}px; }
   .qr svg { width: 100%; height: 100%; }
 `;
+}
 
-function page(body: string) {
-  return `<!doctype html><html><head><meta charset="utf-8"><style>${STYLE}</style></head><body>${body}</body></html>`;
+function page(settings: BusinessSettings, paper: PaperWidth, body: string) {
+  return `<!doctype html><html><head><meta charset="utf-8"><style>${style(settings, paper)}</style></head><body>${body}</body></html>`;
 }
 
 function header(ticket: DeliveryTicket, settings: BusinessSettings) {
   const logo = settings.ticketLogo
     ? `<img class="logo" src="${settings.ticketLogo}">`
-    : `<div class="center big">${esc(settings.businessName)}</div>`;
+    : `<div class="center platform">${esc(settings.businessName)}</div>`;
+  const who = settings.ticketShowCustomer && ticket.customer ? `${esc(ticket.customer)} · ` : "";
   return `${logo}
     <div class="center platform">${esc(ticket.platform)}</div>
     <div class="center order">Pedido #${esc(ticket.orderId)}</div>
-    <div class="center muted">${esc(ticket.customer || "")}${ticket.customer ? " · " : ""}${esc(time(ticket.receivedAt))}</div>`;
+    <div class="center meta">${who}${esc(time(ticket.receivedAt))}</div>`;
 }
 
-function itemBlock(item: TicketItem, withPrices: boolean) {
-  const choices = item.choices
-    .map(
-      (c) =>
-        `<div class="sub row"><span class="name">${c.question ? `${esc(c.question)} ` : ""}<b>${c.qty > 1 ? `${c.qty}x ` : ""}${esc(c.name)}</b></span>${
-          withPrices && c.price ? `<span>${money(c.price)}</span>` : ""
-        }</div>`
-    )
-    .join("");
-  const notes = item.notes.map((n) => `<div class="note">${esc(n)}</div>`).join("");
-  const warn = !withPrices && item.pending ? `<div class="warn">⚠ Sin equivalencia: revisar en el Bridge</div>` : "";
+function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boolean) {
+  const details = settings.ticketShowChoices
+    ? item.choices
+        .map(
+          (c) =>
+            `<div class="sub row"><span class="name">${c.question ? `${esc(c.question)} ` : ""}» ${c.qty > 1 ? `${c.qty}x ` : ""}${esc(c.name)}</span>${
+              withPrices && c.price ? `<span class="price">${money(c.price)}</span>` : ""
+            }</div>`
+        )
+        .join("") + item.notes.map((n) => `<div class="sub">* ${esc(n)}</div>`).join("")
+    : "";
+  const warn = !withPrices && item.pending ? `<div class="sub">!! SIN EQUIVALENCIA: revisar en el Bridge</div>` : "";
   return `<div class="item">
-    <div class="row ${withPrices ? "" : "big"}"><span class="name"><span class="qty">${item.qty}x</span> ${esc(item.name)}</span>${
-      withPrices ? `<span>${money(item.price)}</span>` : ""
-    }</div>${choices}${notes}${warn}</div>`;
+    <div class="row main${withPrices ? " priced" : ""}"><span class="name">${item.qty}x&nbsp;${esc(item.name)}</span>${withPrices ? `<span class="price">${money(item.price)}</span>` : ""}</div>${details}${warn}</div>`;
 }
 
 /** Ticket de una estación: encabezado + solo los productos que le tocan. */
-export function stationTicketHtml(ticket: DeliveryTicket, station: KitchenStation, settings: BusinessSettings) {
+export function stationTicketHtml(ticket: DeliveryTicket, station: KitchenStation, settings: BusinessSettings, paper: PaperWidth = 80) {
   const items = ticket.items.filter((i) => i.stations.includes(station));
-  return page(`${header(ticket, settings)}
-    <div class="banner">${esc(station.toUpperCase())}</div>
-    ${items.map((i) => itemBlock(i, false)).join("")}
+  return page(
+    settings,
+    paper,
+    `${header(ticket, settings)}
+    <div class="station">${esc(station.toUpperCase())}</div>
+    ${items.map((i) => itemBlock(i, settings, false)).join("")}
     <div class="rule"></div>
-    <div class="center muted">${items.reduce((s, i) => s + i.qty, 0)} producto(s) · ${esc(time(new Date().toISOString()))}</div>`);
+    <div class="center meta">${items.reduce((s, i) => s + i.qty, 0)} producto(s) · ${esc(station)}</div>`
+  );
 }
 
 /** Aclaración con {plataforma} {negocio} {telefono} reemplazados. */
@@ -104,16 +119,20 @@ export function noticeText(ticket: DeliveryTicket, settings: BusinessSettings) {
 }
 
 /** Ticket para grapar en la bolsa: todo el pedido con precios de la plataforma. */
-export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings, qrSvg = "") {
-  const charges = ticket.charges.map((c) => `<div class="row"><span>${esc(c.label)}</span><span>${money(c.amount)}</span></div>`).join("");
-  return page(`${header(ticket, settings)}
+export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings, qrSvg = "", paper: PaperWidth = 80) {
+  const charges = ticket.charges.map((c) => `<div class="row"><span class="name">${esc(c.label)}</span><span class="price">${money(c.amount)}</span></div>`).join("");
+  return page(
+    settings,
+    paper,
+    `${header(ticket, settings)}
     <div class="rule"></div>
-    ${ticket.items.map((i) => itemBlock(i, true)).join("")}
+    ${ticket.items.map((i) => itemBlock(i, settings, true)).join("")}
     <div class="rule"></div>
     ${charges}
-    ${ticket.total !== null ? `<div class="row total"><span>Total</span><span>${money(ticket.total)}</span></div>` : ""}
+    ${ticket.total !== null ? `<div class="row total"><span class="name">TOTAL</span><span class="price">${money(ticket.total)}</span></div>` : ""}
     <div class="rule"></div>
     ${settings.ticketNotice ? `<div class="notice">${esc(noticeText(ticket, settings))}</div>` : ""}
     ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
-    ${settings.ticketFooter ? `<div class="center big" style="margin-top:8px">${esc(settings.ticketFooter)}</div>` : ""}`);
+    ${settings.ticketFooter ? `<div class="center platform" style="margin-top:6px">${esc(settings.ticketFooter)}</div>` : ""}`
+  );
 }
