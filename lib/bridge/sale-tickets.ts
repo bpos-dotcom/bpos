@@ -20,7 +20,7 @@ export type SaleForTickets = {
   id: number;
   localOrderNumber?: number;
   createdAt: string;
-  items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[] }[];
+  items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean }[];
   details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number };
   subtotal?: number;
   total: number;
@@ -59,9 +59,9 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
         ...(item.modifiers || []).filter((m) => m.extra).map((m) => ({ qty: 1, name: m.name, price: m.price * (Number(item.quantity) || 1) })),
       ],
       notes: [],
-      // Combo: va a las estaciones de sus partes
+      // Con productos enlazados: la estación de cada uno, y la suya salvo en combos
       stations: item.parts?.length
-        ? STATIONS.filter((s) => item.parts!.some((p) => p.station === s))
+        ? STATIONS.filter((s) => item.parts!.some((p) => p.station === s) || (item.ownTicket && (item.station || "Cocina") === s))
         : [(item.station || "Cocina") as KitchenStation],
       pending: false,
       ...(item.parts?.length

@@ -4,7 +4,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { useEffect, useMemo, useState } from "react";
 import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
-import { extrasPrice, isCompound, lineIdFor, needsChoices, resolveParts } from "@/lib/compound";
+import { buildSelection, extrasPrice, lineIdFor, needsChoices } from "@/lib/compound";
 import { CheckoutModal, PaymentMethod } from "@/components/CheckoutModal";
 import {
   OrderDetails,
@@ -167,11 +167,11 @@ function PosScreen() {
       setComboToChoose(product);
       return;
     }
-    addLine(product, isCompound(product) ? resolveParts(product, products) : undefined);
+    addLine(product, buildSelection(product, products));
   }
 
   // El precio del renglón ya incluye lo que cuestan las opciones elegidas
-  function addLine(product: Product, parts?: CartItem["parts"], modifiers?: CartItem["modifiers"]) {
+  function addLine(product: Product, { parts, modifiers, ownTicket }: Pick<CartItem, "parts" | "modifiers" | "ownTicket">) {
     const lineId = lineIdFor(product.id, parts, modifiers);
     const price = product.price + extrasPrice(modifiers, parts);
     setCart((currentCart) => {
@@ -185,7 +185,10 @@ function PosScreen() {
         );
       }
 
-      return [...currentCart, { ...product, price, quantity: 1, lineId, ...(parts ? { parts } : {}), ...(modifiers?.length ? { modifiers } : {}) }];
+      return [
+        ...currentCart,
+        { ...product, price, quantity: 1, lineId, ...(parts?.length ? { parts, ownTicket } : {}), ...(modifiers?.length ? { modifiers } : {}) },
+      ];
     });
   }
 
@@ -515,7 +518,7 @@ Gracias por pedir en Burger Planet 🚀`;
           products={products}
           onClose={() => setComboToChoose(null)}
           onConfirm={(chosen) => {
-            addLine(comboToChoose, chosen.parts, chosen.modifiers);
+            addLine(comboToChoose, chosen);
             setComboToChoose(null);
           }}
         />

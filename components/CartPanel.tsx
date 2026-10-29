@@ -9,6 +9,8 @@ export type CartItem = Product & {
   parts?: SoldPart[];
   /** Opciones elegidas (aderezo, salsas...); su precio ya está sumado en `price` */
   modifiers?: SoldModifier[];
+  /** Con opciones enlazadas: el producto también manda su propia comanda (falso en combos) */
+  ownTicket?: boolean;
 };
 
 export const cartLineId = (item: CartItem) => item.lineId || String(item.id);

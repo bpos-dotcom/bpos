@@ -1,5 +1,6 @@
 import { initialIngredients, Ingredient, recipes, RecipeItem } from "@/data/inventory";
 import { products, Product } from "@/data/products";
+import { migrateComponents } from "@/lib/compound";
 
 const PRODUCTS_KEY = "bpos_products";
 const INGREDIENTS_KEY = "bpos_inventory";
@@ -15,7 +16,14 @@ export function getAdminProducts(): Product[] {
     return products;
   }
 
-  return JSON.parse(saved);
+  const parsed: Product[] = JSON.parse(saved);
+  // Combos de la 1.10 (partes) → opciones enlazadas; se guarda una sola vez
+  const migrated = migrateComponents(parsed);
+  if (migrated) {
+    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(migrated));
+    return migrated;
+  }
+  return parsed;
 }
 
 export function saveAdminProducts(nextProducts: Product[]) {

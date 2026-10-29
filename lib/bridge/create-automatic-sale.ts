@@ -7,25 +7,38 @@ import { applyInventoryForOrder } from "@/lib/inventory";
 import { createKdsCriticalError, notifyKdsUpdated } from "@/lib/kds";
 import type { KdsTicketLine } from "@/lib/bridge/ticket-structure";
 import { allocateShiftOrderNumber } from "@/lib/order-sequence";
-import { choiceComponents, isCompound, resolveParts, type SoldPart } from "@/lib/compound";
+import { OWN_OPTIONS, buildSelection, isAutoGroup, optionName, type SoldModifier, type SoldPart } from "@/lib/compound";
+import type { Product } from "@/data/products";
 
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 /**
- * Combo de delivery: las opciones que eligió el cliente en la plataforma
- * ("Elige tu refresco: Manzanita") deciden la parte; si no se reconoce, la primera.
+ * Opciones de un producto de delivery: lo que el cliente eligió en la
+ * plataforma ("Elige tu refresco: Manzanita") decide la opción; en un grupo
+ * obligatorio sin nada reconocido, la primera opción.
  */
-function deliveryChoices(product: Parameters<typeof choiceComponents>[0], catalog: { id: number; name: string }[], ticket?: DeliveryTicket) {
+function deliveryPicks(product: Product, catalog: Product[], ticket?: DeliveryTicket) {
   const said = (ticket?.items || []).flatMap((i) => [...i.choices.map((c) => c.name), ...i.notes]).map(plain).filter(Boolean);
-  const chosen: Record<string, number> = {};
-  for (const component of choiceComponents(product)) {
-    const match = component.options.find((id) => {
-      const name = plain(catalog.find((p) => p.id === id)?.name || "");
-      return name && said.some((s) => s.includes(name) || name.includes(s));
-    });
-    if (match !== undefined) chosen[component.key] = match;
+  const picks: Record<string, string[]> = {};
+  for (const group of product.modifierGroups || []) {
+    if (isAutoGroup(group)) continue; // ya se llena solo
+    const matched = group.options
+      .filter((o) => {
+        const name = plain(optionName(o, catalog));
+        return name && said.some((s) => s.includes(name) || name.includes(s));
+      })
+      .map((o) => o.key);
+    const limit = group.max > 0 ? group.max : matched.length;
+    picks[group.key] = matched.length ? matched.slice(0, limit) : Array(group.min).fill(group.options[0]?.key).filter(Boolean);
   }
-  return chosen;
+  return picks;
+}
+
+function deliverySelection(product: Product, catalog: Product[], ticket?: DeliveryTicket) {
+  const { parts, modifiers, ownTicket } = buildSelection(product, catalog, { [OWN_OPTIONS]: deliveryPicks(product, catalog, ticket) });
+  // El cobro de extras ya viene en el total de la plataforma
+  const kept = modifiers?.filter((m) => !m.extra);
+  return { ...(parts?.length ? { parts, ownTicket } : {}), ...(kept?.length ? { modifiers: kept } : {}) };
 }
 
 const ORDERS_KEY = "bpos_orders";
@@ -60,6 +73,8 @@ type AutomaticSaleItem = {
   quantity: number;
   externalName?: string;
   parts?: SoldPart[];
+  modifiers?: SoldModifier[];
+  ownTicket?: boolean;
 };
 
 export type AutomaticSaleOrder = {
@@ -195,7 +210,8 @@ export function createAutomaticSale(
       quantity,
       externalName: preparedProduct.externalName,
       // Combo: cada parte va a su estación y descuenta su receta
-      ...(isCompound(product) ? { parts: resolveParts(product, catalog, deliveryChoices(product, catalog, options.ticket)) } : {}),
+      // Opciones enlazadas (combos): cada producto va a su estación y descuenta su receta
+      ...(product.modifierGroups?.length ? deliverySelection(product, catalog, options.ticket) : {}),
     });
   }
 

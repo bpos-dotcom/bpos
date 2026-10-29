@@ -24,6 +24,8 @@ export type ProductComponent = {
 export type ModifierOption = {
   key: string;
   name: string;
+  /** Enlazada a un producto existente: descuenta su receta y sale en la comanda de su estación */
+  productId?: number;
   ingredientId?: number;
   quantity?: number; // del insumo, por cada vez que se elige
 };
@@ -36,6 +38,8 @@ export type ModifierGroup = {
   extraPrice: number; // precio de cada una de más (0 = no se cobran)
   max: number; // tope total (0 = sin tope)
   options: ModifierOption[];
+  /** Copiado de otro producto (la copia es independiente; `edited` cuando ya se cambió) */
+  copiedFrom?: { productName: string; edited: boolean };
 };
 
 export type Product = {
@@ -45,8 +49,10 @@ export type Product = {
   price: number;
   emoji: string;
   station: KitchenStation;
-  /** Si tiene partes es un producto compuesto: cada parte va a su estación y descuenta su receta */
+  /** Antes (1.10): partes de un combo. Se convierten solas en opciones enlazadas (ver migrateComponents). */
   components?: ProductComponent[];
+  /** Combo: no manda comanda propia, solo salen sus opciones enlazadas en sus estaciones */
+  noOwnTicket?: boolean;
   /** Opciones a elegir al venderlo (aderezos, salsas, término...) */
   modifierGroups?: ModifierGroup[];
 };
