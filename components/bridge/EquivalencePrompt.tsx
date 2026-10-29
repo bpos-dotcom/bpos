@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { platformLabel } from "@/lib/bridge/delivery-ticket";
 
-export type PendingEquivalence = { platform: string; orderId: string; externalName: string; rawLine: string };
+export type PendingEquivalence = { platform: string; orderId: string; externalName: string; rawLine: string; problem?: string };
 
 const SNOOZE_KEY = "bpos_equivalence_prompt_snooze";
 const SNOOZE_MS = 10 * 60 * 1000;
@@ -60,7 +60,7 @@ export function EquivalencePrompt({
       <div className="w-full max-w-lg rounded-3xl border border-orange-500 bg-zinc-950 p-6 shadow-2xl">
         <p className="text-sm font-black text-orange-400">🛵 Pedido de delivery</p>
         <h2 className="mt-1 text-2xl font-black text-white">
-          {items.length === 1 ? "Producto sin equivalencia" : `${items.length} productos sin equivalencia`}
+          {items.length === 1 ? "Producto por equivaler" : `${items.length} productos por equivaler`}
         </h2>
         <p className="mt-2 text-sm text-zinc-400">
           El ticket ya salió a cocina. Para registrar la venta y descontar el inventario, dile a B-POS qué producto es.
@@ -75,6 +75,7 @@ export function EquivalencePrompt({
                 <p className="text-xs text-zinc-500">
                   {platformLabel(item.platform)} · Pedido #{item.orderId}
                 </p>
+                {item.problem && <p className="mt-1 text-xs font-bold text-red-300">{item.problem} Corrige su equivalencia.</p>}
               </div>
               {canEquivalate && (
                 <button

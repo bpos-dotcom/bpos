@@ -113,7 +113,7 @@ function rememberOriginal(job) {
   if (!job.filePath || !job.platform || !job.orderId || job.format === "text") return;
   try {
     const list = readOriginalsIndex().filter((j) => !(j.platform === job.platform && j.orderId === job.orderId));
-    list.push({ platform: job.platform, orderId: job.orderId, filePath: job.filePath, receivedAt: job.receivedAt });
+    list.push({ platform: job.platform, orderId: job.orderId, filePath: job.filePath, rawText: job.rawText, receivedAt: job.receivedAt });
     fs.writeFileSync(originalsIndexFile(), JSON.stringify(list.slice(-1000)));
   } catch (error) {
     console.error("No se pudo guardar el índice de originales:", error.message);
@@ -371,6 +371,7 @@ server.post("/print-original", async (req, res) => {
       platform,
       orderId,
       filePath: job.filePath,
+      rawText: job.rawText,
       stations: Array.isArray(stations) ? stations : [],
       force: Boolean(force),
     });

@@ -112,6 +112,8 @@ export async function GET(request: NextRequest) {
     orderId: string;
     externalName: string;
     rawLine: string;
+    /** Si la línea tiene equivalencia pero está mal (ej. apunta a un producto que ya no existe) */
+    problem?: string;
   }> = [];
 
   for (const order of orders) {
@@ -131,6 +133,14 @@ export async function GET(request: NextRequest) {
         externalName: item.externalName,
         rawLine: item.rawLine,
       });
+    }
+
+    // Equivalencias que existen pero no sirven (producto o ingrediente borrado del catálogo):
+    // el pedido no puede registrar venta ni inventario hasta corregirlas
+    const interpretation = order.interpretation as { errors?: { externalName?: string; message?: string }[] } | undefined;
+    for (const error of interpretation?.errors ?? []) {
+      if (!error.externalName) continue;
+      pending.push({ platform, orderId, externalName: error.externalName, rawLine: "", problem: error.message || "Equivalencia con error" });
     }
 
     // Este endpoint solo calcula alertas pendientes.

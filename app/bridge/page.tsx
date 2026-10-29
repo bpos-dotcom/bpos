@@ -941,6 +941,29 @@ export default function BridgePage() {
                         <span>Ignorados: {order.interpretation.ignored.length}</span>
                         <span>Pendientes: {order.interpretation.pendingCount}</span>
                       </div>
+                      {/* Equivalencias que existen pero no sirven: decir cuál y dejar corregirla */}
+                      {order.interpretation.errors.length > 0 && (
+                        <ul className="mt-3 space-y-2">
+                          {order.interpretation.errors.map((error, index) => (
+                            <li
+                              key={`${error.code}-${error.sourceIndex ?? index}`}
+                              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-red-500/40 bg-red-500/10 p-3 text-sm"
+                            >
+                              <span className="text-red-200">
+                                <b>{error.externalName || "Pedido"}:</b> {error.message}
+                              </span>
+                              {error.externalName && (
+                                <button
+                                  onClick={() => configureItem(error.externalName as string, platformKey)}
+                                  className="rounded-lg bg-red-500 px-3 py-1 text-xs font-black text-black"
+                                >
+                                  Corregir equivalencia
+                                </button>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </section>
                   )}
 

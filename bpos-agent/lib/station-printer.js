@@ -255,6 +255,22 @@ async function printTickets(req) {
   return { ...record, results };
 }
 
+/** HTML del ticket original como texto (renglón por renglón, tal como lo leyó el Agent). */
+function originalTextHtml(req) {
+  const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const b = getConfig().paperWidthMm === 58 ? 20 : 26;
+  const lines = String(req.rawText || "").replace(/\r/g, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  return `<!doctype html><html><head><meta charset="utf-8"><style>
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; overflow: hidden; }
+    body { width: 100%; padding: 6px 4px 14px; font-family: Arial, Helvetica, sans-serif; font-size: ${b}px; line-height: 1.25; font-weight: 700; }
+    .head { text-align: center; font-size: ${b * 1.3}px; font-weight: 900; border: 4px solid #000; padding: 4px 0; margin-bottom: 8px; }
+    p { margin: 0 0 3px; overflow-wrap: anywhere; }
+  </style></head><body>
+    <div class="head">TICKET ORIGINAL<br>${esc(String(req.platform || "").toUpperCase())} #${esc(req.orderId)}</div>
+    ${lines.map((l) => `<p>${esc(l)}</p>`).join("")}
+  </body></html>`;
+}
+
 /**
  * Ticket original de la plataforma en las impresoras de esas estaciones:
  * respaldo automático (Cocina) o reimpresión a mano desde el Bridge (force).
@@ -265,7 +281,8 @@ async function printOriginal(req) {
   clearTimeout(fallbackTimers.get(key));
   fallbackTimers.delete(key);
   if (printed.has(key) && !req.force) return { alreadyPrinted: true, ...printed.get(key) };
-  if (!req.filePath || !fs.existsSync(req.filePath)) throw new Error("No está el PDF original de este pedido.");
+  const hasText = typeof req.rawText === "string" && req.rawText.trim().length > 20;
+  if (!hasText && (!req.filePath || !fs.existsSync(req.filePath))) throw new Error("No está el ticket original de este pedido.");
 
   const targets = new Map(); // impresora → estaciones (si dos estaciones comparten impresora, sale un solo papel)
   const missing = [];
@@ -283,7 +300,9 @@ async function printOriginal(req) {
   const results = [];
   for (const [printer, stations] of targets) {
     try {
-      await printPdf(req.filePath, printer);
+      // El original como texto en letra grande: la hoja de la plataforma reducida a 58/80 mm salía diminuta
+      if (hasText) await printImage(await renderHtmlTicket(originalTextHtml(req)), printer);
+      else await printPdf(req.filePath, printer);
       results.push({ printer, stations, ok: true });
       console.log(`Ticket original ${key} impreso en "${printer}" (${stations.join(", ")})`);
     } catch (error) {
@@ -313,4 +332,4 @@ function scheduleFallback(job) {
   );
 }
 
-module.exports = { listPrinters, printTickets, printOriginal, scheduleFallback, getConfig, setConfig, renderTicketStrip, renderHtmlTicket, VIRTUAL_PRINTER };
+module.exports = { listPrinters, printTickets, printOriginal, scheduleFallback, getConfig, setConfig, renderTicketStrip, renderHtmlTicket, originalTextHtml, VIRTUAL_PRINTER };
