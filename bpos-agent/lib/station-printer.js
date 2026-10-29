@@ -14,6 +14,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createCanvas } = require("@napi-rs/canvas");
+const { printImageEscPos } = require("./raw-printer");
 
 const VIRTUAL_PRINTER = "B-POS Agent Virtual Printer";
 const FALLBACK_MS = 45_000;
@@ -34,7 +35,7 @@ function getConfig() {
     try {
       config = JSON.parse(fs.readFileSync(configFile(), "utf8"));
     } catch {
-      config = { printers: {}, paperWidthMm: 80 };
+      config = { printers: {}, paperWidthMm: 80, printMode: "escpos" };
     }
   }
   return config;
@@ -48,7 +49,9 @@ function setConfig(next) {
     if (name && name !== VIRTUAL_PRINTER) printers[station] = name;
   }
   const width = Number(next?.paperWidthMm);
-  config = { printers, paperWidthMm: width === 58 ? 58 : 80 };
+  // escpos: directo a la térmica (recomendado). windows: por el controlador (impresoras de hoja)
+  const printMode = next?.printMode === "windows" ? "windows" : "escpos";
+  config = { printers, paperWidthMm: width === 58 ? 58 : 80, printMode };
   fs.writeFileSync(configFile(), JSON.stringify(config, null, 2));
   return config;
 }
@@ -147,6 +150,8 @@ async function loadHtml(win, html) {
 async function printImage(image, printerName) {
   if (printerName === VIRTUAL_PRINTER) throw new Error("No se puede imprimir en la impresora virtual de B-POS.");
   const widthMm = getConfig().paperWidthMm || 80;
+  // Térmicas: directo en ESC/POS. Por el controlador de Windows salían en blanco (ej. XP-58)
+  if (getConfig().printMode !== "windows") return printImageEscPos(image, printerName, widthMm);
   // Papel continuo: el alto es el del ticket completo (en micras)
   const pageSize = { width: widthMm * 1000, height: Math.max(10000, Math.round(widthMm * 1000 * (image.height / image.width))) };
 
