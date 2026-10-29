@@ -578,7 +578,7 @@ export default function BridgePage() {
     };
   }, [automaticSaleSignature, activeOrders, loadData]);
 
-  // Tickets propios de Burger Planet. El Bridge solo lee el ticket de la
+  // Tickets propios del negocio. El Bridge solo lee el ticket de la
   // plataforma: en cuanto un pedido está interpretado (aunque falten
   // equivalencias, esas van a Cocina) cada estación recibe un ticket con solo
   // lo suyo y Caja el de la bolsa con precios. El original queda guardado.

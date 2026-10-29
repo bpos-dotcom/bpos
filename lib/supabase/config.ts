@@ -1,5 +1,5 @@
 /**
- * Proyecto de Supabase de Burger Planet.
+ * Proyecto de Supabase de B-POS (todos los negocios; cada uno ve solo lo suyo por RLS).
  * La llave "publishable" es pública por diseño (va en el navegador y la
  * seguridad la da Row Level Security), así que puede vivir en el código.
  * Si existen las variables NEXT_PUBLIC_SUPABASE_URL / _ANON_KEY en

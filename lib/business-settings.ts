@@ -31,7 +31,7 @@ export const DEFAULT_TICKET_NOTICE =
   "Los repartidores de {plataforma} no trabajan directamente para {negocio}. Si tienes algún problema, estamos para ayudarte. Dudas y pedidos directos: {telefono}";
 
 const DEFAULT_SETTINGS: BusinessSettings = {
-  businessName: "Burger Planet",
+  businessName: "Mi negocio",
   ownerWhatsapp: "",
   ticketLogo: "",
   ticketPhone: "",

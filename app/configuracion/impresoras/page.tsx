@@ -86,7 +86,7 @@ export default function PrinterSettingsPage() {
       <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
 
         <p className="text-sm text-zinc-400">
-          Los pedidos de delivery (Rappi, Uber Eats, DiDi Food) imprimen un <b className="text-zinc-200">ticket de Burger Planet</b> en
+          Los pedidos de delivery (Rappi, Uber Eats, DiDi Food) imprimen un <b className="text-zinc-200">ticket de tu negocio</b> en
           cada estación, solo con lo que le toca, y el <b className="text-zinc-200">ticket de la bolsa</b> en Caja. Lo que no tenga equivalencia sale en <b className="text-zinc-200">Cocina</b>.
         </p>
 

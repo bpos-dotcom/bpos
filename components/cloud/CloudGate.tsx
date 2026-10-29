@@ -25,6 +25,7 @@ import {
   type SyncStatus,
 } from "@/lib/cloud/sync";
 import { isCloudConfigured } from "@/lib/supabase/client";
+import { saveBusinessSettings } from "@/lib/business-settings";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
 
@@ -270,7 +271,7 @@ function AccountForm({ onDone }: { onDone: () => void }) {
 // ------------------------------------------------------------ negocio
 
 function BusinessForm({ email, onDone }: { email: string; onDone: () => void }) {
-  const [businessName, setBusinessName] = useState("Burger Planet");
+  const [businessName, setBusinessName] = useState("");
   const [branchName, setBranchName] = useState("Matriz");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -281,6 +282,8 @@ function BusinessForm({ email, onDone }: { email: string; onDone: () => void }) 
     setMessage("");
     try {
       await createBusiness(businessName, branchName);
+      // Marca blanca: tickets y pantallas usan el nombre del negocio
+      saveBusinessSettings({ businessName: businessName.trim() });
       onDone();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo crear el negocio.");
@@ -295,7 +298,7 @@ function BusinessForm({ email, onDone }: { email: string; onDone: () => void }) 
       <div className="mt-8 space-y-4">
         <label className="block">
           <span className="mb-2 block text-sm font-bold text-zinc-400">Nombre del negocio</span>
-          <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} className={input} />
+          <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Ej. Tacos El Güero" className={input} />
         </label>
         <label className="block">
           <span className="mb-2 block text-sm font-bold text-zinc-400">Sucursal</span>

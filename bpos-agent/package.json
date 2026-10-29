@@ -1,9 +1,9 @@
 {
   "name": "bpos-agent",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "description": "B-POS para Windows: sistema, Agent de impresión y actualizador automático",
   "main": "main.js",
-  "author": "Burger Planet OS",
+  "author": "B-POS",
   "scripts": {
     "dev": "electron .",
     "start": "electron .",
@@ -29,7 +29,7 @@
     "appId": "com.burgerplanet.bposagent",
     "productName": "B-POS",
     "executableName": "B-POS",
-    "copyright": "Burger Planet OS",
+    "copyright": "B-POS",
     "directories": {
       "output": "dist",
       "buildResources": "build"

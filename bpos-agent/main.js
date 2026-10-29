@@ -218,7 +218,7 @@ const printer = new ThermalPrinter({
   printer.drawLine();
 
   printer.alignCenter();
-  printer.println("Burger Planet OS");
+  printer.println("B-POS");
   printer.cut();
 
   const isConnected = await printer.isPrinterConnected();

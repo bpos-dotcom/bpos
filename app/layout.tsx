@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "B-POS · Burger Planet OS",
+  title: "B-POS",
   description: "Punto de venta para restaurantes",
   // Instalada en iPhone/iPad abre sin barra de Safari
   appleWebApp: { capable: true, title: "B-POS", statusBarStyle: "black-translucent" },

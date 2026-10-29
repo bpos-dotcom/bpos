@@ -10,11 +10,13 @@ import { AppShell } from "@/components/layout/AppShell";
 import { getAdminProducts, saveAdminProducts } from "@/lib/admin";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
-import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
+import { AI_REASON_TEXT, aiFetch, getAiStatus, type AiStatus } from "@/lib/ai/client";
+import { planLabel } from "@/lib/plans";
 import type { KitchenStation, Product } from "@/data/products";
 
 const STATIONS: KitchenStation[] = ["Parrilla", "Freidora", "Barra", "Cocina"];
-const MAX_SIDE = 2000; // las fotos se achican para mandarlas rápido (Claude no necesita más)
+const MAX_SIDE = 1600; // las fotos se achican: se mandan a la nube una a la vez (Claude no necesita más)
+const MAX_PDF = 3 * 1024 * 1024; // un PDF más pesado no cabe en una sola solicitud: mejor fotos
 
 type Upload = { name: string; mediaType: string; data: string; preview?: string; size: number };
 type Row = {
@@ -54,12 +56,13 @@ async function shrinkImage(file: File): Promise<Upload> {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-  const jpeg = canvas.toDataURL("image/jpeg", 0.85);
+  const jpeg = canvas.toDataURL("image/jpeg", 0.8);
   return { name: file.name, mediaType: "image/jpeg", data: jpeg.split(",")[1], preview: jpeg, size: Math.round((jpeg.length * 3) / 4) };
 }
 
 async function toUpload(file: File): Promise<Upload> {
   if (file.type === "application/pdf") {
+    if (file.size > MAX_PDF) throw new Error(`${file.name} pesa ${(file.size / 1024 / 1024).toFixed(1)} MB. Sube fotos de cada página o un PDF de menos de 3 MB.`);
     const url = await readAsDataUrl(file);
     return { name: file.name, mediaType: "application/pdf", data: url.split(",")[1], size: file.size };
   }
@@ -70,11 +73,9 @@ async function toUpload(file: File): Promise<Upload> {
 const kb = (n: number) => (n > 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.round(n / 1024)} KB`);
 
 export default function MenuIaPage() {
-  // Llave
-  const [keyInfo, setKeyInfo] = useState<{ configured: boolean; hint: string | null } | null>(null);
-  const [keyInput, setKeyInput] = useState("");
-  const [keyMsg, setKeyMsg] = useState("");
-  const [keyBusy, setKeyBusy] = useState(false);
+  // IA de la nube: disponible según el plan del negocio
+  const [ai, setAi] = useState<AiStatus | null | undefined>(undefined);
+  const [progress, setProgress] = useState("");
 
   // Menú
   const [uploads, setUploads] = useState<Upload[]>([]);
@@ -88,41 +89,8 @@ export default function MenuIaPage() {
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- productos del navegador: solo después de montar
     setProducts(getAdminProducts());
-    bridgeFetch("/api/ai/key", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((b) => setKeyInfo({ configured: Boolean(b.configured), hint: b.hint || null }))
-      .catch(() => setKeyInfo({ configured: false, hint: null }));
+    void getAiStatus().then(setAi);
   }, []);
-
-  async function saveKey() {
-    setKeyBusy(true);
-    setKeyMsg("Probando la llave con Claude...");
-    try {
-      const r = await bridgeFetch("/api/ai/key", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ key: keyInput }) });
-      const b = await r.json();
-      if (!r.ok) {
-        setKeyMsg(`❌ ${b.error || "No se pudo guardar."}`);
-        return;
-      }
-      setKeyInfo({ configured: true, hint: b.hint });
-      setKeyInput("");
-      setKeyMsg("✅ Llave guardada y probada. Ya puedes subir tu menú.");
-      addAuditEvent({ category: "Seguridad", action: "ai.key.saved", description: `${getCurrentUser().name} guardó la llave de IA (${b.hint}) en esta caja`, userName: getCurrentUser().name });
-    } catch {
-      setKeyMsg("❌ No se pudo conectar con B-POS en esta computadora.");
-    } finally {
-      setKeyBusy(false);
-    }
-  }
-
-  async function removeKey() {
-    if (!confirm("¿Quitar la llave de IA de esta caja?")) return;
-    const r = await bridgeFetch("/api/ai/key", { method: "DELETE" });
-    const b = await r.json().catch(() => ({}));
-    setKeyInfo({ configured: Boolean(b.configured), hint: b.hint || null });
-    setKeyMsg("Llave quitada.");
-    addAuditEvent({ category: "Seguridad", action: "ai.key.removed", description: `${getCurrentUser().name} quitó la llave de IA de esta caja`, userName: getCurrentUser().name });
-  }
 
   async function addFiles(list: FileList | null) {
     if (!list) return;
@@ -135,35 +103,44 @@ export default function MenuIaPage() {
     }
   }
 
+  // Una página por solicitud (la nube acepta ~4.5 MB); se juntan los productos sin repetir
   async function readMenu() {
     setReading(true);
     setError("");
     setWarnings([]);
     setSaved("");
+    const categories = [...new Set(products.map((p) => p.category))];
+    const found: Omit<Row, "key" | "selected" | "existing">[] = [];
+    const notes: string[] = [];
     try {
-      const categories = [...new Set(products.map((p) => p.category))];
-      const r = await bridgeFetch("/api/ai/menu", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ files: uploads.map(({ name, mediaType, data }) => ({ name, mediaType, data })), categories }),
-      });
-      const b = await r.json();
-      if (!r.ok) {
-        setError(b.error || "No se pudo leer el menú.");
-        return;
+      for (const [i, u] of uploads.entries()) {
+        setProgress(uploads.length > 1 ? `Leyendo página ${i + 1} de ${uploads.length}...` : "");
+        const r = await aiFetch("/api/ai/menu", {
+          method: "POST",
+          body: JSON.stringify({ files: [{ name: u.name, mediaType: u.mediaType, data: u.data }], categories }),
+        });
+        const b = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          setError(`${uploads.length > 1 ? `Página ${i + 1}: ` : ""}${b.error || "No se pudo leer el menú."}`);
+          if (r.status === 402 || r.status === 429) break; // plan o límite: no tiene caso seguir
+          continue;
+        }
+        for (const item of b.items || []) if (!found.some((x) => normalize(x.name) === normalize(item.name))) found.push(item);
+        notes.push(...(b.warnings || []).map((w: string) => (uploads.length > 1 ? `Página ${i + 1}: ${w}` : w)));
       }
       const byName = new Map(products.map((p) => [normalize(p.name), p]));
       setRows(
-        (b.items as Omit<Row, "key" | "selected" | "existing">[]).map((item, i) => {
+        found.map((item, i) => {
           const existing = byName.get(normalize(item.name));
           return { ...item, key: i, existing, selected: !existing };
         })
       );
-      setWarnings(b.warnings || []);
+      setWarnings(notes);
     } catch {
-      setError("No se pudo conectar con B-POS en esta computadora.");
+      setError("Sin conexión con la nube de B-POS. Revisa el internet.");
     } finally {
       setReading(false);
+      setProgress("");
     }
   }
 
@@ -215,43 +192,27 @@ export default function MenuIaPage() {
     <RequireRole allow={["Admin"]}>
       <AppShell title="Subir menú con IA" subtitle="Toma fotos de tu menú y Claude registra tus productos. Tú revisas antes de guardar.">
         <div className="space-y-6">
-          {/* 1. Llave */}
+          {/* 1. Plan */}
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
-            <h2 className="text-lg font-black">1. Llave de Anthropic</h2>
-            <p className="mt-1 text-sm text-zinc-400">
-              Se guarda solo en esta computadora de la caja. No se sube a la nube ni a GitHub. Cada menú leído cuesta centavos de dólar en tu cuenta de Anthropic.
-            </p>
-            {keyInfo === null ? (
-              <p className="mt-3 text-sm text-zinc-500">Revisando...</p>
-            ) : keyInfo.configured ? (
-              <div className="mt-3 flex flex-wrap items-center gap-3">
-                <span className="rounded-full bg-emerald-500/15 px-3 py-1 text-sm font-black text-emerald-400">✅ Llave guardada ({keyInfo.hint})</span>
-                <button onClick={removeKey} className="rounded-full border border-zinc-700 px-3 py-1 text-xs text-zinc-300">Quitar llave</button>
-              </div>
-            ) : null}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <input
-                type="password"
-                autoComplete="off"
-                value={keyInput}
-                onChange={(e) => setKeyInput(e.target.value)}
-                placeholder={keyInfo?.configured ? "Pegar otra llave (opcional)" : "Pega tu llave: sk-ant-..."}
-                className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-4 py-3 font-mono text-sm"
-              />
-              <button onClick={saveKey} disabled={keyBusy || !keyInput.trim()} className="rounded-2xl bg-orange-500 px-5 py-3 text-sm font-black text-black disabled:opacity-40">
-                {keyBusy ? "Probando..." : "Guardar y probar"}
-              </button>
-            </div>
-            {keyMsg && <p className="mt-2 text-sm text-zinc-300">{keyMsg}</p>}
+            <h2 className="text-lg font-black">🤖 IA de B-POS</h2>
+            {ai === undefined ? (
+              <p className="mt-2 text-sm text-zinc-500">Revisando tu plan...</p>
+            ) : ai === null ? (
+              <p className="mt-2 text-sm text-orange-200">No se pudo revisar tu plan. Revisa el internet e inténtalo de nuevo.</p>
+            ) : ai.available ? (
+              <p className="mt-2 text-sm font-black text-emerald-400">✅ Incluida en tu plan {planLabel(ai.plan)}. No necesitas ninguna llave.</p>
+            ) : (
+              <p className="mt-2 text-sm text-orange-200">{AI_REASON_TEXT[ai.reason || "plan"]}</p>
+            )}
           </section>
 
           {/* 2. Archivos */}
-          <section className={`rounded-3xl border border-zinc-800 bg-zinc-950 p-5 ${keyInfo?.configured ? "" : "opacity-50"}`}>
+          <section className={`rounded-3xl border border-zinc-800 bg-zinc-950 p-5 ${ai?.available ? "" : "opacity-50"}`}>
             <h2 className="text-lg font-black">2. Fotos o PDF del menú</h2>
             <p className="mt-1 text-sm text-zinc-400">Fotos derechas y con buena luz. Puedes subir varias páginas juntas (hasta 20).</p>
             <label className="mt-3 flex cursor-pointer items-center justify-center rounded-2xl border-2 border-dashed border-zinc-700 p-6 text-sm font-black text-zinc-300 hover:border-orange-500">
               📷 Elegir fotos o PDF
-              <input type="file" accept="image/*,application/pdf" multiple className="hidden" disabled={!keyInfo?.configured} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
+              <input type="file" accept="image/*,application/pdf" multiple className="hidden" disabled={!ai?.available} onChange={(e) => { void addFiles(e.target.files); e.target.value = ""; }} />
             </label>
             {uploads.length > 0 && (
               <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -267,10 +228,10 @@ export default function MenuIaPage() {
             )}
             <button
               onClick={readMenu}
-              disabled={!keyInfo?.configured || !uploads.length || reading}
+              disabled={!ai?.available || !uploads.length || reading}
               className="mt-4 w-full rounded-2xl bg-orange-500 px-5 py-4 text-base font-black text-black disabled:opacity-40"
             >
-              {reading ? "🤖 Claude está leyendo tu menú... (puede tardar 1 o 2 minutos)" : "🤖 Leer menú con IA"}
+              {reading ? `🤖 ${progress || "Claude está leyendo tu menú..."} (puede tardar 1 o 2 minutos por página)` : "🤖 Leer menú con IA"}
             </button>
             {error && <p className="mt-3 rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-200">{error}</p>}
             {saved && <p className="mt-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-200">{saved}</p>}

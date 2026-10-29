@@ -5,14 +5,17 @@ import { setCurrentUser } from "@/lib/auth";
 import { addAuditEvent } from "@/lib/audit";
 import { getUsers, migrateUserPins, type SystemUser } from "@/lib/users";
 import { verifyPin } from "@/lib/pin-hash";
+import { getBusinessSettings } from "@/lib/business-settings";
 
 export default function LoginPage() {
   const [users, setUsers] = useState<SystemUser[]>([]);
   const [selectedUser, setSelectedUser] = useState<SystemUser | null>(null);
   const [pin, setPin] = useState("");
   const [checking, setChecking] = useState(false);
+  const [brand, setBrand] = useState("B-POS");
 
   useEffect(() => {
+    setBrand(getBusinessSettings().businessName || "B-POS");
     const load = () => setUsers(getUsers().filter((user) => user.active));
     // Los PIN viejos (texto) se cifran aquí la primera vez
     void migrateUserPins().then(load);
@@ -58,7 +61,7 @@ export default function LoginPage() {
         {!selectedUser ? (
           <>
             <h1 className="text-center text-3xl font-black">
-              Burger Planet OS
+              {brand}
             </h1>
 
             <p className="mt-2 text-center text-zinc-400">

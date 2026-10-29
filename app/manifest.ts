@@ -4,7 +4,7 @@ import type { MetadataRoute } from "next";
 // Abre directo en la App del dueño; desde ahí se llega al resto de B-POS.
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "B-POS · Burger Planet OS",
+    name: "B-POS",
     short_name: "B-POS",
     description: "Ventas, sucursales y alertas de tu negocio en tiempo real.",
     id: "/dueno",

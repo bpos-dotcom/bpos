@@ -15,6 +15,7 @@ import {
   OPERATIONS_ALERT_EVENT,
 } from "@/lib/notifications/operationsCenter";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
+import { getBusinessSettings } from "@/lib/business-settings";
 import { runDailyBackup } from "@/lib/cloud/backup";
 import { flushCloudAudit } from "@/lib/cloud/audit-outbox";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
@@ -63,6 +64,11 @@ export function Sidebar() {
   // cursor o tocar »; se vuelve a contraer al salir el cursor o tras 10 s sin
   // usarlo. "📌 Fijar abierto" lo deja abierto (se recuerda en este dispositivo).
   const [pinned, setPinned] = useState(false);
+  const [businessName, setBusinessName] = useState("");
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- dato del navegador: solo después de montar
+    setBusinessName(getBusinessSettings().businessName);
+  }, []);
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
@@ -271,7 +277,7 @@ export function Sidebar() {
         {!slim && (
         <>
 
-        <p className={`mt-3 text-sm font-bold ${hasCritical ? "text-red-200" : hasPending ? "text-emerald-200" : hasWarning ? "text-yellow-200" : "text-orange-500"}`}>Burger Planet</p>
+        <p className={`mt-3 text-sm font-bold ${hasCritical ? "text-red-200" : hasPending ? "text-emerald-200" : hasWarning ? "text-yellow-200" : "text-orange-500"}`}>{businessName}</p>
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-black text-white">BPOS</h1>
           {hasWarning && <span className="h-3 w-3 rounded-full bg-yellow-300 shadow-[0_0_12px_rgba(253,224,71,1)]" title={`${lowStockCount} alerta(s) de inventario`} />}
