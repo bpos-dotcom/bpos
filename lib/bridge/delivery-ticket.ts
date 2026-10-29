@@ -19,6 +19,8 @@ export type TicketItem = {
   notes: string[];
   stations: KitchenStation[];
   pending: boolean; // algún renglón sin equivalencia
+  /** Partes de un combo: cada estación recibe solo las suyas */
+  parts?: { qty: number; name: string; station: KitchenStation }[];
 };
 
 export type DeliveryTicket = {
@@ -110,6 +112,7 @@ export function buildDeliveryTicket(
         notes: [],
         stations: route ? [...route.stations] : [],
         pending: Boolean(route?.pending),
+        ...(route?.parts?.length ? { parts: route.parts.map((p) => ({ qty: p.quantity * Number(quantified[1]), name: p.name, station: p.station })) } : {}),
       };
       items.push(current);
       question = null;

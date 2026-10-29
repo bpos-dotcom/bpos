@@ -1,5 +1,6 @@
 "use client";
 
+import { kitchenItems } from "@/lib/compound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { SavedOrder } from "@/components/OrderHistoryPanel";
@@ -16,7 +17,12 @@ import { isCancelled } from "@/lib/sale-cancel";
 
 type KdsItem = SavedOrder["items"][number] & {
   externalName?: string;
+  fromCombo?: string;
+  lineKey?: string;
 };
+
+// Los combos se ven separados: cada parte en su estación
+const itemsOf = (order: { items: KdsItem[] }) => kitchenItems(order.items);
 
 type KdsOrder = Omit<SavedOrder, "items"> & {
   items: KdsItem[];
@@ -239,7 +245,7 @@ export default function CocinaPage() {
   }
 
   function groupItemsByStation(order: KdsOrder) {
-    return order.items.reduce((acc, item) => {
+    return itemsOf(order).reduce((acc, item) => {
       const station = (item.station || "Cocina") as KitchenStation;
       if (!acc[station]) acc[station] = [];
       acc[station].push(item);
@@ -255,13 +261,13 @@ export default function CocinaPage() {
           if (order.source === "B-POS Bridge" && order.kdsReleased !== true)
             return false;
           if (stationFilter === "Todas") {
-            return order.items.some((item) =>
+            return itemsOf(order).some((item) =>
               enabledStations.some(
                 (station) => station.id === (item.station || "Cocina")
               )
             );
           }
-          return order.items.some(
+          return itemsOf(order).some(
             (item) => (item.station || "Cocina") === stationFilter
           );
         })
@@ -291,7 +297,7 @@ export default function CocinaPage() {
         .filter((order) => order.kdsCompleted || order.status === "Entregado")
         .filter((order) => {
           if (stationFilter === "Todas") return true;
-          return order.items.some(
+          return itemsOf(order).some(
             (item) => (item.station || "Cocina") === stationFilter
           );
         })
@@ -361,7 +367,7 @@ export default function CocinaPage() {
     const external = order.source === "B-POS Bridge";
     const adjustments = order.bridgeActions?.inventoryAdjustments || [];
     const expanded = expandedOrders.has(order.id);
-    const visibleItems = order.items.filter(
+    const visibleItems = itemsOf(order).filter(
       (item) =>
         stationFilter === "Todas" ||
         (item.station || "Cocina") === stationFilter
@@ -446,12 +452,15 @@ export default function CocinaPage() {
                     <div className="space-y-3">
                       {items.map((item) => (
                         <div
-                          key={item.id}
+                          key={item.lineKey || item.id}
                           className="border-b border-zinc-800 pb-3 last:border-0 last:pb-0"
                         >
                           <p className="text-base font-black text-white">
                             {item.quantity} × {item.name}
                           </p>
+                          {item.fromCombo && (
+                            <p className="mt-1 pl-4 text-sm text-orange-300">↳ Del combo: {item.fromCombo}</p>
+                          )}
                           {item.externalName &&
                             item.externalName.trim().toLowerCase() !==
                               item.name.trim().toLowerCase() && (

@@ -2,6 +2,7 @@
 
 import { initialIngredients, recipes, type Ingredient } from "@/data/inventory";
 import { getAdminIngredients, getAdminRecipes, saveAdminIngredients } from "@/lib/admin";
+import { itemConsumption, type SoldPart } from "@/lib/compound";
 
 const KARDEX_KEY = "bpos_inventory_kardex";
 const APPLIED_KEY = "bpos_inventory_applied_sales";
@@ -28,7 +29,7 @@ export type InventoryMovement = {
 export type InventoryOrderLike = {
   id: number | string;
   createdAt?: string;
-  items: Array<{ id: number; name?: string; quantity: number }>;
+  items: Array<{ id: number; name?: string; quantity: number; parts?: SoldPart[] }>;
   source?: string;
   externalOrderKey?: string;
   externalPlatform?: string;
@@ -200,13 +201,14 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
     const recipeList = getAdminRecipes();
     const consumptions = new Map<number, number>();
 
+    const recipeOf = (productId: number) => recipeList.filter((recipe) => Number(recipe.productId) === Number(productId));
     for (const item of order.items || []) {
       const qty = Number(item.quantity);
       if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Cantidad inválida en producto ${item.name || item.id}.`);
-      const productRecipe = recipeList.filter((recipe) => Number(recipe.productId) === Number(item.id));
-      for (const recipe of productRecipe) {
-        consumptions.set(Number(recipe.ingredientId), (consumptions.get(Number(recipe.ingredientId)) || 0) + Number(recipe.quantity) * qty);
-      }
+      // Receta propia + la de cada parte si es combo
+      itemConsumption({ ...item, quantity: qty }, recipeOf).forEach((amount, ingredientId) => {
+        consumptions.set(ingredientId, (consumptions.get(ingredientId) || 0) + amount);
+      });
     }
 
     for (const adjustment of order.bridgeActions?.inventoryAdjustments || []) {
@@ -283,7 +285,7 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
  */
 export function discountInventoryByOrder(
   orderId: number | string,
-  items: Array<{ id: number; name?: string; quantity: number }>
+  items: Array<{ id: number; name?: string; quantity: number; parts?: SoldPart[] }>
 ): InventoryApplicationResult {
   return applyInventoryForOrder({
     id: orderId,

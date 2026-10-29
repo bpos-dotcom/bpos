@@ -6,6 +6,7 @@ import { paperWidth, qrSvg, type OrderTicket } from "@/lib/bridge/order-tickets"
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
 import { formatOrderNumber } from "@/lib/order-sequence";
+import type { SoldPart } from "@/lib/compound";
 
 /**
  * Tickets de cualquier venta guardada (POS de mostrador o delivery) para
@@ -19,7 +20,7 @@ export type SaleForTickets = {
   id: number;
   localOrderNumber?: number;
   createdAt: string;
-  items: { name: string; price: number; quantity: number; station?: string; externalName?: string }[];
+  items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[] }[];
   details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number };
   subtotal?: number;
   total: number;
@@ -53,8 +54,12 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
       price: Number(item.price) * (Number(item.quantity) || 1),
       choices: [],
       notes: [],
-      stations: [(item.station || "Cocina") as KitchenStation],
+      // Combo: va a las estaciones de sus partes
+      stations: item.parts?.length
+        ? STATIONS.filter((s) => item.parts!.some((p) => p.station === s))
+        : [(item.station || "Cocina") as KitchenStation],
       pending: false,
+      ...(item.parts?.length ? { parts: item.parts.map((p) => ({ qty: (Number(p.quantity) || 1) * (Number(item.quantity) || 1), name: p.name, station: p.station })) } : {}),
     })),
     charges: discount > 0 ? [{ label: "Subtotal", amount: subtotal }, { label: "Descuento", amount: -discount }] : [],
     total: Number(sale.total),
