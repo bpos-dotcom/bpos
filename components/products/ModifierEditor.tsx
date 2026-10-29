@@ -11,7 +11,8 @@
  */
 import { useState } from "react";
 import type { Ingredient } from "@/data/inventory";
-import type { ModifierGroup, ModifierOption, Product } from "@/data/products";
+import type { KitchenStation, ModifierGroup, ModifierOption, Product } from "@/data/products";
+import { stationLabel } from "@/lib/kds-config";
 import { copyGroups } from "@/lib/compound";
 import { ProductPicker } from "@/components/products/ProductPicker";
 
@@ -21,6 +22,8 @@ type Props = {
   products: Product[];
   productId: number; // producto que se edita (no se enlaza ni se copia a sí mismo)
   productName: string;
+  /** Multidestino: estaciones extra del producto (cada grupo puede mostrarse también ahí) */
+  extraStations?: KitchenStation[];
   onChange: (groups: ModifierGroup[]) => void;
 };
 
@@ -47,7 +50,7 @@ function NumberField({ label, value, onChange, prefix, hint }: { label: string; 
   );
 }
 
-export function ModifierEditor({ groups, ingredients, products, productId, productName, onChange }: Props) {
+export function ModifierEditor({ groups, ingredients, products, productId, productName, extraStations = [], onChange }: Props) {
   const ingredientById = new Map(ingredients.map((i) => [i.id, i]));
   const productById = new Map(products.map((p) => [p.id, p]));
   const [linking, setLinking] = useState<{ group: string; option: string } | null>(null);
@@ -123,6 +126,25 @@ export function ModifierEditor({ groups, ingredients, products, productId, produ
               {describeGroup(group)}
               {group.min > 0 && group.options.length === 1 ? " · se elige sola al vender" : ""}
             </p>
+            {extraStations.length > 0 && (
+              <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-bold text-sky-200">
+                <span>📍 También en:</span>
+                {extraStations.map((station) => (
+                  <label key={station} className="flex cursor-pointer items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(group.stations?.includes(station))}
+                      onChange={(e) => {
+                        const next = e.target.checked ? [...(group.stations || []), station] : (group.stations || []).filter((s) => s !== station);
+                        updateGroup(group.key, { stations: next.length ? next : undefined });
+                      }}
+                      className="h-4 w-4 accent-sky-400"
+                    />
+                    {stationLabel(station)}
+                  </label>
+                ))}
+              </div>
+            )}
 
             <div className="mt-3 space-y-2">
               {group.options.map((option) => {

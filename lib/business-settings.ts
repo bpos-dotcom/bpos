@@ -1,5 +1,7 @@
 "use client";
 
+import type { KitchenStation } from "@/data/products";
+
 const BUSINESS_SETTINGS_KEY = "bpos_business_settings";
 
 export type BusinessSettings = {
@@ -13,6 +15,7 @@ export type BusinessSettings = {
   ticketQrText: string; // URL o texto del QR ("" = sin QR)
   ticketQrCaption: string; // texto debajo del QR ("Escanea para pedir directo")
   ticketCutSpace: number; // milímetros en blanco al final de cada ticket para cortarlo a mano (0-60)
+  fallbackStation: KitchenStation; // a dónde va lo que no tiene estación (renglón de delivery sin equivalencia)
   bagTicketEnabled: boolean;
   /** Diseño de los tickets (térmica: todo en negro) */
   ticketFontSize: TicketSize; // tamaño de letra
@@ -37,6 +40,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   ticketQrText: "",
   ticketQrCaption: "Escanea para pedir directo",
   ticketCutSpace: 15,
+  fallbackStation: "Cocina",
   bagTicketEnabled: true,
   ticketFontSize: "grande",
   ticketLogoSize: "grande",
@@ -61,6 +65,7 @@ function normalize(parsed: Partial<BusinessSettings>): BusinessSettings {
     ticketFooter: text(parsed.ticketFooter, DEFAULT_SETTINGS.ticketFooter).trim(),
     ticketQrText: text(parsed.ticketQrText, "").trim(),
     ticketQrCaption: text(parsed.ticketQrCaption, DEFAULT_SETTINGS.ticketQrCaption).trim(),
+    fallbackStation: (["Parrilla", "Freidora", "Barra", "Cocina"] as const).includes(parsed.fallbackStation as KitchenStation) ? (parsed.fallbackStation as KitchenStation) : DEFAULT_SETTINGS.fallbackStation,
     ticketCutSpace: Number.isFinite(Number(parsed.ticketCutSpace)) ? Math.min(60, Math.max(0, Math.round(Number(parsed.ticketCutSpace)))) : DEFAULT_SETTINGS.ticketCutSpace,
     bagTicketEnabled: parsed.bagTicketEnabled !== false,
     ticketFontSize: SIZES.includes(parsed.ticketFontSize as TicketSize) ? (parsed.ticketFontSize as TicketSize) : DEFAULT_SETTINGS.ticketFontSize,

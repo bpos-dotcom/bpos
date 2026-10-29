@@ -1,5 +1,5 @@
 "use client";
-import type { KitchenStation } from "@/data/products";
+import type { ExtraStation, KitchenStation } from "@/data/products";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { platformLabel, realCustomerName, type DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { paperWidth, qrSvg, type OrderTicket } from "@/lib/bridge/order-tickets";
@@ -20,7 +20,7 @@ export type SaleForTickets = {
   id: number;
   localOrderNumber?: number;
   createdAt: string;
-  items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean; comment?: string }[];
+  items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean; comment?: string; extraStations?: ExtraStation[] }[];
   details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number };
   subtotal?: number;
   total: number;
@@ -55,14 +55,20 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
       price: (Number(item.price) - extrasPrice(item.modifiers, item.parts)) * (Number(item.quantity) || 1),
       // Opciones (repetidas juntas: "2x BBQ") y, si pasó de las incluidas, el renglón de cobro
       choices: [
-        ...groupedPicks(item.modifiers).map((r) => ({ qty: r.qty, name: r.name, price: null, question: r.group })),
-        ...(item.modifiers || []).filter((m) => m.extra).map((m) => ({ qty: 1, name: m.name, price: m.price * (Number(item.quantity) || 1) })),
+        ...groupedPicks(item.modifiers).map((r) => {
+          const alsoAt = (item.modifiers || []).find((m) => m.group === r.group && m.name === r.name)?.alsoAt;
+          return { qty: r.qty, name: r.name, price: null, question: r.group, ...(alsoAt?.length ? { alsoAt } : {}) };
+        }),
+        ...(item.modifiers || []).filter((m) => m.extra).map((m) => ({ qty: 1, name: m.name, price: m.price * (Number(item.quantity) || 1), ...(m.alsoAt?.length ? { alsoAt: m.alsoAt } : {}) })),
       ],
+      ...(item.extraStations?.length ? { extra: item.extraStations } : {}),
       notes: item.comment ? [item.comment] : [], // comentario para la cocina
       // Con productos enlazados: la estación de cada uno, y la suya salvo en combos
-      stations: item.parts?.length
-        ? STATIONS.filter((s) => item.parts!.some((p) => p.station === s) || (item.ownTicket && (item.station || "Cocina") === s))
-        : [(item.station || "Cocina") as KitchenStation],
+      stations: STATIONS.filter(
+        (s) =>
+          (item.parts?.length ? item.parts.some((p) => p.station === s) || (item.ownTicket && (item.station || "Cocina") === s) : (item.station || "Cocina") === s) ||
+          (item.extraStations || []).some((e) => e.station === s)
+      ),
       pending: false,
       ...(item.parts?.length
         ? {

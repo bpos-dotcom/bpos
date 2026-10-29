@@ -5,6 +5,7 @@ import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { Ingredient } from "@/data/inventory";
 import { getAdminIngredients, saveAdminIngredients } from "@/lib/admin";
+import { stationLabel } from "@/lib/kds-config";
 
 type DraftIngredient = Ingredient;
 
@@ -206,6 +207,28 @@ export default function IngredientesAdminPage() {
                       }
                       className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
                     />
+                  </Field>
+
+                  <Field label="Estación que lo prepara (opcional)">
+                    <select
+                      value={draft.station || ""}
+                      onChange={(event) => {
+                        const next = { ...draft, station: (event.target.value || undefined) as Ingredient["station"] };
+                        if (!next.station) delete next.station;
+                        setDraft(next);
+                      }}
+                      className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
+                    >
+                      <option value="">Ninguna (se usa tal cual)</option>
+                      {(["Parrilla", "Freidora", "Barra", "Cocina"] as const).map((station) => (
+                        <option key={station} value={station}>
+                          {stationLabel(station)}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="mt-2 block text-xs text-zinc-500">
+                      Ej. el boneless se fríe en Freidora. Si un producto de otra estación lo lleva en su receta (Boneless Burger en Parrilla), B-POS te sugiere mandarle también una comanda a esta estación.
+                    </span>
                   </Field>
                 </div>
               </>

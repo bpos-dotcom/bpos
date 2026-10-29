@@ -8,6 +8,8 @@ import type { Ingredient, RecipeItem } from "@/data/inventory";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes, saveAdminProducts, saveAdminRecipes } from "@/lib/admin";
 import { RecipeEditor, type RecipeLine } from "@/components/products/RecipeEditor";
 import { ModifierEditor, cleanModifierGroups, modifierEditorProblems } from "@/components/products/ModifierEditor";
+import { MultiStationEditor } from "@/components/products/MultiStationEditor";
+import { suggestExtraStations } from "@/lib/compound";
 
 type DraftProduct = Product;
 
@@ -71,6 +73,16 @@ export default function ProductosAdminPage() {
     const saved: Product = { ...draft, name: draft.name.trim(), modifierGroups: cleanModifierGroups(draft.modifierGroups) };
     delete saved.components;
     if (saved.modifierGroups === undefined) delete saved.modifierGroups;
+    // Multidestino: sin la estación propia ni repetidas; sin texto se usa "<producto>"
+    const extra = (saved.extraStations || []).filter((e, i, all) => e.station !== saved.station && all.findIndex((x) => x.station === e.station) === i).map((e) => ({ station: e.station, text: e.text.trim() || saved.name }));
+    if (extra.length) saved.extraStations = extra;
+    else delete saved.extraStations;
+    // Las opciones solo se muestran en estaciones extra que existen
+    saved.modifierGroups?.forEach((g) => {
+      const stations = g.stations?.filter((s) => extra.some((e) => e.station === s));
+      if (stations?.length) g.stations = stations;
+      else delete g.stations;
+    });
     if (!saved.noOwnTicket) delete saved.noOwnTicket;
     const nextProducts = products.map((product) =>
       product.id === draft.id ? saved : product
@@ -302,7 +314,15 @@ export default function ProductosAdminPage() {
                   products={products}
                   productId={draft.id}
                   productName={draft.name}
+                  extraStations={(draft.extraStations || []).map((e) => e.station)}
                   onChange={(modifierGroups) => setDraft({ ...draft, modifierGroups })}
+                />
+
+                <MultiStationEditor
+                  mainStation={draft.station || "Cocina"}
+                  extraStations={draft.extraStations || []}
+                  suggestions={suggestExtraStations(draft, recipeDraft, ingredients)}
+                  onChange={(extraStations) => setDraft({ ...draft, extraStations })}
                 />
 
                 <RecipeEditor

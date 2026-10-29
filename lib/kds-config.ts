@@ -43,3 +43,8 @@ export function saveKdsStationConfig(config: KdsStationConfig[]) {
   localStorage.setItem(KDS_STATION_CONFIG_KEY, JSON.stringify(config));
   window.dispatchEvent(new Event("bpos:kds-config-updated"));
 }
+
+/** Nombre que el negocio le puso a la estación (Cocina KDS → configurar estaciones). */
+export function stationLabel(id: KitchenStation) {
+  return readKdsStationConfig().find((s) => s.id === id)?.name || id;
+}
