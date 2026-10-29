@@ -128,6 +128,7 @@ export function CartPanel({
                         <li key={i}>
                           » {part.quantity > 1 ? `${part.quantity}x ` : ""}{part.name} <span className="text-orange-400">· {part.station}</span>
                           {part.modifiers?.length ? <span className="block pl-3 text-zinc-300">{modifiersText(part.modifiers)}</span> : null}
+                          {part.comment ? <span className="block pl-3 font-bold text-yellow-200">💬 {part.comment}</span> : null}
                         </li>
                       ))}
                     </ul>

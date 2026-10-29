@@ -9,7 +9,8 @@ import { getAdminIngredients, getAdminProducts, getAdminRecipes, saveAdminProduc
 import { RecipeEditor, type RecipeLine } from "@/components/products/RecipeEditor";
 import { ModifierEditor, cleanModifierGroups, modifierEditorProblems } from "@/components/products/ModifierEditor";
 import { MultiStationEditor } from "@/components/products/MultiStationEditor";
-import { suggestExtraStations } from "@/lib/compound";
+import { compoundRouting, suggestExtraStations } from "@/lib/compound";
+import { stationLabel } from "@/lib/kds-config";
 
 type DraftProduct = Product;
 
@@ -341,8 +342,10 @@ export default function ProductosAdminPage() {
                         className="mt-0.5 h-5 w-5 accent-orange-500"
                       />
                       <span>
-                        Es un combo: no manda comanda propia
-                        <span className="block text-xs text-zinc-500">Solo salen sus opciones enlazadas, cada una en la comanda de su estación.</span>
+                        🧩 Producto compuesto (combo): no manda comanda propia
+                        <span className="block text-xs text-zinc-500">
+                          Se arma con otros productos: en Opciones para elegir enlázalos con 🔍 (la hamburguesa a elegir, las salchipapas, el refresco). Cada uno sale en la comanda de su estación con sus opciones e instrucciones.
+                        </span>
                       </span>
                     </label>
                   </Field>
@@ -367,6 +370,25 @@ export default function ProductosAdminPage() {
                   extraStations={(draft.extraStations || []).map((e) => e.station)}
                   onChange={(modifierGroups) => setDraft({ ...draft, modifierGroups })}
                 />
+
+                {compoundRouting(draft, products).length > 1 && (
+                  <section className="mt-6 rounded-3xl border border-sky-500/40 bg-sky-500/5 p-6">
+                    <h3 className="text-lg font-black text-sky-200">🗺️ Así se reparte en las comandas</h3>
+                    <div className="mt-3 grid gap-2 md:grid-cols-2">
+                      {compoundRouting(draft, products).map((row) => (
+                        <div key={row.station} className="rounded-2xl border border-zinc-800 bg-black p-3">
+                          <p className="text-sm font-black text-orange-400">👨‍🍳 {stationLabel(row.station)}</p>
+                          <ul className="mt-1 space-y-0.5 text-sm text-zinc-300">
+                            {row.items.map((text) => (
+                              <li key={text}>• {text}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-zinc-500">Al vender, cada estación recibe solo lo suyo, con las opciones elegidas y la instrucción de su producto.</p>
+                  </section>
+                )}
 
                 <MultiStationEditor
                   mainStation={draft.station || "Cocina"}
