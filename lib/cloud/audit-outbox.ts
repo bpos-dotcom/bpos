@@ -9,6 +9,8 @@
 import type { AuditEvent } from "@/lib/audit";
 import { loadCloudAccount } from "@/lib/cloud/account";
 import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
+import { flushPushEvents, queuePushEvents } from "@/lib/push/client";
+import { PUSH_ACTIONS } from "@/lib/push/rules";
 
 const OUTBOX_KEY = "bpos_audit_outbox"; // solo de este dispositivo (ver DEVICE_LOCAL_KEYS)
 const MAX_QUEUE = 5000;
@@ -44,7 +46,7 @@ export function queueCloudAudit(event: AuditEvent) {
 export async function flushCloudAudit() {
   if (flushing || typeof window === "undefined" || !isCloudConfigured) return;
   const queue = readQueue();
-  if (!queue.length) return;
+  if (!queue.length) return flushPushEvents();
   flushing = true;
   try {
     const account = await loadCloudAccount();
@@ -72,12 +74,15 @@ export async function flushCloudAudit() {
       // Quita de la cola solo lo que ya subió (pudieron llegar eventos nuevos mientras tanto)
       const sent = new Set(batch.map((b) => b.event_id));
       writeQueue(readQueue().filter((e) => !sent.has(e.id)));
+      // Ya están en la nube: B-POS en Vercel puede avisar al celular del dueño
+      queuePushEvents(batch.filter((b) => PUSH_ACTIONS.has(b.action)).map((b) => b.event_id));
     }
   } catch {
     // sin internet o falta aplicar 0004 en Supabase: se reintenta después
   } finally {
     flushing = false;
   }
+  await flushPushEvents();
 }
 
 /** Últimos eventos de la bitácora en la nube (para Configuración → Bitácora). */

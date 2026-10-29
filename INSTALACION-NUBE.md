@@ -18,7 +18,11 @@ Si el archivo `.env.local` no existe, B-POS funciona igual que antes (solo local
 4. SQL Editor → New query → pega `supabase/migrations/0004_bpos_bitacora.sql` → Run.
    Bitácora en la nube que nadie puede editar ni borrar, y protección para que
    las ventas no se puedan borrar (solo cancelar con motivo).
-5. Authentication → Sign In / Providers → Email: puedes apagar **Confirm email**
+5. SQL Editor → New query → pega `supabase/migrations/0005_bpos_push.sql` → Run.
+   Guarda qué celulares reciben avisos push y cuáles ya se mandaron.
+6. Authentication → URL Configuration: Site URL `https://bpos-alpha.vercel.app`
+   y en Redirect URLs `https://bpos-alpha.vercel.app/**` y `http://localhost:3000/**`.
+7. Authentication → Sign In / Providers → Email: puedes apagar **Confirm email**
    para que la cuenta quede lista sin revisar el correo.
 
 ## 2. En la computadora de la caja
@@ -69,5 +73,21 @@ negocio y con tu PIN, y luego instálala como app:
 Muestra ventas de todas las sucursales (se actualiza cada 30 s), utilidad y
 margen, productos top y alertas críticas. Con **🔔 Activar notificaciones**
 avisa de ventas nuevas y alertas críticas mientras la app esté abierta o en
-segundo plano. Para recibir avisos con la app **cerrada** falta un servidor que
-los envíe (se hace junto con el bloque 13, al publicar en la nube).
+segundo plano, y también con la app **cerrada** (avisos push).
+
+### B-POS en Vercel y avisos push
+
+- B-POS está publicado en **https://bpos-alpha.vercel.app** (proyecto `bpos`
+  en Vercel, conectado a GitHub: cada cambio en `main` se publica solo).
+- Los avisos push salen de Vercel. Necesita la variable
+  **VAPID_PRIVATE_KEY** en Vercel → Settings → Environment Variables (el valor
+  está en `.env.local` de la computadora donde se creó; **nunca** va a GitHub).
+  La llave pública está en `lib/push/rules.ts`.
+- La caja sube cada evento a la bitácora de la nube y luego le pide a Vercel
+  que avise. Vercel lee el evento de la bitácora (no confía en lo que mande la
+  caja) y no repite avisos.
+- Se avisa de: pedidos de delivery, ventas grandes (monto ajustable) o todas,
+  cancelaciones, cortes de caja (con faltante o sobrante) y cambios de
+  seguridad. Cada celular elige los suyos en la App del dueño.
+- En iPhone los avisos push solo funcionan con B-POS instalado en la pantalla
+  de inicio (iOS 16.4 o más nuevo).
