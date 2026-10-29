@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildDeliveryTicket, realCustomerName } from "@/lib/bridge/delivery-ticket";
+import { stationsByLine } from "@/lib/bridge/station-routing";
 import { saleTicket } from "@/lib/bridge/sale-tickets";
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { getBusinessSettings } from "@/lib/business-settings";
@@ -44,6 +45,35 @@ check("por defecto: 15 mm", getBusinessSettings().ticketCutSpace === 15);
 const bolsa = bagTicketHtml(dt, { ...settings, ticketQrText: "https://wa.me/528711234567", ticketQrCaption: "Escanea para pedir directo" }, "<svg></svg>", 58);
 check("QR con su texto debajo", bolsa.includes('class="qr"') && bolsa.includes("Escanea para pedir directo"));
 check("sin QR no sale el texto", !bagTicketHtml(dt, { ...settings, ticketQrCaption: "Escanea" }, "", 58).includes("Escanea"));
+
+// Ticket real de DiDi (#10): el aderezo no debe mandar la orden a otra estación
+const didiText = [
+  "CO DiDiFood", "", "Burger Planet", "", "#10", "", "Jaime", "Plataforma",
+  "Dirección Aquiles Serdán 590, Las Rosas, 35156 Cd Lerdo, Dgo., México",
+  "66 Notas del pedido", "Cancelar sólo los productos agotados",
+  "1x Boneless Burger. MX$149.99", "Que tal una bebida?", "1x No, Gracias MX$0.00", "Elige el aderezo:", "1X Búfalo ranch MX$0.00",
+  "Subtotal MX$149.99", "Dto. de producto -MX$51.00", "Tarifa de entrega MX$15.00", "Agradecimiento MX$9.90", "Tarifa de servicio MX$6.93",
+  "Total a pagar MX$130.82", "Pago de DiDi Food MX$130.82", "Pago en efectivo MX$0.00", "", "Hora de Aceptación de Pedido:28 de oct, 9:01 pm",
+].join("\n");
+const idx = (t: string) => didiText.split("\n").findIndex((l) => l.startsWith(t));
+const didiInterp = {
+  products: [{ type: "product", aliasId: "a", sourceIndex: idx("1x Boneless Burger"), externalName: "Boneless Burger.", sourceQuantity: 1, productId: "50", productName: "Boneless Burger", quantity: 1 }],
+  ingredients: [{ type: "ingredient", sourceIndex: idx("1X Búfalo ranch"), ingredientId: "900", externalName: "Búfalo ranch" }],
+  bundles: [],
+  ignored: [{ sourceIndex: idx("1x No, Gracias"), externalName: "No, Gracias" }],
+  pending: [],
+  errors: [],
+} as unknown as NonNullable<Parameters<typeof stationsByLine>[0]>;
+const didiProducts = [{ id: 50, name: "Boneless Burger", station: "Freidora" }];
+const didi = buildDeliveryTicket({ platform: "didi", orderId: "10", rawText: didiText, customer: { name: "Jaime" } }, stationsByLine(didiInterp, didiProducts, []));
+check("DiDi real: 1 producto con sus opciones", didi.items.length === 1 && didi.items[0].choices.length === 2, didi.items);
+check("DiDi real: solo a Freidora (el aderezo no manda comanda a Cocina)", didi.items[0].stations.join(",") === "Freidora", didi.items[0].stations);
+check("DiDi real: total $130.82 y cliente Jaime", didi.total === 130.82 && didi.customer === "Jaime");
+check("DiDi real: la comanda lleva el aderezo", stationTicketHtml(didi, "Freidora", settings, 58).includes("Búfalo ranch"));
+// Una opción que es otro producto (refresco del combo) sí va a su estación
+const conBebida = { ...didiInterp, products: [...(didiInterp.products as unknown[]), { type: "product", aliasId: "b", sourceIndex: idx("1x No, Gracias"), externalName: "Coca", sourceQuantity: 1, productId: "51", productName: "Coca", quantity: 1 }], ignored: [] } as unknown as Parameters<typeof stationsByLine>[0];
+const didi2 = buildDeliveryTicket({ platform: "didi", orderId: "10", rawText: didiText }, stationsByLine(conBebida, [...didiProducts, { id: 51, name: "Coca", station: "Barra" }], []));
+check("opción que es producto (refresco) sí va a Barra", didi2.items[0].stations.includes("Barra"), didi2.items[0].stations);
 
 // IA (solo si hay llave guardada en esta computadora)
 async function main() {

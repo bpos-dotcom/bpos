@@ -15,6 +15,8 @@ import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
  */
 export type LineRouting = {
   stations: Set<KitchenStation>;
+  /** Solo las estaciones que vienen de productos (una opción como "Coca" sí lleva su estación; un aderezo, no) */
+  productStations: Set<KitchenStation>;
   ignored: boolean;
   pending: boolean;
   /** Combo: sus partes (por pieza), para que cada comanda lleve solo lo suyo */
@@ -73,7 +75,7 @@ export function stationsByLine(
   const line = (index: number) => {
     const existing = byLine.get(index);
     if (existing) return existing;
-    const created: LineRouting = { stations: new Set(), ignored: false, pending: false };
+    const created: LineRouting = { stations: new Set(), productStations: new Set(), ignored: false, pending: false };
     byLine.set(index, created);
     return created;
   };
@@ -82,8 +84,11 @@ export function stationsByLine(
     const l = line(p.sourceIndex);
     const product = products.find((x) => String(x.id) === String(p.productId));
     const parts = linkedParts(product);
-    if (!parts.length || !product?.noOwnTicket) l.stations.add(productStation.get(String(p.productId)) || "Cocina");
-    parts.forEach((part) => l.stations.add(part.station));
+    const own: KitchenStation[] = !parts.length || !product?.noOwnTicket ? [productStation.get(String(p.productId)) || "Cocina"] : [];
+    [...own, ...parts.map((part) => part.station)].forEach((s) => {
+      l.stations.add(s);
+      l.productStations.add(s);
+    });
     if (parts.length) l.parts = parts;
   });
   interpretation.ingredients.forEach((i) => line(i.sourceIndex).stations.add(forIngredient(i.ingredientId)));

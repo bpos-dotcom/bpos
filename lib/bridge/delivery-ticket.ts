@@ -105,7 +105,9 @@ export function buildDeliveryTicket(
       // encabezado es un producto nuevo.
       if (current && (question !== null || !price)) {
         current.choices.push({ qty: Number(quantified[1]), name: text, price, question: question || lastQuestion || undefined });
-        route?.stations.forEach((s) => current!.stations.includes(s) || current!.stations.push(s));
+        // La opción va con su producto: solo suma estación si es otro producto
+        // (el refresco del combo a Barra); un aderezo o insumo no manda comanda aparte
+        route?.productStations.forEach((s) => current!.stations.includes(s) || current!.stations.push(s));
         if (route?.pending) current.pending = true;
         if (question !== null) lastQuestion = question;
         question = null;
