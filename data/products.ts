@@ -16,6 +16,28 @@ export type ProductComponent = {
   options: number[]; // ids de productos (no compuestos)
 };
 
+/**
+ * Modificador: opción que no se vende sola ("Ranch: Sí / No, gracias /
+ * Aparte", "Salsas a elegir"). Puede descontar un insumo. No tiene precio:
+ * el grupo trae unas incluidas gratis y cobra solo las que pasen de ahí.
+ */
+export type ModifierOption = {
+  key: string;
+  name: string;
+  ingredientId?: number;
+  quantity?: number; // del insumo, por cada vez que se elige
+};
+
+export type ModifierGroup = {
+  key: string;
+  name: string; // "Aderezo", "Salsas"
+  min: number; // 1 o más = obligatorio
+  included: number; // cuántas van gratis
+  extraPrice: number; // precio de cada una de más (0 = no se cobran)
+  max: number; // tope total (0 = sin tope)
+  options: ModifierOption[];
+};
+
 export type Product = {
   id: number;
   name: string;
@@ -25,6 +47,8 @@ export type Product = {
   station: KitchenStation;
   /** Si tiene partes es un producto compuesto: cada parte va a su estación y descuenta su receta */
   components?: ProductComponent[];
+  /** Opciones a elegir al venderlo (aderezos, salsas, término...) */
+  modifierGroups?: ModifierGroup[];
 };
 
 export const products: Product[] = [

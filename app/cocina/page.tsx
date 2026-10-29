@@ -1,6 +1,6 @@
 "use client";
 
-import { kitchenItems } from "@/lib/compound";
+import { kitchenItems, modifiersText } from "@/lib/compound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { SavedOrder } from "@/components/OrderHistoryPanel";
@@ -458,6 +458,9 @@ export default function CocinaPage() {
                           <p className="text-base font-black text-white">
                             {item.quantity} × {item.name}
                           </p>
+                          {item.modifiers?.length ? (
+                            <p className="mt-1 pl-4 text-sm font-bold text-yellow-200">* {modifiersText(item.modifiers)}</p>
+                          ) : null}
                           {item.fromCombo && (
                             <p className="mt-1 pl-4 text-sm text-orange-300">↳ Del combo: {item.fromCombo}</p>
                           )}

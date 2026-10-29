@@ -9,6 +9,7 @@ import { getAdminIngredients, getAdminProducts, getAdminRecipes, saveAdminProduc
 import { isCompound } from "@/lib/compound";
 import { CompoundEditor, compoundProblems } from "@/components/products/CompoundEditor";
 import { RecipeEditor, type RecipeLine } from "@/components/products/RecipeEditor";
+import { ModifierEditor, cleanModifierGroups, modifierEditorProblems } from "@/components/products/ModifierEditor";
 
 type DraftProduct = Product;
 
@@ -59,7 +60,7 @@ export default function ProductosAdminPage() {
       return;
     }
 
-    const problem = compoundProblems(draft);
+    const problem = compoundProblems(draft) || modifierEditorProblems(draft.modifierGroups);
     if (problem) {
       alert(problem);
       return;
@@ -72,8 +73,9 @@ export default function ProductosAdminPage() {
       }
     }
 
-    const saved: Product = { ...draft, name: draft.name.trim() };
+    const saved: Product = { ...draft, name: draft.name.trim(), modifierGroups: cleanModifierGroups(draft.modifierGroups) };
     if (saved.components === undefined) delete saved.components;
+    if (saved.modifierGroups === undefined) delete saved.modifierGroups;
     const nextProducts = products.map((product) =>
       product.id === draft.id ? saved : product
     );
@@ -280,6 +282,12 @@ export default function ProductosAdminPage() {
                   product={draft}
                   products={products}
                   onChange={(components) => setDraft({ ...draft, components })}
+                />
+
+                <ModifierEditor
+                  groups={draft.modifierGroups || []}
+                  ingredients={ingredients}
+                  onChange={(modifierGroups) => setDraft({ ...draft, modifierGroups })}
                 />
 
                 <RecipeEditor

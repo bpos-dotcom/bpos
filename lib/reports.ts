@@ -4,7 +4,7 @@
  * Solo lee lo que B-POS ya guarda (ventas, recetas, costos de compra,
  * Kardex, compras y cortes); no modifica nada.
  */
-import { itemConsumption, type SoldPart } from "@/lib/compound";
+import { itemConsumption, type SoldModifier, type SoldPart } from "@/lib/compound";
 import { getAdminProducts, getAdminRecipes } from "@/lib/admin";
 import { getCashCloseHistory, type CashCloseRecord } from "@/lib/cash-history";
 import { getInventory, getKardex, type InventoryMovement } from "@/lib/inventory";
@@ -12,7 +12,7 @@ import { getIngredientCostHistory, getPurchases, type IngredientCostRecord, type
 
 // ------------------------------------------------------------ tipos
 
-export type ReportOrderItem = { id: number; name: string; category?: string; price: number; quantity: number; parts?: SoldPart[] };
+export type ReportOrderItem = { id: number; name: string; category?: string; price: number; quantity: number; parts?: SoldPart[]; modifiers?: SoldModifier[] };
 
 export type ReportOrder = {
   id: number | string;

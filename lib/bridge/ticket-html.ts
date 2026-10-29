@@ -84,7 +84,7 @@ function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boo
   // Combo: en la comanda solo las partes de esa estación; en el del cliente, todas
   const parts = (item.parts || [])
     .filter((p) => !station || p.station === station)
-    .map((p) => `<div class="sub">» ${p.qty}x ${esc(p.name)}</div>`)
+    .map((p) => `<div class="sub">» ${p.qty}x ${esc(p.name)}</div>${(p.extras || []).map((x) => `<div class="sub">&nbsp;&nbsp;* ${esc(x)}</div>`).join("")}`)
     .join("");
   const details = settings.ticketShowChoices
     ? item.choices

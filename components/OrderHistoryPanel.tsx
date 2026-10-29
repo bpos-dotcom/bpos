@@ -75,6 +75,7 @@ export function OrderHistoryPanel({
                       <p key={`${item.id}-${index}`}>
                         {item.quantity} × {item.name}
                         {item.parts?.length ? <span className="text-zinc-600"> ({item.parts.map((p) => p.name).join(", ")})</span> : null}
+                        {item.modifiers?.length ? <span className="text-zinc-600"> · {item.modifiers.map((m) => m.name).join(", ")}</span> : null}
                       </p>
                     ))}
                   </div>
