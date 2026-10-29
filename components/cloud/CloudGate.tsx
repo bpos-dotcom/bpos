@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import {
   createBusiness,
   loadCloudAccount,
@@ -24,7 +25,8 @@ import {
   type InitialSituation,
   type SyncStatus,
 } from "@/lib/cloud/sync";
-import { isCloudConfigured } from "@/lib/supabase/client";
+import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
+import { planAccess, type PlanState } from "@/lib/plans";
 import { saveBusinessSettings } from "@/lib/business-settings";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
@@ -113,6 +115,7 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
     return (
       <>
         {children}
+        <PlanLock account={state.account} />
         <SyncBadge account={state.account} />
       </>
     );
@@ -376,6 +379,76 @@ function FirstSync({
       </div>
     </>
   );
+}
+
+// ------------------------------------------------------------ plan (bloque 15)
+
+/** Pantallas que siguen abiertas con el plan vencido: entrar y pagar. */
+const PLAN_FREE_PATHS = ["/login", "/configuracion/plan", "/acceso-denegado"];
+
+/**
+ * Bloqueo amable: si la prueba gratis terminó o lo pagado venció, B-POS pide
+ * ir a Mi plan. Sin internet no se bloquea (se revisa al volver la conexión).
+ */
+function PlanLock({ account }: { account: ReadyAccount }) {
+  const pathname = usePathname() || "/";
+  const [access, setAccess] = useState<{ locked: boolean; warning: string } | null>(null);
+  const [hideWarning, setHideWarning] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const check = async () => {
+      if (!navigator.onLine) return;
+      const { data, error } = await getSupabase()
+        .from("businesses")
+        .select("plan, plan_status, trial_ends_at, paid_until")
+        .eq("id", account.businessId)
+        .maybeSingle();
+      if (alive && !error && data) setAccess(planAccess(data as PlanState));
+    };
+    void check();
+    const timer = setInterval(check, 30 * 60_000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, [account.businessId, pathname]);
+
+  if (!access || PLAN_FREE_PATHS.some((p) => pathname.startsWith(p))) return null;
+
+  if (access.locked) {
+    return (
+      <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-6 text-white backdrop-blur">
+        <section className="w-full max-w-lg rounded-3xl border border-orange-500/40 bg-zinc-950 p-8 text-center">
+          <p className="text-5xl">⏸️</p>
+          <h2 className="mt-4 text-3xl font-black">Tu plan de B-POS está en pausa</h2>
+          <p className="mt-3 text-zinc-300">
+            La prueba gratis terminó o el último pago no se completó. Tus datos están guardados: activa tu plan para
+            seguir vendiendo.
+          </p>
+          <a href="/configuracion/plan" className="mt-6 block w-full rounded-2xl bg-orange-500 py-4 font-black text-black hover:bg-orange-400">
+            Ir a Mi plan
+          </a>
+          <p className="mt-3 text-xs text-zinc-500">Necesitas entrar con un usuario Admin.</p>
+        </section>
+      </div>
+    );
+  }
+
+  if (access.warning && !hideWarning) {
+    return (
+      <div className="fixed left-1/2 top-3 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-full border border-orange-500/50 bg-black/95 px-5 py-2 text-sm text-orange-200 shadow-xl">
+        <span>{access.warning}</span>
+        <a href="/configuracion/plan" className="font-black text-orange-400 hover:underline">
+          Mi plan
+        </a>
+        <button onClick={() => setHideWarning(true)} className="text-zinc-500 hover:text-white" aria-label="Cerrar">
+          ✕
+        </button>
+      </div>
+    );
+  }
+  return null;
 }
 
 // ------------------------------------------------------------ indicador

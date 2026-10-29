@@ -31,3 +31,29 @@ export const TRIAL_DAYS = 14;
 export function planLabel(plan: string | null | undefined) {
   return PLANS[(plan as PlanId) || "basic"]?.name || "Basic";
 }
+
+export type PlanState = { plan: string; plan_status: string; trial_ends_at: string | null; paid_until: string | null };
+
+/**
+ * ¿El negocio puede seguir usando B-POS? Bloqueo amable: solo cuando la prueba
+ * terminó o lo pagado ya venció (Mercado Pago da 3 días de gracia en paid_until).
+ * Un plan activo sin fecha es una activación manual y no vence.
+ */
+export function planAccess(state: PlanState, now = Date.now()) {
+  const until = (date: string | null) => (date ? new Date(date).getTime() : null);
+  const trialEnd = until(state.trial_ends_at);
+  const paidEnd = until(state.paid_until);
+  const daysLeft = (end: number | null) => (end === null ? null : Math.ceil((end - now) / 86_400_000));
+
+  if (state.plan_status === "trial") {
+    const days = daysLeft(trialEnd);
+    return { locked: days !== null && days <= 0, warning: days !== null && days > 0 && days <= 3 ? `Te quedan ${days} día(s) de prueba gratis.` : "" };
+  }
+  if (state.plan_status === "active") {
+    return { locked: paidEnd !== null && paidEnd < now, warning: "" };
+  }
+  // past_due o cancelled: sigue hasta lo ya pagado
+  const days = daysLeft(paidEnd);
+  if (days === null || days <= 0) return { locked: true, warning: "" };
+  return { locked: false, warning: state.plan_status === "past_due" ? `Hay un pago pendiente. Tu plan se pausa en ${days} día(s).` : `Cancelaste tu plan. Sigue activo ${days} día(s).` };
+}
