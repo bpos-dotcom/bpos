@@ -2,7 +2,7 @@
 
 import { initialIngredients, recipes, type Ingredient } from "@/data/inventory";
 import { getAdminIngredients, getAdminRecipes, saveAdminIngredients } from "@/lib/admin";
-import { itemConsumption, type SoldPart } from "@/lib/compound";
+import { itemConsumption, type SoldModifier, type SoldPart } from "@/lib/compound";
 
 const KARDEX_KEY = "bpos_inventory_kardex";
 const APPLIED_KEY = "bpos_inventory_applied_sales";
@@ -29,7 +29,7 @@ export type InventoryMovement = {
 export type InventoryOrderLike = {
   id: number | string;
   createdAt?: string;
-  items: Array<{ id: number; name?: string; quantity: number; parts?: SoldPart[] }>;
+  items: Array<{ id: number; name?: string; quantity: number; parts?: SoldPart[]; modifiers?: SoldModifier[] }>;
   source?: string;
   externalOrderKey?: string;
   externalPlatform?: string;
@@ -285,7 +285,7 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
  */
 export function discountInventoryByOrder(
   orderId: number | string,
-  items: Array<{ id: number; name?: string; quantity: number; parts?: SoldPart[] }>
+  items: Array<{ id: number; name?: string; quantity: number; parts?: SoldPart[]; modifiers?: SoldModifier[] }>
 ): InventoryApplicationResult {
   return applyInventoryForOrder({
     id: orderId,

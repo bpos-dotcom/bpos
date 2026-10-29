@@ -20,7 +20,7 @@ export type TicketItem = {
   stations: KitchenStation[];
   pending: boolean; // algún renglón sin equivalencia
   /** Partes de un combo: cada estación recibe solo las suyas */
-  parts?: { qty: number; name: string; station: KitchenStation }[];
+  parts?: { qty: number; name: string; station: KitchenStation; extras?: string[] }[];
 };
 
 export type DeliveryTicket = {

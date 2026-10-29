@@ -4,7 +4,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { useEffect, useMemo, useState } from "react";
 import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
-import { choiceComponents, isCompound, lineIdFor, resolveParts } from "@/lib/compound";
+import { extrasPrice, isCompound, lineIdFor, needsChoices, resolveParts } from "@/lib/compound";
 import { CheckoutModal, PaymentMethod } from "@/components/CheckoutModal";
 import {
   OrderDetails,
@@ -161,17 +161,19 @@ function PosScreen() {
     return requirePermissionOrAdmin(currentUser, "pos.discount", action);
   }
 
-  // Combos con algo a elegir (ej. el refresco) piden la elección antes de agregarse
+  // Combos con algo a elegir (ej. el refresco) y productos con opciones (aderezo, salsas) preguntan antes de agregarse
   function addToCart(product: Product) {
-    if (isCompound(product) && choiceComponents(product).length) {
+    if (needsChoices(product, products)) {
       setComboToChoose(product);
       return;
     }
     addLine(product, isCompound(product) ? resolveParts(product, products) : undefined);
   }
 
-  function addLine(product: Product, parts?: CartItem["parts"]) {
-    const lineId = lineIdFor(product.id, parts);
+  // El precio del renglón ya incluye lo que cuestan las opciones elegidas
+  function addLine(product: Product, parts?: CartItem["parts"], modifiers?: CartItem["modifiers"]) {
+    const lineId = lineIdFor(product.id, parts, modifiers);
+    const price = product.price + extrasPrice(modifiers, parts);
     setCart((currentCart) => {
       const existingItem = currentCart.find((item) => cartLineId(item) === lineId);
 
@@ -183,7 +185,7 @@ function PosScreen() {
         );
       }
 
-      return [...currentCart, { ...product, quantity: 1, lineId, ...(parts ? { parts } : {}) }];
+      return [...currentCart, { ...product, price, quantity: 1, lineId, ...(parts ? { parts } : {}), ...(modifiers?.length ? { modifiers } : {}) }];
     });
   }
 
@@ -513,7 +515,7 @@ Gracias por pedir en Burger Planet 🚀`;
           products={products}
           onClose={() => setComboToChoose(null)}
           onConfirm={(chosen) => {
-            addLine(comboToChoose, resolveParts(comboToChoose, products, chosen));
+            addLine(comboToChoose, chosen.parts, chosen.modifiers);
             setComboToChoose(null);
           }}
         />

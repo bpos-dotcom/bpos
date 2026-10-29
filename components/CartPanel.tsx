@@ -1,12 +1,14 @@
 import { Product } from "@/data/products";
-import type { SoldPart } from "@/lib/compound";
+import { modifiersText, type SoldModifier, type SoldPart } from "@/lib/compound";
 
 export type CartItem = Product & {
   quantity: number;
-  /** Renglón del carrito (el mismo combo con otras elecciones es otro renglón) */
+  /** Renglón del carrito (el mismo producto con otras elecciones es otro renglón) */
   lineId?: string;
   /** Partes de un combo, con lo que se eligió */
   parts?: SoldPart[];
+  /** Opciones elegidas (aderezo, salsas...); su precio ya está sumado en `price` */
+  modifiers?: SoldModifier[];
 };
 
 export const cartLineId = (item: CartItem) => item.lineId || String(item.id);
@@ -62,11 +64,13 @@ export function CartPanel({
                   <p className="text-sm text-zinc-400">
                     ${item.price.toFixed(2)} c/u
                   </p>
+                  {item.modifiers?.length ? <p className="mt-1 text-xs text-zinc-300">{modifiersText(item.modifiers)}</p> : null}
                   {item.parts?.length ? (
                     <ul className="mt-1 space-y-0.5 text-xs text-zinc-400">
                       {item.parts.map((part, i) => (
                         <li key={i}>
                           » {part.quantity > 1 ? `${part.quantity}x ` : ""}{part.name} <span className="text-orange-400">· {part.station}</span>
+                          {part.modifiers?.length ? <span className="block pl-3 text-zinc-300">{modifiersText(part.modifiers)}</span> : null}
                         </li>
                       ))}
                     </ul>
