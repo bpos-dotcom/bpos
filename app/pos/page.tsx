@@ -526,7 +526,7 @@ Gracias por pedir en Burger Planet 🚀`;
 
       <Sidebar />
 
-      <section className="lg:ml-64">
+      <section className="bpos-main">
         <header className="sticky top-0 z-20 border-b border-zinc-800 bg-black/90 px-6 py-4 backdrop-blur">
           <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
             <TopStatus title="Caja" value="Abierta" detail="Fondo: $1,500.00" />

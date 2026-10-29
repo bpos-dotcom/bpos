@@ -37,6 +37,7 @@ const navItems = [
 ];
 
 const ACK_KEY = "bpos_bridge_pending_ack";
+const COLLAPSED_KEY = "bpos_sidebar_collapsed"; // solo de este dispositivo
 const POLL_MS = 3000;
 
 type PendingResponse = {
@@ -57,6 +58,30 @@ export function Sidebar() {
   const [criticalSignature, setCriticalSignature] = useState("");
   const [warningSignature, setWarningSignature] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+
+  // Barra lateral desplegable (solo íconos); se recuerda en este dispositivo
+  useEffect(() => {
+    let saved = false;
+    try {
+      saved = localStorage.getItem(COLLAPSED_KEY) === "1";
+    } catch {}
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- preferencia del navegador: solo después de montar
+    setCollapsed(saved);
+  }, []);
+  useEffect(() => {
+    document.documentElement.classList.toggle("sidebar-collapsed", collapsed);
+  }, [collapsed]);
+  function toggleCollapsed() {
+    setCollapsed((value) => {
+      try {
+        localStorage.setItem(COLLAPSED_KEY, value ? "0" : "1");
+      } catch {}
+      return !value;
+    });
+  }
+  // En celular el menú siempre se ve completo
+  const slim = collapsed && !mobileOpen;
 
   const currentUser = getCurrentUser();
 
@@ -169,7 +194,21 @@ export function Sidebar() {
     {mobileOpen && (
       <div className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={() => setMobileOpen(false)} />
     )}
-    <aside className={`bpos-scroll fixed left-0 top-0 z-50 h-screen w-72 overflow-y-auto border-r border-zinc-800 bg-zinc-950 p-4 lg:z-auto lg:block lg:w-64 ${mobileOpen ? "block" : "hidden"}`}>
+    <aside className={`bpos-scroll bpos-sidebar fixed left-0 top-0 z-50 h-screen w-72 overflow-y-auto overflow-x-hidden border-r border-zinc-800 bg-zinc-950 lg:z-auto lg:block ${slim ? "p-2" : "p-4"} ${mobileOpen ? "block" : "hidden"}`}>
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        className={`mb-3 hidden w-full items-center rounded-xl border border-zinc-800 bg-black py-2 text-xs font-black text-zinc-400 hover:border-orange-500 hover:text-orange-500 lg:flex ${slim ? "justify-center" : "justify-between px-3"}`}
+        title={slim ? "Mostrar menú completo" : "Contraer menú"}
+        aria-label={slim ? "Mostrar menú completo" : "Contraer menú"}
+      >
+        {slim ? "»" : (
+          <>
+            <span>Contraer menú</span>
+            <span>«</span>
+          </>
+        )}
+      </button>
       <button
         type="button"
         onClick={() => setMobileOpen(false)}
@@ -180,7 +219,7 @@ export function Sidebar() {
       <button
         type="button"
         onClick={openOperationsCenter}
-        className={`mb-8 w-full rounded-2xl border p-4 text-left transition-all ${
+        className={`w-full rounded-2xl border text-left transition-all ${slim ? "mb-4 p-2" : "mb-8 p-4"} ${
           visualState === "critical"
             ? "animate-pulse border-red-400 bg-red-500/25 shadow-[0_0_32px_rgba(239,68,68,0.65)]"
             : visualState === "delivery"
@@ -191,14 +230,16 @@ export function Sidebar() {
         }`}
         title="Abrir Centro de Operaciones"
       >
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-orange-500 font-black text-black">BP</div>
+        <div className={`flex items-start gap-3 ${slim ? "relative justify-center" : "justify-between"}`}>
+          <div className={`flex items-center justify-center rounded-xl bg-orange-500 font-black text-black ${slim ? "h-10 w-10" : "h-12 w-12"}`}>BP</div>
           {badgeCount > 0 && (
-            <span className={`flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-black text-black ${hasCritical ? "bg-red-400" : hasPending ? "bg-emerald-300" : "bg-yellow-300"}`}>
+            <span className={`flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : ""} ${hasCritical ? "bg-red-400" : hasPending ? "bg-emerald-300" : "bg-yellow-300"}`}>
               {badgeCount}
             </span>
           )}
         </div>
+        {!slim && (
+        <>
 
         <p className={`mt-3 text-sm font-bold ${hasCritical ? "text-red-200" : hasPending ? "text-emerald-200" : hasWarning ? "text-yellow-200" : "text-orange-500"}`}>Burger Planet</p>
         <div className="flex items-center gap-2">
@@ -210,21 +251,44 @@ export function Sidebar() {
         {hasCritical && <p className="mt-2 text-xs font-bold text-red-100">Error crítico · abrir para revisar</p>}
         {!hasCritical && hasPending && <p className="mt-2 text-xs font-bold text-emerald-100">Equivalencias por enlazar · abrir ahora</p>}
         {!hasCritical && !hasPending && hasWarning && <p className="mt-2 text-xs font-bold text-yellow-100">Insumos por reponer</p>}
+        </>
+        )}
       </button>
 
       <nav className="space-y-2">
         {visibleItems.map((item) => (
-          <Link key={item.href} href={item.href} onClick={() => setMobileOpen(false)} className="block rounded-2xl border border-zinc-800 bg-zinc-900 px-4 py-3 text-sm font-bold text-zinc-200 hover:border-orange-500 hover:text-orange-500">
-            <span className="mr-2">{item.icon}</span>{item.label}
+          <Link
+            key={item.href}
+            href={item.href}
+            onClick={() => setMobileOpen(false)}
+            title={item.label}
+            className={`block rounded-2xl border border-zinc-800 bg-zinc-900 py-3 text-sm font-bold text-zinc-200 hover:border-orange-500 hover:text-orange-500 ${slim ? "text-center text-lg" : "px-4"}`}
+          >
+            {slim ? item.icon : (
+              <>
+                <span className="mr-2">{item.icon}</span>
+                {item.label}
+              </>
+            )}
           </Link>
         ))}
       </nav>
 
-      <div className="mt-6 rounded-2xl border border-zinc-800 bg-black p-3">
-        <p className="text-sm font-black">{currentUser?.name || "Usuario"}</p>
-        <p className="text-xs text-zinc-500">{currentUser?.role || "Sin rol"}</p>
-        <button onClick={() => { clearCurrentUser(); window.location.href = "/login"; }} className="mt-3 w-full rounded-xl border border-zinc-700 px-3 py-2 text-xs font-black">Cerrar sesión</button>
-      </div>
+      {slim ? (
+        <button
+          onClick={() => { clearCurrentUser(); window.location.href = "/login"; }}
+          title={`Cerrar sesión (${currentUser?.name || "Usuario"})`}
+          className="mt-6 flex h-11 w-full items-center justify-center rounded-2xl border border-zinc-800 bg-black text-sm font-black text-zinc-300"
+        >
+          {(currentUser?.name || "U").slice(0, 1).toUpperCase()} ⏻
+        </button>
+      ) : (
+        <div className="mt-6 rounded-2xl border border-zinc-800 bg-black p-3">
+          <p className="text-sm font-black">{currentUser?.name || "Usuario"}</p>
+          <p className="text-xs text-zinc-500">{currentUser?.role || "Sin rol"}</p>
+          <button onClick={() => { clearCurrentUser(); window.location.href = "/login"; }} className="mt-3 w-full rounded-xl border border-zinc-700 px-3 py-2 text-xs font-black">Cerrar sesión</button>
+        </div>
+      )}
     </aside>
     <EquivalencePrompt items={pendingItems} signature={signature} canEquivalate={hasPermission(currentUser, "bridge.aliases")} />
     </>
