@@ -267,7 +267,8 @@ export function Sidebar() {
         title="Abrir Centro de Operaciones"
       >
         <div className={`flex items-start gap-3 ${slim ? "relative justify-center" : "justify-between"}`}>
-          <div className={`flex items-center justify-center rounded-xl bg-orange-500 font-black text-black ${slim ? "h-10 w-10" : "h-12 w-12"}`}>BP</div>
+          {/* eslint-disable-next-line @next/next/no-img-element -- logo fijo */}
+          <img src="/bpos-logo.png" alt="B-POS" className={`shrink-0 object-contain ${slim ? "h-10 w-10" : "h-12 w-12"}`} />
           {badgeCount > 0 && (
             <span className={`flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : ""} ${hasCritical ? "bg-red-400" : hasPending ? "bg-emerald-300" : "bg-yellow-300"}`}>
               {badgeCount}

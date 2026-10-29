@@ -6,6 +6,7 @@
  * como app (ver app/manifest.ts).
  */
 import Link from "next/link";
+import { ThemeToggle } from "@/components/layout/TopCorner";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { canViewCosts, getCurrentUser } from "@/lib/auth";
@@ -253,7 +254,8 @@ function OwnerApp() {
       <header className="sticky top-0 z-20 border-b border-zinc-800 bg-black/90 px-4 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] backdrop-blur">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-orange-500 font-black text-black">BP</div>
+            {/* eslint-disable-next-line @next/next/no-img-element -- logo fijo */}
+<img src="/bpos-logo.png" alt="B-POS" className="h-10 w-10 shrink-0 object-contain" />
             <div>
               <p className="text-xs font-bold text-orange-500">App del dueño</p>
               <p className="text-xs text-zinc-500">
@@ -263,9 +265,12 @@ function OwnerApp() {
               </p>
             </div>
           </div>
-          <Link href="/" className="rounded-xl border border-zinc-800 px-3 py-2 text-xs font-black text-zinc-300">
-            B-POS completo
-          </Link>
+          <div className="flex items-center gap-2">
+            <ThemeToggle className="px-2 py-2 text-xs" />
+            <Link href="/" className="rounded-xl border border-zinc-800 px-3 py-2 text-xs font-black text-zinc-300">
+              B-POS completo
+            </Link>
+          </div>
         </div>
       </header>
 

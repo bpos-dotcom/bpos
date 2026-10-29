@@ -1,7 +1,7 @@
 "use client";
 
 import { addAuditEvent } from "@/lib/audit";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
 import { buildSelection, extrasPrice, lineIdFor, needsChoices } from "@/lib/compound";
@@ -16,6 +16,7 @@ import {
   SavedOrder,
 } from "@/components/OrderHistoryPanel";
 import { ProductCard } from "@/components/ProductCard";
+import { isOnSale, scheduleLabel } from "@/lib/sale-schedule";
 import { Product } from "@/data/products";
 import { getAdminProducts } from "@/lib/admin";
 import { getCurrentUser, CurrentUser } from "@/lib/auth";
@@ -23,6 +24,7 @@ import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { Sidebar } from "@/components/layout/Sidebar";
+import { TopCorner } from "@/components/layout/TopCorner";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import {
@@ -111,6 +113,14 @@ function PosScreen() {
     };
   }, []);
 
+  // Horario de venta: se revisa cada minuto (ej. promoción solo los viernes)
+  const [clock, setClock] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setClock(Date.now()), 60_000);
+    return () => clearInterval(timer);
+  }, []);
+  const offSchedule = useCallback((product: Product) => (isOnSale(product.saleSchedule, new Date(clock)) ? "" : scheduleLabel(product.saleSchedule)), [clock]);
+
   // Lo que no se vende por separado no aparece en el menú (sí sirve dentro de combos)
   const sellable = useMemo(() => products.filter((product) => !product.notSoldAlone), [products]);
 
@@ -167,6 +177,10 @@ function PosScreen() {
 
   // Combos con algo a elegir (ej. el refresco) y productos con opciones (aderezo, salsas) preguntan antes de agregarse
   function addToCart(product: Product) {
+    if (!isOnSale(product.saleSchedule)) {
+      alert(`${product.name} solo se vende: ${scheduleLabel(product.saleSchedule)}.`);
+      return;
+    }
     if (needsChoices(product, products)) {
       setComboToChoose(product);
       return;
@@ -546,7 +560,8 @@ Gracias por pedir en ${businessName} 🚀`;
 
       <section className="bpos-main">
         <header className="sticky top-0 z-20 border-b border-zinc-800 bg-black/90 px-6 py-4 backdrop-blur">
-          <div className="grid grid-cols-1 gap-3 xl:grid-cols-5">
+          <div className="flex items-stretch gap-3">
+          <div className="grid flex-1 grid-cols-1 gap-3 xl:grid-cols-5">
             <TopStatus title="Caja" value="Abierta" detail="Fondo: $1,500.00" />
             <TopStatus
               title="Usuario"
@@ -575,6 +590,8 @@ Gracias por pedir en ${businessName} 🚀`;
                 Volver al login
               </p>
             </button>
+          </div>
+          <TopCorner />
           </div>
         </header>
 
@@ -614,6 +631,7 @@ Gracias por pedir en ${businessName} 🚀`;
                   key={product.id}
                   product={product}
                   onAdd={addToCart}
+                  offSchedule={offSchedule(product)}
                 />
               ))}
             </div>

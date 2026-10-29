@@ -6,6 +6,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { getUsers, migrateUserPins, type SystemUser } from "@/lib/users";
 import { verifyPin } from "@/lib/pin-hash";
 import { getBusinessSettings } from "@/lib/business-settings";
+import { TopCorner } from "@/components/layout/TopCorner";
 
 export default function LoginPage() {
   const [users, setUsers] = useState<SystemUser[]>([]);
@@ -52,11 +53,13 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-black p-6 text-white">
+    <main className="relative flex min-h-screen items-center justify-center bg-black p-6 text-white">
+      <div className="absolute right-4 top-4">
+        <TopCorner />
+      </div>
       <section className="w-full max-w-2xl rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-500 text-2xl font-black text-black">
-          BP
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element -- logo fijo */}
+        <img src="/bpos-logo.png" alt="B-POS" className="mx-auto mb-6 h-20 w-20 object-contain" />
 
         {!selectedUser ? (
           <>

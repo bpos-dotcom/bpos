@@ -26,7 +26,7 @@ import {
   type SyncStatus,
 } from "@/lib/cloud/sync";
 import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
-import { planAccess, type PlanState } from "@/lib/plans";
+import { PLANS, TRIAL_DAYS, planAccess, type PlanState } from "@/lib/plans";
 import { saveBusinessSettings } from "@/lib/business-settings";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
@@ -124,9 +124,8 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-black p-6 text-white">
       <section className="w-full max-w-xl rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
-        <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-2xl bg-orange-500 text-2xl font-black text-black">
-          BP
-        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element -- logo fijo */}
+        <img src="/bpos-logo.png" alt="B-POS" className="mx-auto mb-6 h-20 w-20 object-contain" />
 
         {(state.step === "loading" || state.step === "working") && (
           <p className="text-center text-zinc-300">{state.text}</p>
@@ -228,6 +227,9 @@ function AccountForm({ onDone }: { onDone: () => void }) {
       <p className="mt-2 text-center text-zinc-400">
         Entra con la cuenta del negocio. Solo se hace una vez en cada computadora, tablet o celular.
       </p>
+      {mode === "signup" && (
+        <p className="mt-3 text-center text-sm text-orange-300">¿Negocio nuevo? Crea tu cuenta: {TRIAL_DAYS} días gratis de B-POS, sin tarjeta.</p>
+      )}
 
       <div className="mt-8 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-800 bg-black p-1">
         {(["login", "signup"] as const).map((value) => (
@@ -298,6 +300,10 @@ function BusinessForm({ email, onDone }: { email: string; onDone: () => void }) 
     <>
       <h1 className="text-center text-3xl font-black">Da de alta tu negocio</h1>
       <p className="mt-2 text-center text-zinc-400">Cuenta: {email}</p>
+      <p className="mt-4 rounded-2xl border border-orange-500/40 bg-orange-500/10 p-3 text-center text-sm text-orange-200">
+        🎁 Empiezas con <b>{TRIAL_DAYS} días de prueba gratis</b>, sin tarjeta. Después eliges tu plan en Configuración → Mi plan (desde $
+        {PLANS.basic.price} al mes por sucursal).
+      </p>
       <div className="mt-8 space-y-4">
         <label className="block">
           <span className="mb-2 block text-sm font-bold text-zinc-400">Nombre del negocio</span>

@@ -4,8 +4,27 @@
     {
       "name": "bpos-prueba",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["next", "start", "-p", "3100"],
+      "runtimeArgs": [
+        "next",
+        "start",
+        "-p",
+        "3100"
+      ],
       "port": 3100
+    },
+    {
+      "name": "bpos-local",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "next",
+        "dev",
+        "-p",
+        "3200"
+      ],
+      "port": 3200,
+      "env": {
+        "NEXT_PUBLIC_BPOS_LOCAL": "1"
+      }
     }
   ]
 }

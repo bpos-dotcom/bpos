@@ -1,7 +1,7 @@
 "use client";
 /**
- * Configuración → Punto de venta.
- *  - Pantalla táctil: de esta caja (no se sincroniza).
+ * Configuración → Estaciones de cocina (antes "Punto de venta"; la pantalla
+ * táctil se movió a Configuración → Sistema).
  *  - Estaciones: nombre y cuáles existen, y a dónde va lo que no tiene
  *    estación (para todo el negocio).
  */
@@ -10,18 +10,15 @@ import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import type { KitchenStation } from "@/data/products";
 import { getBusinessSettings, saveBusinessSettings } from "@/lib/business-settings";
-import { setTouchKeypad, touchKeypadEnabled } from "@/lib/device-settings";
 import { readKdsStationConfig, saveKdsStationConfig, type KdsStationConfig } from "@/lib/kds-config";
 
 export default function PosSettingsPage() {
-  const [touch, setTouch] = useState(false);
   const [stations, setStations] = useState<KdsStationConfig[]>([]);
   const [fallback, setFallback] = useState<KitchenStation>("Cocina");
   const [saved, setSaved] = useState("");
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ajustes del navegador: solo después de montar
-    setTouch(touchKeypadEnabled());
     setStations(readKdsStationConfig());
     setFallback(getBusinessSettings().fallbackStation);
   }, []);
@@ -43,29 +40,8 @@ export default function PosSettingsPage() {
 
   return (
     <RequireRole allow={["Admin"]}>
-      <AppShell title="Punto de venta" subtitle="Pantalla táctil de esta caja y estaciones de cocina del negocio.">
+      <AppShell title="Estaciones de cocina" subtitle="Nombre de cada estación, cuáles existen y a dónde va lo que no tiene estación. La pantalla táctil está en Configuración → Sistema.">
         <div className="max-w-2xl space-y-6">
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-            <label className="flex cursor-pointer items-start gap-4">
-              <input
-                type="checkbox"
-                checked={touch}
-                onChange={(event) => {
-                  setTouch(event.target.checked);
-                  setTouchKeypad(event.target.checked);
-                }}
-                className="mt-1 h-6 w-6 accent-orange-500"
-              />
-              <span>
-                <span className="block text-lg font-black">🖐️ Pantalla táctil (solo esta caja)</span>
-                <span className="mt-1 block text-sm text-zinc-400">
-                  Al tocar cualquier campo aparece un teclado grande en pantalla: numérico en cantidades (efectivo recibido, descuento, precios...) con botones rápidos de billetes
-                  al cobrar, y con letras en textos (nombre del cliente, comentarios, búsquedas). El teclado físico sigue funcionando; &quot;⌨️ Usar teclado&quot; esconde el de pantalla.
-                </span>
-              </span>
-            </label>
-          </section>
-
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
             <h2 className="text-lg font-black">👨‍🍳 Estaciones de cocina</h2>
             <p className="mt-1 text-sm text-zinc-400">El nombre sale en las comandas y en la pantalla de cocina. Apaga las que no tengas.</p>

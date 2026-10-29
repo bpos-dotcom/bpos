@@ -1,3 +1,4 @@
+import type { SaleSchedule } from "@/lib/sale-schedule";
 export type KitchenStation =
   | "Parrilla"
   | "Freidora"
@@ -68,6 +69,8 @@ export type Product = {
   notSoldAlone?: boolean;
   /** Opciones a elegir al venderlo (aderezos, salsas, término...) */
   modifierGroups?: ModifierGroup[];
+  /** Horario de venta en el POS (ej. promoción solo los viernes). Sin horario se vende siempre. */
+  saleSchedule?: SaleSchedule;
 };
 
 export const products: Product[] = [

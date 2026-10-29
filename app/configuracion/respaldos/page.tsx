@@ -77,7 +77,7 @@ export default function RespaldosPage() {
 
   return (
     <RequireRole allow={["Admin"]}>
-      <AppShell title="Respaldos" subtitle="Copia completa del negocio: ventas, productos, inventario, cortes y configuración.">
+      <AppShell title="Sistema · Respaldos" subtitle="Copia completa del negocio: ventas, productos, inventario, cortes y configuración.">
         <section className="mx-auto max-w-3xl space-y-6">
           <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
             <h2 className="text-xl font-black text-orange-500">Respaldo automático</h2>

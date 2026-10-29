@@ -35,6 +35,7 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_sidebar_collapsed",
   "bpos_sidebar_pinned",
   "bpos_touch_keypad",
+  "bpos_theme",
 ]);
 
 /** Llaves compartidas por todas las sucursales del negocio */
