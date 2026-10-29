@@ -94,11 +94,13 @@ function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boo
               withPrices && c.price ? `<span class="price">${money(c.price)}</span>` : ""
             }</div>`
         )
-        .join("") + item.notes.map((n) => `<div class="sub">* ${esc(n)}</div>`).join("")
+        .join("")
     : "";
+  // Notas y comentarios ("sin cebolla") siempre salen, aunque las opciones estén ocultas
+  const notes = item.notes.map((n) => `<div class="sub">* ${esc(n)}</div>`).join("");
   const warn = !withPrices && item.pending ? `<div class="sub">!! SIN EQUIVALENCIA: revisar en el Bridge</div>` : "";
   return `<div class="item">
-    <div class="row main${withPrices ? " priced" : ""}"><span class="name">${item.qty}x&nbsp;${esc(item.name)}</span>${withPrices ? `<span class="price">${money(item.price)}</span>` : ""}</div>${parts}${details}${warn}</div>`;
+    <div class="row main${withPrices ? " priced" : ""}"><span class="name">${item.qty}x&nbsp;${esc(item.name)}</span>${withPrices ? `<span class="price">${money(item.price)}</span>` : ""}</div>${parts}${details}${notes}${warn}</div>`;
 }
 
 /** Ticket de una estación: encabezado + solo los productos que le tocan. */

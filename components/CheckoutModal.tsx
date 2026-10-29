@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { getEnabledPaymentMethods } from "@/lib/payment-methods";
+import { AmountInput, cashQuickAmounts } from "@/components/AmountInput";
 
 export type PaymentMethod = string;
 
@@ -104,11 +105,10 @@ export function CheckoutModal({
             <label className="mb-2 block text-sm font-bold text-zinc-400">
               Descuento
             </label>
-            <input
-              type="number"
+            <AmountInput
+              label="Descuento"
               value={discount}
-              onChange={(event) => setDiscount(event.target.value)}
-              placeholder="0"
+              onChange={setDiscount}
               className="w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-white"
             />
             <p className="mt-2 text-xs text-red-400">
@@ -147,11 +147,11 @@ export function CheckoutModal({
             <label className="mb-2 block text-sm font-bold text-zinc-400">
               Efectivo recibido
             </label>
-            <input
-              type="number"
+            <AmountInput
+              label="Efectivo recibido"
               value={cashReceived}
-              onChange={(event) => setCashReceived(event.target.value)}
-              placeholder="0"
+              onChange={setCashReceived}
+              quick={cashQuickAmounts(finalTotal)}
               className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
             />
           </div>
@@ -163,11 +163,10 @@ export function CheckoutModal({
               <label className="mb-2 block text-sm font-bold text-zinc-400">
                 Tarjeta
               </label>
-              <input
-                type="number"
+              <AmountInput
+                label="Tarjeta"
                 value={cardAmount}
-                onChange={(event) => setCardAmount(event.target.value)}
-                placeholder="0"
+                onChange={setCardAmount}
                 className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
               />
             </div>
@@ -176,11 +175,10 @@ export function CheckoutModal({
               <label className="mb-2 block text-sm font-bold text-zinc-400">
                 Transferencia
               </label>
-              <input
-                type="number"
+              <AmountInput
+                label="Transferencia"
                 value={transferAmount}
-                onChange={(event) => setTransferAmount(event.target.value)}
-                placeholder="0"
+                onChange={setTransferAmount}
                 className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
               />
             </div>

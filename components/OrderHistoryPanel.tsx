@@ -76,6 +76,7 @@ export function OrderHistoryPanel({
                         {item.quantity} × {item.name}
                         {item.parts?.length ? <span className="text-zinc-600"> ({item.parts.map((p) => p.name).join(", ")})</span> : null}
                         {item.modifiers?.length ? <span className="text-zinc-600"> · {item.modifiers.map((m) => m.name).join(", ")}</span> : null}
+                        {item.comment ? <span className="text-yellow-600"> · 💬 {item.comment}</span> : null}
                       </p>
                     ))}
                   </div>

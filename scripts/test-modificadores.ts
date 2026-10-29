@@ -115,5 +115,14 @@ check("ticket combo: precio base $169", comboTicket.items[0].price === 169, comb
 const freidoraCombo = stationTicketHtml(comboTicket, "Freidora", settings, 58);
 check("comanda Freidora del combo: boneless con sus salsas, sin refresco", freidoraCombo.includes("4x BBQ") && !freidoraCombo.includes("Coca-Cola"));
 
+// Comentarios: salen en la comanda y en el ticket aunque las opciones estén ocultas
+const conNota = saleTicket({ id: 4, createdAt: new Date().toISOString(), items: [{ name: "Boneless Individuales", price: 129, quantity: 1, station: "Freidora", comment: "Sin picante, para llevar" }], total: 129 });
+check("comentario en la comanda", stationTicketHtml(conNota, "Freidora", settings, 58).includes("* Sin picante, para llevar"));
+check("comentario aunque se oculten las opciones", stationTicketHtml(conNota, "Freidora", { ...settings, ticketShowChoices: false }, 58).includes("Sin picante"));
+const comboNota = saleTicket({ id: 5, createdAt: new Date().toISOString(), items: [{ name: "Combo Boneless", price: 169, quantity: 1, station: "Cocina", parts, comment: "Refresco sin hielo" }], total: 169 });
+check("comentario del combo llega a Barra", stationTicketHtml(comboNota, "Barra", settings, 58).includes("Refresco sin hielo"));
+const kdsNota = kitchenItems([{ id: 10, name: "Combo Boneless", quantity: 1, station: "Cocina", parts, comment: "Refresco sin hielo" }]);
+check("KDS: el comentario viaja con cada parte del combo", kdsNota.every((k) => k.comment === "Refresco sin hielo"));
+
 console.log(`\n${ok} bien, ${bad} mal`);
 process.exit(bad ? 1 : 0);
