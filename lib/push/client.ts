@@ -112,6 +112,27 @@ export async function savePushPrefs(prefs: PushPrefs) {
   await getSupabase().from("push_subscriptions").update({ prefs, updated_at: new Date().toISOString() }).eq("endpoint", sub.endpoint);
 }
 
+/** Manda un aviso de prueba a este dispositivo. Regresa un error en texto o "" si salió. */
+export async function sendTestPush(): Promise<string> {
+  try {
+    const reg = await registration();
+    const sub = await reg.pushManager.getSubscription();
+    if (!sub) return "Este celular no tiene los avisos activados. Toca Activar avisos.";
+    const { data } = await getSupabase().auth.getSession();
+    const token = data.session?.access_token;
+    if (!token) return "Inicia sesión con la cuenta del negocio.";
+    const response = await fetch(`${PUSH_SERVER}/api/push/test`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ endpoint: sub.endpoint }),
+    });
+    const body = await response.json().catch(() => ({}));
+    return response.ok ? "" : body.error || `Error ${response.status}`;
+  } catch (e) {
+    return e instanceof Error ? e.message : "No se pudo mandar el aviso de prueba.";
+  }
+}
+
 export async function disablePush() {
   localStorage.removeItem(ON_KEY);
   try {

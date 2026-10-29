@@ -23,7 +23,7 @@ import {
   promptInstall,
   setupOwnerApp,
 } from "@/lib/owner-app";
-import { disablePush, enablePush, getPushPrefs, pushEnabled, pushSupported, savePushPrefs } from "@/lib/push/client";
+import { disablePush, enablePush, getPushPrefs, pushEnabled, pushSupported, savePushPrefs, sendTestPush } from "@/lib/push/client";
 import { DEFAULT_PUSH_PREFS, type PushPrefs } from "@/lib/push/rules";
 import {
   buildReport,
@@ -68,6 +68,7 @@ function OwnerApp() {
   const [prefs, setPrefs] = useState<PushPrefs>(DEFAULT_PUSH_PREFS);
   const [pushError, setPushError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [testResult, setTestResult] = useState("");
   const [canInstall, setCanInstall] = useState(false);
   const [installed, setInstalled] = useState(true);
   const [ios, setIos] = useState(false);
@@ -208,13 +209,34 @@ function OwnerApp() {
         alert("No se activaron. Revisa que el navegador tenga permiso de notificaciones para B-POS.");
         return;
       }
-      // Avisos aunque la app esté cerrada
-      const error = pushSupported() ? await enablePush(prefs).catch((e: Error) => e.message) : "Este navegador no permite avisos con la app cerrada.";
-      setPushError(error);
-      setPushOn(!error);
+      await activatePush();
     } finally {
       setBusy(false);
     }
+  }
+
+  // Avisos aunque la app esté cerrada (registra este celular en la nube)
+  const activatePush = useCallback(async () => {
+    const error = pushSupported()
+      ? await enablePush(getPushPrefs()).catch((e: Error) => e.message || "No se pudo activar.")
+      : "Este navegador no permite avisos con la app cerrada.";
+    setPushError(error);
+    setPushOn(!error);
+    return error;
+  }, []);
+
+  // Con las notificaciones ya permitidas, vuelve a registrar este celular en la nube
+  // (por si no quedó la primera vez o el navegador cambió la suscripción)
+  useEffect(() => {
+    if (!notificationsEnabled() || !pushSupported()) return;
+    const timer = window.setTimeout(() => void activatePush(), 1500);
+    return () => window.clearTimeout(timer);
+  }, [activatePush]);
+
+  async function testPush() {
+    setTestResult("Mandando...");
+    const error = await sendTestPush();
+    setTestResult(error ? `❌ ${error}` : "✅ Enviado. Debe llegarte en unos segundos.");
   }
 
   function changePrefs(patch: Partial<PushPrefs>) {
@@ -381,10 +403,32 @@ function OwnerApp() {
                     <p className="text-xs text-zinc-600">Pon 0 para no avisar de ventas grandes.</p>
                   </div>
                 )}
-                {notify && !pushOn && pushError && (
-                  <p className="rounded-2xl border border-orange-500/40 bg-orange-500/10 p-3 text-xs text-orange-200">
-                    Solo te avisaremos con la app abierta: {pushError}
-                  </p>
+                {notify && pushOn && (
+                  <>
+                    <button onClick={testPush} className="w-full rounded-2xl border border-orange-500 px-4 py-3 text-sm font-black text-orange-500">
+                      📨 Mandar aviso de prueba
+                    </button>
+                    {testResult && <p className="text-xs text-zinc-400">{testResult}</p>}
+                  </>
+                )}
+                {notify && !pushOn && (
+                  <>
+                    <button
+                      onClick={() => {
+                        setBusy(true);
+                        void activatePush().finally(() => setBusy(false));
+                      }}
+                      disabled={busy}
+                      className="w-full rounded-2xl bg-orange-500 px-4 py-3 text-sm font-black text-black disabled:opacity-50"
+                    >
+                      {busy ? "Activando..." : "📲 Activar avisos con la app cerrada"}
+                    </button>
+                    {pushError && (
+                      <p className="rounded-2xl border border-orange-500/40 bg-orange-500/10 p-3 text-xs text-orange-200">
+                        Solo te avisaremos con la app abierta: {pushError}
+                      </p>
+                    )}
+                  </>
                 )}
                 <p className="text-xs text-zinc-600">
                   {pushOn
