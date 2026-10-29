@@ -93,6 +93,7 @@ export default function BridgeAliases({
   const [aiBusy, setAiBusy] = useState(false);
   // Equivalencia que se está editando (se guarda encima en lugar de borrarla)
   const [editing, setEditing] = useState<BridgeAlias | null>(null);
+  const [aliasQuery, setAliasQuery] = useState("");
   const formRef = useRef<HTMLElement | null>(null);
   const [aiNote, setAiNote] = useState("");
   const [message, setMessage] = useState("");
@@ -198,15 +199,22 @@ export default function BridgeAliases({
     [ingredients]
   );
 
-  const sortedAliases = useMemo(
-    () =>
-      [...aliases].sort((left, right) =>
+  // Buscador: por el texto del ticket, el producto o insumo, la acción o la plataforma
+  const sortedAliases = useMemo(() => {
+    const plain = (s: string) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+    const q = plain(aliasQuery.trim());
+    const nameOf = (alias: BridgeAlias) =>
+      alias.targets
+        .map((t) => (alias.actionType === "product" ? products.find((p) => String(p.id) === String(t.id))?.name : ingredients.find((i) => String(i.id) === String(t.id))?.name) || t.name)
+        .join(" ");
+    return [...aliases]
+      .filter((alias) => !q || plain(`${alias.externalName} ${nameOf(alias)} ${ACTION_LABELS[alias.actionType]} ${alias.platform || "todas"}`).includes(q))
+      .sort((left, right) =>
         left.externalName.localeCompare(right.externalName, "es", {
           sensitivity: "base",
         })
-      ),
-    [aliases]
-  );
+      );
+  }, [aliases, aliasQuery, products, ingredients]);
 
   function resetForm() {
     setEditing(null);
@@ -695,8 +703,15 @@ export default function BridgeAliases({
       <div className="mt-8">
         <div className="flex items-center justify-between gap-4">
           <h3 className="font-black text-zinc-100">Equivalencias guardadas</h3>
+          <input
+            value={aliasQuery}
+            onChange={(event) => setAliasQuery(event.target.value)}
+            placeholder="🔍 Buscar por texto del ticket, producto o insumo"
+            aria-label="Buscar equivalencia"
+            className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-4 py-2 text-sm"
+          />
           <span className="rounded-full bg-zinc-900 px-3 py-1 text-xs font-bold text-zinc-400">
-            {aliases.length}
+            {aliasQuery.trim() ? `${sortedAliases.length} de ${aliases.length}` : aliases.length}
           </span>
         </div>
 
@@ -707,7 +722,7 @@ export default function BridgeAliases({
             </div>
           ) : sortedAliases.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-zinc-800 p-5 text-center text-sm text-zinc-500">
-              Todavía no hay equivalencias Bridge.
+              {aliases.length ? "Ninguna equivalencia coincide con la búsqueda." : "Todavía no hay equivalencias Bridge."}
             </div>
           ) : (
             sortedAliases.map((alias) => (
