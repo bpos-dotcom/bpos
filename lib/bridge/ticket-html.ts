@@ -118,7 +118,7 @@ export function noticeText(ticket: DeliveryTicket, settings: BusinessSettings) {
     .replace(/\{telefono\}/gi, settings.ticketPhone || "");
 }
 
-/** Ticket para grapar en la bolsa: todo el pedido con precios de la plataforma. */
+/** Ticket del cliente: en delivery el de la bolsa (precios de la plataforma + aclaración); en mostrador, el de la venta. */
 export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings, qrSvg = "", paper: PaperWidth = 80) {
   const charges = ticket.charges.map((c) => `<div class="row"><span class="name">${esc(c.label)}</span><span class="price">${money(c.amount)}</span></div>`).join("");
   return page(
@@ -130,8 +130,9 @@ export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings
     <div class="rule"></div>
     ${charges}
     ${ticket.total !== null ? `<div class="row total"><span class="name">TOTAL</span><span class="price">${money(ticket.total)}</span></div>` : ""}
+    ${ticket.payment ? `<div class="row"><span class="name">Pago</span><span class="price">${esc(ticket.payment)}</span></div>` : ""}
     <div class="rule"></div>
-    ${settings.ticketNotice ? `<div class="notice">${esc(noticeText(ticket, settings))}</div>` : ""}
+    ${settings.ticketNotice && ticket.kind !== "mostrador" ? `<div class="notice">${esc(noticeText(ticket, settings))}</div>` : ""}
     ${qrSvg ? `<div class="qr">${qrSvg}</div>` : ""}
     ${settings.ticketFooter ? `<div class="center platform" style="margin-top:6px">${esc(settings.ticketFooter)}</div>` : ""}`
   );

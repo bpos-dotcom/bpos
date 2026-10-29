@@ -4,7 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes } from "@/lib/admin";
 import { buildOrderTickets } from "@/lib/bridge/order-tickets";
-import { stationsForOrder } from "@/lib/bridge/station-routing";
+import { buildDeliveryTicket } from "@/lib/bridge/delivery-ticket";
+import { stationsByLine, stationsForOrder } from "@/lib/bridge/station-routing";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { printDeliveryTickets, printOriginalTicket, syncStationPrinters, toStationPrintersConfig } from "@/lib/localService";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
@@ -515,6 +516,8 @@ export default function BridgePage() {
         try {
           const result = createAutomaticSale(order.saleReadyPayload, {
             receivedAt: order.bridgeReceivedAt || order.receivedAt,
+            // Para reimprimir desde Impresiones con los mismos renglones del pedido
+            ticket: buildDeliveryTicket(order, stationsByLine(order.interpretation, catalogProducts, getAdminRecipes())),
           });
 
           if (!result.success) {
