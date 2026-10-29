@@ -80,7 +80,12 @@ function header(ticket: DeliveryTicket, settings: BusinessSettings) {
     <div class="center meta">${who}${esc(time(ticket.receivedAt))}</div>`;
 }
 
-function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boolean) {
+function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boolean, station?: KitchenStation) {
+  // Combo: en la comanda solo las partes de esa estación; en el del cliente, todas
+  const parts = (item.parts || [])
+    .filter((p) => !station || p.station === station)
+    .map((p) => `<div class="sub">» ${p.qty}x ${esc(p.name)}</div>`)
+    .join("");
   const details = settings.ticketShowChoices
     ? item.choices
         .map(
@@ -93,7 +98,7 @@ function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boo
     : "";
   const warn = !withPrices && item.pending ? `<div class="sub">!! SIN EQUIVALENCIA: revisar en el Bridge</div>` : "";
   return `<div class="item">
-    <div class="row main${withPrices ? " priced" : ""}"><span class="name">${item.qty}x&nbsp;${esc(item.name)}</span>${withPrices ? `<span class="price">${money(item.price)}</span>` : ""}</div>${details}${warn}</div>`;
+    <div class="row main${withPrices ? " priced" : ""}"><span class="name">${item.qty}x&nbsp;${esc(item.name)}</span>${withPrices ? `<span class="price">${money(item.price)}</span>` : ""}</div>${parts}${details}${warn}</div>`;
 }
 
 /** Ticket de una estación: encabezado + solo los productos que le tocan. */
@@ -104,9 +109,9 @@ export function stationTicketHtml(ticket: DeliveryTicket, station: KitchenStatio
     paper,
     `${header(ticket, settings)}
     <div class="station">${esc(station.toUpperCase())}</div>
-    ${items.map((i) => itemBlock(i, settings, false)).join("")}
+    ${items.map((i) => itemBlock(i, settings, false, station)).join("")}
     <div class="rule"></div>
-    <div class="center meta">${items.reduce((s, i) => s + i.qty, 0)} producto(s) · ${esc(station)}</div>`
+    <div class="center meta">${items.reduce((s, i) => s + (i.parts?.length ? i.parts.filter((p) => p.station === station).reduce((n, p) => n + p.qty, 0) : i.qty), 0)} producto(s) · ${esc(station)}</div>`
   );
 }
 

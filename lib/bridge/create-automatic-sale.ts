@@ -7,6 +7,26 @@ import { applyInventoryForOrder } from "@/lib/inventory";
 import { createKdsCriticalError, notifyKdsUpdated } from "@/lib/kds";
 import type { KdsTicketLine } from "@/lib/bridge/ticket-structure";
 import { allocateShiftOrderNumber } from "@/lib/order-sequence";
+import { choiceComponents, isCompound, resolveParts, type SoldPart } from "@/lib/compound";
+
+const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+/**
+ * Combo de delivery: las opciones que eligió el cliente en la plataforma
+ * ("Elige tu refresco: Manzanita") deciden la parte; si no se reconoce, la primera.
+ */
+function deliveryChoices(product: Parameters<typeof choiceComponents>[0], catalog: { id: number; name: string }[], ticket?: DeliveryTicket) {
+  const said = (ticket?.items || []).flatMap((i) => [...i.choices.map((c) => c.name), ...i.notes]).map(plain).filter(Boolean);
+  const chosen: Record<string, number> = {};
+  for (const component of choiceComponents(product)) {
+    const match = component.options.find((id) => {
+      const name = plain(catalog.find((p) => p.id === id)?.name || "");
+      return name && said.some((s) => s.includes(name) || name.includes(s));
+    });
+    if (match !== undefined) chosen[component.key] = match;
+  }
+  return chosen;
+}
 
 const ORDERS_KEY = "bpos_orders";
 const SHIFT_KEY = "bpos_active_shift";
@@ -39,6 +59,7 @@ type AutomaticSaleItem = {
   station?: "Parrilla" | "Freidora" | "Barra" | "Cocina";
   quantity: number;
   externalName?: string;
+  parts?: SoldPart[];
 };
 
 export type AutomaticSaleOrder = {
@@ -173,6 +194,8 @@ export function createAutomaticSale(
       ...product,
       quantity,
       externalName: preparedProduct.externalName,
+      // Combo: cada parte va a su estación y descuenta su receta
+      ...(isCompound(product) ? { parts: resolveParts(product, catalog, deliveryChoices(product, catalog, options.ticket)) } : {}),
     });
   }
 

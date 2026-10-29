@@ -1,16 +1,23 @@
 import { Product } from "@/data/products";
+import type { SoldPart } from "@/lib/compound";
 
 export type CartItem = Product & {
   quantity: number;
+  /** Renglón del carrito (el mismo combo con otras elecciones es otro renglón) */
+  lineId?: string;
+  /** Partes de un combo, con lo que se eligió */
+  parts?: SoldPart[];
 };
+
+export const cartLineId = (item: CartItem) => item.lineId || String(item.id);
 
 type CartPanelProps = {
   items: CartItem[];
   discount: number;
   canCheckout: boolean;
   validationMessage: string;
-  onIncrease: (id: number) => void;
-  onDecrease: (id: number) => void;
+  onIncrease: (lineId: string) => void;
+  onDecrease: (lineId: string) => void;
   onClear: () => void;
   onCheckout: () => void;
 };
@@ -44,7 +51,7 @@ export function CartPanel({
         ) : (
           items.map((item) => (
             <div
-              key={item.id}
+              key={cartLineId(item)}
               className="rounded-2xl border border-zinc-800 bg-black p-4"
             >
               <div className="flex items-start justify-between gap-4">
@@ -55,9 +62,19 @@ export function CartPanel({
                   <p className="text-sm text-zinc-400">
                     ${item.price.toFixed(2)} c/u
                   </p>
-                  <p className="mt-1 text-xs text-orange-400">
-                    👨‍🍳 {item.station || "Cocina"}
-                  </p>
+                  {item.parts?.length ? (
+                    <ul className="mt-1 space-y-0.5 text-xs text-zinc-400">
+                      {item.parts.map((part, i) => (
+                        <li key={i}>
+                          » {part.quantity > 1 ? `${part.quantity}x ` : ""}{part.name} <span className="text-orange-400">· {part.station}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  ) : (
+                    <p className="mt-1 text-xs text-orange-400">
+                      👨‍🍳 {item.station || "Cocina"}
+                    </p>
+                  )}
                 </div>
 
                 <p className="font-black text-orange-500">
@@ -67,14 +84,14 @@ export function CartPanel({
 
               <div className="mt-4 flex gap-2">
                 <button
-                  onClick={() => onDecrease(item.id)}
+                  onClick={() => onDecrease(cartLineId(item))}
                   className="h-9 w-9 rounded-xl bg-zinc-800 font-black"
                 >
                   -
                 </button>
 
                 <button
-                  onClick={() => onIncrease(item.id)}
+                  onClick={() => onIncrease(cartLineId(item))}
                   className="h-9 w-9 rounded-xl bg-orange-500 font-black text-black"
                 >
                   +

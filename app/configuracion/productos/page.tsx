@@ -4,7 +4,11 @@ import { useEffect, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { KitchenStation, Product } from "@/data/products";
-import { getAdminProducts, saveAdminProducts } from "@/lib/admin";
+import type { Ingredient, RecipeItem } from "@/data/inventory";
+import { getAdminIngredients, getAdminProducts, getAdminRecipes, saveAdminProducts, saveAdminRecipes } from "@/lib/admin";
+import { isCompound } from "@/lib/compound";
+import { CompoundEditor, compoundProblems } from "@/components/products/CompoundEditor";
+import { RecipeEditor, type RecipeLine } from "@/components/products/RecipeEditor";
 
 type DraftProduct = Product;
 
@@ -14,6 +18,12 @@ export default function ProductosAdminPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draft, setDraft] = useState<DraftProduct | null>(null);
+  const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  const [recipes, setRecipes] = useState<RecipeItem[]>([]);
+  const [recipeDraft, setRecipeDraft] = useState<RecipeLine[]>([]);
+
+  const recipeOf = (list: RecipeItem[], productId: number | undefined) =>
+    list.filter((r) => Number(r.productId) === Number(productId)).map((r) => ({ ingredientId: Number(r.ingredientId), quantity: Number(r.quantity) }));
 
   useEffect(() => {
     const savedProducts = getAdminProducts().map((product) => ({
@@ -21,14 +31,19 @@ export default function ProductosAdminPage() {
       station: product.station || "Cocina",
     }));
 
+    const savedRecipes = getAdminRecipes();
     setProducts(savedProducts);
+    setIngredients(getAdminIngredients());
+    setRecipes(savedRecipes);
     setSelectedId(savedProducts[0]?.id ?? null);
     setDraft(savedProducts[0] ?? null);
+    setRecipeDraft(recipeOf(savedRecipes, savedProducts[0]?.id));
   }, []);
 
   function selectProduct(product: Product) {
     setSelectedId(product.id);
     setDraft({ ...product, station: product.station || "Cocina" });
+    setRecipeDraft(recipeOf(recipes, product.id));
   }
 
   function saveDraft() {
@@ -44,18 +59,42 @@ export default function ProductosAdminPage() {
       return;
     }
 
+    const problem = compoundProblems(draft);
+    if (problem) {
+      alert(problem);
+      return;
+    }
+    if (isCompound(draft)) {
+      const usedIn = products.find((p) => p.id !== draft.id && p.components?.some((c) => c.options.includes(draft.id)));
+      if (usedIn) {
+        alert(`${draft.name} es parte de "${usedIn.name}". Un combo no puede ir dentro de otro combo.`);
+        return;
+      }
+    }
+
+    const saved: Product = { ...draft, name: draft.name.trim() };
+    if (saved.components === undefined) delete saved.components;
     const nextProducts = products.map((product) =>
-      product.id === draft.id ? draft : product
+      product.id === draft.id ? saved : product
     );
 
     setProducts(nextProducts);
     saveAdminProducts(nextProducts);
+
+    // Receta: se reemplaza la de este producto (sin renglones en cero)
+    const nextRecipes = [
+      ...recipes.filter((r) => Number(r.productId) !== Number(draft.id)),
+      ...recipeDraft.filter((l) => l.quantity > 0).map((l) => ({ productId: draft.id, ingredientId: l.ingredientId, quantity: l.quantity })),
+    ];
+    setRecipes(nextRecipes);
+    saveAdminRecipes(nextRecipes);
     alert("Producto guardado correctamente.");
   }
 
   function cancelChanges() {
     const original = products.find((product) => product.id === selectedId);
     if (original) setDraft({ ...original, station: original.station || "Cocina" });
+    setRecipeDraft(recipeOf(recipes, selectedId ?? undefined));
   }
 
   function addProduct() {
@@ -73,6 +112,7 @@ export default function ProductosAdminPage() {
     saveAdminProducts(nextProducts);
     setSelectedId(newProduct.id);
     setDraft(newProduct);
+    setRecipeDraft([]);
   }
 
   return (
@@ -121,7 +161,7 @@ export default function ProductosAdminPage() {
                         {product.category} · ${product.price.toFixed(2)}
                       </p>
                       <p className="mt-1 text-xs font-bold text-orange-400">
-                        👨‍🍳 {product.station || "Cocina"}
+                        {isCompound(product) ? `🧩 Compuesto · ${product.components!.length} parte(s)` : `👨‍🍳 ${product.station || "Cocina"}`}
                       </p>
                     </div>
                   </div>
@@ -236,18 +276,20 @@ export default function ProductosAdminPage() {
                   </Field>
                 </div>
 
-                <section className="mt-6 rounded-3xl border border-zinc-800 bg-black p-6">
-                  <h3 className="text-xl font-black text-orange-500">
-                    Próximamente
-                  </h3>
+                <CompoundEditor
+                  product={draft}
+                  products={products}
+                  onChange={(components) => setDraft({ ...draft, components })}
+                />
 
-                  <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                    <AdminFutureItem text="📖 Editar receta del producto" />
-                    <AdminFutureItem text="📷 Subir fotografía real" />
-                    <AdminFutureItem text="🛵 Disponibilidad en Didi/Uber" />
-                    <AdminFutureItem text="🖨️ Impresión automática por estación" />
-                  </div>
-                </section>
+                <RecipeEditor
+                  lines={recipeDraft}
+                  ingredients={ingredients}
+                  compound={isCompound(draft)}
+                  onChange={setRecipeDraft}
+                />
+
+                <p className="mt-4 text-sm text-zinc-500">Los cambios de compuesto y receta se guardan con el botón Guardar cambios.</p>
               </>
             )}
           </section>
@@ -271,13 +313,5 @@ function Field({
       </span>
       {children}
     </label>
-  );
-}
-
-function AdminFutureItem({ text }: { text: string }) {
-  return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-sm font-bold text-zinc-400">
-      {text}
-    </div>
   );
 }

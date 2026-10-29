@@ -2,7 +2,9 @@
 
 import { addAuditEvent } from "@/lib/audit";
 import { useEffect, useMemo, useState } from "react";
-import { CartItem, CartPanel } from "@/components/CartPanel";
+import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
+import { ComboChoiceModal } from "@/components/ComboChoiceModal";
+import { choiceComponents, isCompound, lineIdFor, resolveParts } from "@/lib/compound";
 import { CheckoutModal, PaymentMethod } from "@/components/CheckoutModal";
 import {
   OrderDetails,
@@ -66,6 +68,7 @@ function PosScreen() {
   const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [search, setSearch] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [comboToChoose, setComboToChoose] = useState<Product | null>(null);
   const [, setShiftVersion] = useState(0);
 
   const [details, setDetails] = useState<OrderDetails>({
@@ -158,35 +161,45 @@ function PosScreen() {
     return requirePermissionOrAdmin(currentUser, "pos.discount", action);
   }
 
+  // Combos con algo a elegir (ej. el refresco) piden la elección antes de agregarse
   function addToCart(product: Product) {
+    if (isCompound(product) && choiceComponents(product).length) {
+      setComboToChoose(product);
+      return;
+    }
+    addLine(product, isCompound(product) ? resolveParts(product, products) : undefined);
+  }
+
+  function addLine(product: Product, parts?: CartItem["parts"]) {
+    const lineId = lineIdFor(product.id, parts);
     setCart((currentCart) => {
-      const existingItem = currentCart.find((item) => item.id === product.id);
+      const existingItem = currentCart.find((item) => cartLineId(item) === lineId);
 
       if (existingItem) {
         return currentCart.map((item) =>
-          item.id === product.id
+          cartLineId(item) === lineId
             ? { ...item, quantity: item.quantity + 1 }
             : item
         );
       }
 
-      return [...currentCart, { ...product, quantity: 1 }];
+      return [...currentCart, { ...product, quantity: 1, lineId, ...(parts ? { parts } : {}) }];
     });
   }
 
-  function increaseQuantity(id: number) {
+  function increaseQuantity(lineId: string) {
     setCart((currentCart) =>
       currentCart.map((item) =>
-        item.id === id ? { ...item, quantity: item.quantity + 1 } : item
+        cartLineId(item) === lineId ? { ...item, quantity: item.quantity + 1 } : item
       )
     );
   }
 
-  function decreaseQuantity(id: number) {
+  function decreaseQuantity(lineId: string) {
     setCart((currentCart) =>
       currentCart
         .map((item) =>
-          item.id === id ? { ...item, quantity: item.quantity - 1 } : item
+          cartLineId(item) === lineId ? { ...item, quantity: item.quantity - 1 } : item
         )
         .filter((item) => item.quantity > 0)
     );
@@ -333,8 +346,8 @@ function PosScreen() {
         (item) => `
           <div class="line">
             <span>${item.quantity} x ${item.name}</span>
-            <strong>$${(item.price * item.quantity).toFixed(2)}</strong>
-          </div>
+            <strong>${(item.price * item.quantity).toFixed(2)}</strong>
+          </div>${(item.parts || []).map((p) => `<div class="line"><span>&nbsp;&nbsp;» ${p.name}</span></div>`).join("")}
         `
       )
       .join("");
@@ -456,9 +469,9 @@ function PosScreen() {
     const items = order.items
       .map(
         (item) =>
-          `• ${item.quantity} x ${item.name} - $${(
+          `• ${item.quantity} x ${item.name} - ${(
             item.price * item.quantity
-          ).toFixed(2)}`
+          ).toFixed(2)}${item.parts?.length ? ` (${item.parts.map((p) => p.name).join(", ")})` : ""}`
       )
       .join("\n");
 
@@ -493,6 +506,18 @@ Gracias por pedir en Burger Planet 🚀`;
         onClose={() => setCheckoutOpen(false)}
         onConfirm={confirmCheckout}
       />
+
+      {comboToChoose && (
+        <ComboChoiceModal
+          product={comboToChoose}
+          products={products}
+          onClose={() => setComboToChoose(null)}
+          onConfirm={(chosen) => {
+            addLine(comboToChoose, resolveParts(comboToChoose, products, chosen));
+            setComboToChoose(null);
+          }}
+        />
+      )}
 
       <Sidebar />
 

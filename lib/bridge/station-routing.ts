@@ -5,23 +5,43 @@ import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
  * ¿A qué estaciones va cada línea de un pedido de delivery?
  *
  * - Producto del POS → su estación (Parrilla, Freidora, Barra, Cocina).
+ * - Combo → las estaciones de sus partes.
  * - Ingrediente o grupo (ej. "Combo especial" = carne + papas) → la estación
  *   de los productos que usan ese ingrediente en su receta.
  * - Línea sin equivalencia o con error → Cocina, para que nadie se quede
  *   sin papel.
  * - Líneas ignoradas no van a ninguna estación.
  */
-export type LineRouting = { stations: Set<KitchenStation>; ignored: boolean; pending: boolean };
+export type LineRouting = {
+  stations: Set<KitchenStation>;
+  ignored: boolean;
+  pending: boolean;
+  /** Combo: sus partes (por pieza), para que cada comanda lleve solo lo suyo */
+  parts?: { name: string; quantity: number; station: KitchenStation }[];
+};
+
+type RoutingProduct = {
+  id: number | string;
+  name?: string;
+  station?: KitchenStation | string;
+  components?: { label?: string; quantity?: number; options: number[] }[];
+};
 
 export function stationsByLine(
   interpretation: OrderInterpretation | undefined,
-  products: { id: number | string; station?: KitchenStation | string }[],
+  products: RoutingProduct[],
   recipes: { productId: number; ingredientId: number }[]
 ): Map<number, LineRouting> {
   const byLine = new Map<number, LineRouting>();
   if (!interpretation) return byLine;
 
   const productStation = new Map(products.map((p) => [String(p.id), (p.station || "Cocina") as KitchenStation]));
+  // Combo: estaciones de sus partes (la primera opción de cada una)
+  const productStations = (id: string): KitchenStation[] => {
+    const product = products.find((p) => String(p.id) === id);
+    if (!product?.components?.length) return [productStation.get(id) || "Cocina"];
+    return product.components.map((c) => productStation.get(String(c.options[0])) || "Cocina");
+  };
 
   // Estación más usada por los productos que llevan cada ingrediente
   const ingredientStation = new Map<string, KitchenStation>();
@@ -47,7 +67,22 @@ export function stationsByLine(
     return created;
   };
 
-  interpretation.products.forEach((p) => line(p.sourceIndex).stations.add(productStation.get(String(p.productId)) || "Cocina"));
+  interpretation.products.forEach((p) => {
+    const l = line(p.sourceIndex);
+    productStations(String(p.productId)).forEach((s) => l.stations.add(s));
+    const combo = products.find((x) => String(x.id) === String(p.productId));
+    if (combo?.components?.length) {
+      // Parte a elegir: va con su nombre corto ("Refresco"); el sabor viene en las opciones del ticket
+      l.parts = combo.components.map((c) => {
+        const first = products.find((x) => String(x.id) === String(c.options[0]));
+        return {
+          name: c.options.length > 1 ? c.label || first?.name || "Parte" : first?.name || c.label || "Parte",
+          quantity: c.quantity || 1,
+          station: productStation.get(String(c.options[0])) || "Cocina",
+        };
+      });
+    }
+  });
   interpretation.ingredients.forEach((i) => line(i.sourceIndex).stations.add(forIngredient(i.ingredientId)));
   interpretation.bundles.forEach((b) => b.targets.forEach((t) => line(b.sourceIndex).stations.add(forIngredient(t.ingredientId))));
   interpretation.ignored.forEach((i) => (line(i.sourceIndex).ignored = true));
@@ -66,7 +101,7 @@ export function stationsByLine(
 /** Todas las estaciones del pedido (para el respaldo con el ticket original). */
 export function stationsForOrder(
   interpretation: OrderInterpretation | undefined,
-  products: { id: number | string; station?: KitchenStation | string }[],
+  products: RoutingProduct[],
   recipes: { productId: number; ingredientId: number }[]
 ): KitchenStation[] {
   if (!interpretation) return ["Cocina"];

@@ -4,7 +4,30 @@ export type KitchenStation =
   | "Barra"
   | "Cocina";
 
-export const products = [
+/**
+ * Parte de un producto compuesto (combo). Con una sola opción es fija
+ * ("1 Hamburguesa Original"); con varias, la cajera elige al cobrar
+ * ("Refresco: Coca, Sprite o Manzanita").
+ */
+export type ProductComponent = {
+  key: string;
+  label: string; // "Hamburguesa", "Refresco"...
+  quantity: number;
+  options: number[]; // ids de productos (no compuestos)
+};
+
+export type Product = {
+  id: number;
+  name: string;
+  category: string;
+  price: number;
+  emoji: string;
+  station: KitchenStation;
+  /** Si tiene partes es un producto compuesto: cada parte va a su estación y descuenta su receta */
+  components?: ProductComponent[];
+};
+
+export const products: Product[] = [
   {
     id: 1,
     name: "Burger Planet Clásica",
@@ -54,5 +77,3 @@ export const products = [
     station: "Barra" as KitchenStation,
   },
 ];
-
-export type Product = (typeof products)[number];

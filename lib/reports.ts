@@ -4,6 +4,7 @@
  * Solo lee lo que B-POS ya guarda (ventas, recetas, costos de compra,
  * Kardex, compras y cortes); no modifica nada.
  */
+import { itemConsumption, type SoldPart } from "@/lib/compound";
 import { getAdminProducts, getAdminRecipes } from "@/lib/admin";
 import { getCashCloseHistory, type CashCloseRecord } from "@/lib/cash-history";
 import { getInventory, getKardex, type InventoryMovement } from "@/lib/inventory";
@@ -11,7 +12,7 @@ import { getIngredientCostHistory, getPurchases, type IngredientCostRecord, type
 
 // ------------------------------------------------------------ tipos
 
-export type ReportOrderItem = { id: number; name: string; category?: string; price: number; quantity: number };
+export type ReportOrderItem = { id: number; name: string; category?: string; price: number; quantity: number; parts?: SoldPart[] };
 
 export type ReportOrder = {
   id: number | string;
@@ -157,16 +158,18 @@ export function makeRecipeIndex(recipes: { productId: number; ingredientId: numb
   return index;
 }
 
-/** Costo de insumos de una partida y si se conoce completo */
+/** Costo de insumos de una partida (con las partes si es combo) y si se conoce completo */
 export function itemCost(item: ReportOrderItem, at: string, recipes: RecipeIndex, costAt: (id: number, at?: string) => number) {
-  const recipe = recipes.get(item.id);
-  if (!recipe?.length) return { cost: 0, known: false };
+  // Combo: cada parte necesita receta; el combo puede tener o no receta propia
+  const withRecipe = [item.id, ...(item.parts || []).map((p) => p.productId)];
+  const known0 = item.parts?.length ? item.parts.every((p) => recipes.get(p.productId)?.length) : Boolean(recipes.get(item.id)?.length);
+  if (!withRecipe.some((id) => recipes.get(id)?.length)) return { cost: 0, known: false };
   let cost = 0;
-  let known = true;
-  recipe.forEach((r) => {
-    const unit = costAt(r.ingredientId, at);
+  let known = known0;
+  itemConsumption(item, (id) => recipes.get(id) || []).forEach((quantity, ingredientId) => {
+    const unit = costAt(ingredientId, at);
     if (!unit) known = false;
-    cost += unit * r.quantity * item.quantity;
+    cost += unit * quantity;
   });
   return { cost, known };
 }
@@ -273,6 +276,11 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
       const product = productById.get(item.id);
       const name = product?.name || item.name || `Producto ${item.id}`;
       bump(byProduct, name, { count: 1, quantity: qty, sales: lineSales, cost: lineCost });
+      // Lo que iba dentro del combo también cuenta como vendido (cantidad, sin venta ni costo: ya están en el combo)
+      item.parts?.forEach((part) => {
+        const partName = productById.get(part.productId)?.name || part.name;
+        bump(byProduct, partName, { quantity: (Number(part.quantity) || 1) * qty });
+      });
       bump(byCategory, product?.category || item.category || "Sin categoría", { quantity: qty, sales: lineSales, cost: lineCost });
     });
 
