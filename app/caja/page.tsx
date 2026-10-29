@@ -8,6 +8,7 @@ import { getOwnerWhatsapp } from "@/lib/business-settings";
 import { getCurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { addAuditEvent } from "@/lib/audit";
+import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { saveCashCloseRecord } from "@/lib/cash-history";
 
 type CashMovement = {
@@ -253,7 +254,29 @@ export default function CajaPage() {
     setMovementReason("");
   }
 
-  function closeShift() {
+  // No se cierra caja con pedidos de delivery sin equivalencia: se quedarían sin venta ni inventario
+  async function closeShift() {
+    if (!shift) return;
+    try {
+      const response = await bridgeFetch("/api/bridge/pending", { cache: "no-store" });
+      const payload = (await response.json()) as { success?: boolean; pending?: { platform: string; orderId: string; externalName: string }[] };
+      const pending = response.ok && payload.success ? payload.pending || [] : [];
+      if (pending.length > 0) {
+        const list = pending.slice(0, 8).map((p) => `• ${p.externalName} (${p.platform} #${p.orderId})`).join("\n");
+        alert(
+          `No puedes cerrar caja: hay ${pending.length} producto(s) de delivery sin equivalencia.\n\n${list}\n\n` +
+            "Equivalelos en el Bridge para registrar las ventas y descontar el inventario."
+        );
+        return;
+      }
+      if (!response.ok) throw new Error("sin respuesta");
+    } catch {
+      if (!confirm("No se pudo revisar si hay pedidos de delivery sin equivalencia. ¿Cerrar caja de todos modos?")) return;
+    }
+    doCloseShift();
+  }
+
+  function doCloseShift() {
   if (!shift) return;
   const permissionUser = getCurrentUser();
   if (!requirePermissionOrAdmin(permissionUser, "cash.close", "cerrar caja")) return;
@@ -632,7 +655,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
             )}
 
             <button
-              onClick={closeShift}
+              onClick={() => void closeShift()}
               className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 px-6 py-4 font-black text-red-400"
             >
               Cerrar caja

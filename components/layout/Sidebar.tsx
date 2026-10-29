@@ -15,6 +15,7 @@ import {
   OPERATIONS_ALERT_EVENT,
 } from "@/lib/notifications/operationsCenter";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
+import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: "📊" },
@@ -40,11 +41,13 @@ type PendingResponse = {
   success?: boolean;
   count?: number;
   signature?: string;
+  pending?: PendingEquivalence[];
 };
 
 export function Sidebar() {
   const router = useRouter();
   const [pendingCount, setPendingCount] = useState(0);
+  const [pendingItems, setPendingItems] = useState<PendingEquivalence[]>([]);
   const [signature, setSignature] = useState("");
   const [acknowledgedSignature, setAcknowledgedSignature] = useState("");
   const [lowStockCount, setLowStockCount] = useState(0);
@@ -66,6 +69,7 @@ export function Sidebar() {
         const nextCount = Number(payload.count ?? 0);
         const nextSignature = String(payload.signature ?? "");
         setPendingCount(nextCount);
+        setPendingItems(Array.isArray(payload.pending) ? payload.pending : []);
         setSignature(nextSignature);
         if (nextSignature) localStorage.setItem("bpos_bridge_pending_signature", nextSignature);
         syncDeliveryPendingAlert(nextCount, nextSignature);
@@ -213,6 +217,7 @@ export function Sidebar() {
         <button onClick={() => { clearCurrentUser(); window.location.href = "/login"; }} className="mt-3 w-full rounded-xl border border-zinc-700 px-3 py-2 text-xs font-black">Cerrar sesión</button>
       </div>
     </aside>
+    <EquivalencePrompt items={pendingItems} signature={signature} canEquivalate={hasPermission(currentUser, "bridge.aliases")} />
     </>
   );
 }

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { guardBridgeRequest } from "@/lib/bridge/api-guard";
 import { BRIDGE_DATA_DIR } from "@/lib/bridge/data-dir";
+import { bridgeOrders } from "@/lib/bridge/orders-store";
 import fs from "fs";
 import path from "path";
 
@@ -25,7 +26,6 @@ type BridgeOrder = {
   [key: string]: unknown;
 };
 
-const bridgeGlobal = globalThis as typeof globalThis & { bposBridgeOrders?: BridgeOrder[] };
 
 const DATA_FILE = path.join(BRIDGE_DATA_DIR, "bridge-aliases.json");
 
@@ -106,7 +106,7 @@ export async function GET(request: NextRequest) {
   if (denied) return denied;
 
   const aliases = readAliases();
-  const orders = bridgeGlobal.bposBridgeOrders ?? [];
+  const orders = bridgeOrders<BridgeOrder>();
   const pending: Array<{
     platform: string;
     orderId: string;
