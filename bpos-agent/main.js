@@ -230,35 +230,57 @@ const printer = new ThermalPrinter({
   await printer.execute();
 }
 
-// Llave que crea B-POS en ~/.bpos/agent-key para aceptar pedidos de este Agent
+// Llave en ~/.bpos/agent-key con la que el servidor de B-POS acepta pedidos
+// de este Agent. En una instalación nueva todavía no existe: se crea aquí
+// (el servidor lee el mismo archivo), si no el primer pedido se rechazaba con
+// "Inicia sesión en B-POS para usar el Bridge".
+const AGENT_KEY_FILE = path.join(require("os").homedir(), ".bpos", "agent-key");
+
 function readAgentKey() {
   try {
-    return fs.readFileSync(path.join(require("os").homedir(), ".bpos", "agent-key"), "utf8").trim();
+    const key = fs.readFileSync(AGENT_KEY_FILE, "utf8").trim();
+    if (key) return key;
+  } catch {}
+  try {
+    const key = require("crypto").randomBytes(32).toString("hex");
+    fs.mkdirSync(path.dirname(AGENT_KEY_FILE), { recursive: true });
+    fs.writeFileSync(AGENT_KEY_FILE, key, { encoding: "utf8", mode: 0o600, flag: "wx" });
+    return key;
   } catch {
-    return "";
+    // Otro proceso la acaba de crear: se usa esa
+    try {
+      return fs.readFileSync(AGENT_KEY_FILE, "utf8").trim();
+    } catch {
+      return "";
+    }
   }
 }
 
-async function sendOrderToBpos(job) {
+async function postOrder(job) {
   const agentKey = readAgentKey();
-  const response = await fetch(
-    "http://localhost:3000/api/bridge/orders",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(agentKey ? { "x-bpos-agent-key": agentKey } : {}),
-      },
-      body: JSON.stringify(job),
-    }
-  );
+  const response = await fetch("http://localhost:3000/api/bridge/orders", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(agentKey ? { "x-bpos-agent-key": agentKey } : {}),
+    },
+    body: JSON.stringify(job),
+  });
+  const result = await response.json().catch(() => ({}));
+  return { response, result };
+}
 
-  const result = await response.json();
+async function sendOrderToBpos(job) {
+  let { response, result } = await postOrder(job);
+  // Un reintento si la llave no coincidió (el servidor la acaba de crear) o
+  // el servidor seguía arrancando
+  if (response.status === 401 || response.status === 503) {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    ({ response, result } = await postOrder(job));
+  }
 
   if (!response.ok) {
-    throw new Error(
-      result?.error || `B-POS respondió ${response.status}`
-    );
+    throw new Error(result?.error || `B-POS respondió ${response.status}`);
   }
 
   return result;
