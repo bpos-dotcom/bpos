@@ -170,6 +170,9 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
   const [headerH, setHeaderH] = useState(57);
   /** La imagen de "Pide donde quieras" es horizontal: va a todo lo ancho (si es cuadrada, de lado) */
   const [channelsWide, setChannelsWide] = useState(true);
+  /** Producto recién agregado (se ilumina un momento) */
+  const [flash, setFlash] = useState<number | null>(null);
+  const flashTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     const el = headerRef.current;
@@ -229,6 +232,9 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
       ...(selection.modifiers || []).filter((m) => !m.extra).map((m) => m.name),
     ].join(" · ");
     const key = `${product.id}|${JSON.stringify(picks)}|${comment}`;
+    setFlash(Number(product.id));
+    window.clearTimeout(flashTimer.current);
+    flashTimer.current = window.setTimeout(() => setFlash(null), 900);
     setCart((c) => {
       const found = c.find((l) => l.key === key);
       if (found) return c.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l));
@@ -237,11 +243,25 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
   }
 
   const hoursText = menu.hours ? scheduleLabel(menu.hours) : "";
-  const plusBtn = (
-    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg font-black text-white shadow" style={{ background: color }}>
-      +
-    </span>
-  );
+  /** Cuántos de cada producto lleva el cliente (todas sus variantes) */
+  const inCart = new Map<number, number>();
+  for (const l of cart) inCart.set(Number(l.productId), (inCart.get(Number(l.productId)) || 0) + l.quantity);
+  /** El "+" cambia por cuántos lleva */
+  const plusBtn = (product: Product) => {
+    const n = inCart.get(Number(product.id)) || 0;
+    return (
+      <span
+        className={`flex h-8 min-w-8 shrink-0 items-center justify-center rounded-full px-1.5 font-black text-white shadow transition-transform ${n ? "text-sm ring-2 ring-white" : "text-lg"} ${flash === Number(product.id) ? "scale-125" : ""}`}
+        style={{ background: color }}
+        aria-label={n ? `Llevas ${n}` : "Agregar"}
+      >
+        {n || "+"}
+      </span>
+    );
+  };
+  /** Al agregar, la tarjeta se ilumina un momento en el color del negocio */
+  const glow = (product: Product): React.CSSProperties =>
+    flash === Number(product.id) ? { borderColor: color, background: `${color}26`, boxShadow: `0 0 0 3px ${color}80` } : {};
 
   return (
     <Shell>
@@ -381,14 +401,14 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
             <h2 className="text-xl font-black">🔥 {design.top.title}</h2>
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
               {top.map(({ product, qty }, i) => (
-                <button key={product.id} onClick={() => pick(product)} className="relative flex w-32 shrink-0 flex-col overflow-hidden rounded-xl border border-orange-100 bg-white text-left shadow-sm hover:shadow-md md:w-40">
+                <button key={product.id} onClick={() => pick(product)} style={glow(product)} className="relative flex w-32 shrink-0 flex-col overflow-hidden rounded-xl border border-orange-100 bg-white text-left shadow-sm transition-all duration-300 hover:shadow-md md:w-40">
                   {qty > 0 && <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-black text-white">#{i + 1}</span>}
                   <Photo product={product} emoji="text-4xl" className="h-20 w-full md:h-24" />
                   <span className="flex flex-1 flex-col p-2">
                     <span className="line-clamp-2 text-xs font-black leading-tight">{product.name}</span>
                     <span className="mt-auto flex items-center justify-between pt-1">
                       <span className="text-sm font-black" style={{ color }}>{price(Number(product.price))}</span>
-                      {canOrder && plusBtn}
+                      {canOrder && plusBtn(product)}
                     </span>
                   </span>
                 </button>
@@ -418,14 +438,14 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
           </div>
           <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {shown.map((p) => (
-              <button key={p.id} disabled={!canOrder} onClick={() => pick(p)} className="flex items-center gap-2.5 rounded-xl border border-orange-100 bg-white p-2 text-left shadow-sm transition hover:shadow-md disabled:cursor-default">
+              <button key={p.id} disabled={!canOrder} onClick={() => pick(p)} style={glow(p)} className="flex items-center gap-2.5 rounded-xl border border-orange-100 bg-white p-2 text-left shadow-sm transition-all duration-300 hover:shadow-md disabled:cursor-default">
                 <Photo product={p} emoji="text-3xl" className="h-14 w-14 shrink-0 rounded-lg" />
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-black leading-tight">{p.name}</span>
                   {p.description && <span className="line-clamp-1 block text-xs text-zinc-500">{p.description}</span>}
                   <span className="block text-sm font-black" style={{ color }}>{price(Number(p.price))}</span>
                 </span>
-                {canOrder && plusBtn}
+                {canOrder && plusBtn(p)}
               </button>
             ))}
           </div>
