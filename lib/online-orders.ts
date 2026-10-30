@@ -9,7 +9,8 @@
 import { addAuditEvent } from "@/lib/audit";
 import { getAdminProducts } from "@/lib/admin";
 import { buildSelection, extrasPrice, lineIdFor } from "@/lib/compound";
-import { getDigitalMenu, isAvailableOnline, mapsLink, type OnlineOrderData } from "@/lib/digital-menu";
+import { getDigitalMenu, isAvailableOnline, mapsLink, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
+import { PUSH_SERVER } from "@/lib/push/rules";
 import { getBusinessSettings } from "@/lib/business-settings";
 import type { DispatchInfo } from "@/lib/drivers";
 import { discountInventoryByOrder } from "@/lib/inventory";
@@ -26,6 +27,8 @@ export type OnlineOrderStatus = "nuevo" | "aceptando" | "aceptado" | "rechazado"
 export type OnlineOrder = {
   id: string;
   folio: string;
+  /** Llave de la liga del cliente para ver su pedido */
+  token: string;
   status: OnlineOrderStatus;
   data: OnlineOrderData;
   sale_order_id: number | null;
@@ -44,7 +47,7 @@ export async function listOnlineOrders(): Promise<OnlineOrder[]> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await getSupabase()
     .from("bpos_online_orders")
-    .select("id, folio, status, data, sale_order_id, eta_minutes, reason, created_at, updated_at")
+    .select("id, folio, token, status, data, sale_order_id, eta_minutes, reason, created_at, updated_at")
     .eq("branch_id", branchId)
     .or(`created_at.gte.${since},status.in.(nuevo,aceptando)`)
     .order("created_at", { ascending: false })
@@ -201,6 +204,54 @@ export async function rejectOnlineOrder(order: OnlineOrder, reason: string, user
 /** Avisa al cliente que su pedido está listo o entregado. */
 export function markOnlineOrder(order: OnlineOrder, status: "listo" | "entregado") {
   return setStatus(order.id, { status });
+}
+
+// ------------------------------------------------------------ avisos al cliente por WhatsApp
+
+/** Liga donde el cliente ve cómo va su pedido */
+export function trackingLink(order: Pick<OnlineOrder, "id" | "token">) {
+  const slug = getDigitalMenu().slug;
+  return slug && order.token ? `${PUSH_SERVER}/m/${slug}?pedido=${order.id}&t=${order.token}` : "";
+}
+
+export type CustomerNotice = "aceptado" | "listo" | "entregado" | "rechazado";
+
+/** Qué aviso le toca al cliente según cómo va su pedido ("" si ninguno) */
+export function noticeFor(status: OnlineOrderStatus): CustomerNotice | "" {
+  return status === "aceptado" || status === "listo" || status === "entregado" || status === "rechazado" ? status : "";
+}
+
+/**
+ * Liga de WhatsApp (wa.me, gratis) con el aviso ya escrito para el cliente;
+ * "" si no dejó un teléfono válido. El negocio solo le da enviar.
+ */
+export function customerWhatsappLink(order: OnlineOrder, notice: CustomerNotice, opts: { eta?: number; reason?: string } = {}) {
+  const d = order.data;
+  const phone = whatsappNumber(d.customer.phone);
+  if (!phone) return "";
+  const business = getBusinessSettings().businessName || "nuestro negocio";
+  const name = (d.customer.name || "").trim().split(/\s+/)[0] || "";
+  const hi = name ? `${name}, ` : "";
+  const link = trackingLink(order);
+  const follow = link ? `\n\nSíguelo aquí: ${link}` : "";
+  const eta = opts.eta ?? order.eta_minutes ?? 0;
+  const at = eta ? new Date(Date.now() + eta * 60000).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" }) : "";
+  const texts: Record<CustomerNotice, string> = {
+    aceptado:
+      `¡Hola${name ? ` ${name}` : ""}! 👨‍🍳 Recibimos tu pedido *${order.folio}* en ${business} y ya lo estamos preparando.` +
+      (at ? ` Estará ${d.type === "Domicilio" ? "saliendo" : "listo"} aprox. a las ${at}.` : "") +
+      follow,
+    listo:
+      d.type === "Domicilio"
+        ? `🛵 ¡${hi}tu pedido *${order.folio}* de ${business} ya va en camino! Ten a la mano tu pago (${d.payment}).${follow}`
+        : d.type === "Mesa"
+          ? `✅ ¡${hi}tu pedido *${order.folio}* ya está listo y va a tu mesa!`
+          : `✅ ¡${hi}tu pedido *${order.folio}* ya está listo! Pasa a recogerlo a ${business}.${follow}`,
+    entregado: `🎉 ¡Gracias por tu pedido${name ? `, ${name}` : ""}! Esperamos que lo disfrutes 😋${link ? `\n\nTu pedido: ${link}` : ""}`,
+    rechazado:
+      `😔 ${hi}lo sentimos: no pudimos tomar tu pedido *${order.folio}* en ${business}.` + (opts.reason || order.reason ? `\nMotivo: ${opts.reason || order.reason}` : ""),
+  };
+  return `https://wa.me/${phone}?text=${encodeURIComponent(texts[notice])}`;
 }
 
 /** Datos para el repartidor de un pedido del menú digital. */

@@ -97,6 +97,8 @@ export type DigitalMenuSettings = {
   paymentsByType: Record<OnlineOrderType, OnlinePayment[]>;
   /** Aceptar solos los pedidos (si hay caja abierta) */
   autoAccept: boolean;
+  /** Al cambiar un pedido de estado, abrir WhatsApp con el aviso para el cliente (gratis, wa.me) */
+  whatsappNotify: boolean;
   /** Productos que no se muestran en el menú digital (ids) */
   hidden: number[];
   /** Productos agotados (también se ocultan) */
@@ -121,6 +123,7 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   payments: { cash: true, card: true, transfer: false },
   paymentsByType: { Recoger: ["Efectivo", "Tarjeta"], Domicilio: ["Efectivo"], Mesa: ["Efectivo", "Tarjeta"] },
   autoAccept: false,
+  whatsappNotify: true,
   hidden: [],
   soldOut: {},
   whatsapp: "",
@@ -249,6 +252,7 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
     },
     paymentsByType: normalizePaymentsByType(r.paymentsByType, r.payments),
     autoAccept: r.autoAccept === true,
+    whatsappNotify: r.whatsappNotify !== false,
     hidden: Array.isArray(r.hidden) ? r.hidden.map(Number).filter(Number.isFinite) : [],
     soldOut,
     whatsapp: String(r.whatsapp || "").replace(/\D/g, "").slice(0, 13),

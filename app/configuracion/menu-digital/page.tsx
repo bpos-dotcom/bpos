@@ -206,10 +206,16 @@ export default function MenuDigitalPage() {
           {/* Cómo recibe pedidos */}
           <section className={card}>
             <h2 className="text-lg font-black">🛍️ Pedidos</h2>
-            <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
               <Switch checked={menu.pickup} onChange={(v) => update({ pickup: v })} text="Para recoger" />
               <Switch checked={menu.delivery} onChange={(v) => update({ delivery: v })} text="A domicilio" />
               <Switch checked={menu.autoAccept} onChange={(v) => update({ autoAccept: v })} text="Aceptar solos" hint="Entran directo a Cocina si hay caja abierta." />
+              <Switch
+                checked={menu.whatsappNotify}
+                onChange={(v) => update({ whatsappNotify: v })}
+                text="Avisar por WhatsApp"
+                hint="Al aceptar, marcar listo, en camino o entregado se abre WhatsApp con el mensaje para el cliente. Gratis."
+              />
             </div>
             <div className="mt-4 grid gap-4 md:grid-cols-4">
               <label className={label}>
