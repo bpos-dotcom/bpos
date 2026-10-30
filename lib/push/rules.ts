@@ -5,7 +5,7 @@
  */
 
 /** Dirección pública de B-POS (avisos push y regreso de Mercado Pago). Las pantallas llaman a su propio servidor. */
-export const PUSH_SERVER = "https://bpos-alpha.vercel.app";
+export const PUSH_SERVER = "https://www.bpos.com.mx";
 
 /** Llave pública VAPID (la privada está solo en Vercel: VAPID_PRIVATE_KEY). */
 export const VAPID_PUBLIC_KEY = "BG3WTLGsKmmVXtz7Shmfr60DQJmxRazt1pSTiHie2aAuyhnrqeyaskEIHGQ51Dr_NbfUOmT_MgzPotFxLtl9-As";
