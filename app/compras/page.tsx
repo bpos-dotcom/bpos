@@ -3,14 +3,12 @@ import { useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { getInventory } from "@/lib/inventory";
 import { addPurchaseAlias, type PurchaseSuggestion } from "@/lib/purchases";
-import { blocksToPurchaseDraft, ticketProductName, type TicketTrainingBlock } from "@/lib/purchase-ticket-training";
+import PurchaseAiCapture, { type AiPurchaseResult } from "./PurchaseAiCapture";
 import PurchaseAliases from "./PurchaseAliases";
 import PurchaseForm, { type PurchasePrefill } from "./PurchaseForm";
 import PurchaseHistory from "./PurchaseHistory";
-import PurchasePhoto from "./PurchasePhoto";
 import PurchaseSuggestions from "./PurchaseSuggestions";
 import SuppliersPanel from "./SuppliersPanel";
-import TicketTrainer from "./TicketTrainer";
 
 type Tab = "nueva" | "foto" | "sugerencias" | "proveedores" | "equivalencias";
 
@@ -26,47 +24,36 @@ export default function ComprasPage() {
   const [tab, setTab] = useState<Tab>("nueva");
   const [refreshKey, setRefreshKey] = useState(0);
   const [prefill, setPrefill] = useState<PurchasePrefill | null>(null);
-  const [ocr, setOcr] = useState<{ key: number; text: string; imageName?: string } | null>(null);
-  const [ocrSupplier, setOcrSupplier] = useState("");
 
   const refresh = () => setRefreshKey((x) => x + 1);
 
-  function fromTicket(blocks: TicketTrainingBlock[]) {
-    const draft = blocksToPurchaseDraft(blocks);
-    const supplier = ocrSupplier.trim() || draft.supplier || "";
-
-    if (draft.lines.length === 0) {
-      alert("Marca al menos una línea como 📦 Producto y relaciónala con un ingrediente.");
-      return;
-    }
-
-    // Aprender: la próxima vez estas líneas se reconocen solas
+  /** Ticket leído con IA (plan Max): aprende las equivalencias y llena la compra. */
+  function fromAi(result: AiPurchaseResult) {
     const inventory = getInventory();
-    blocks
-      .filter((b) => b.role === "product" && b.ingredientId && b.inventoryPerUnit && b.inventoryPerUnit > 0)
-      .forEach((b) => {
-        try {
-          addPurchaseAlias({
-            ticketName: ticketProductName(b.text) || b.text,
-            supplier: supplier || undefined,
-            ingredientId: b.ingredientId!,
-            ingredientName: b.ingredientName || "",
-            quantity: b.inventoryPerUnit!,
-            unit: inventory.find((i) => i.id === b.ingredientId)?.unit ?? "pza",
-          });
-        } catch {
-          // una línea sin datos suficientes no debe frenar la compra
-        }
-      });
+    result.lines.forEach((line) => {
+      const ingredient = inventory.find((i) => i.id === line.ingredientId);
+      if (!ingredient || !(line.presentations > 0)) return;
+      try {
+        addPurchaseAlias({
+          ticketName: line.ticketName,
+          supplier: result.supplier || undefined,
+          ingredientId: ingredient.id,
+          ingredientName: ingredient.name,
+          quantity: line.inventoryQuantity / line.presentations,
+          unit: ingredient.unit,
+        });
+      } catch {
+        // una línea sin datos suficientes no debe frenar la compra
+      }
+    });
 
     setPrefill({
       key: Date.now(),
-      supplier,
-      invoice: draft.invoice,
+      supplier: result.supplier,
+      invoice: result.invoice,
       source: "ocr",
-      ocrText: ocr?.text,
-      imageName: ocr?.imageName,
-      lines: draft.lines,
+      imageName: result.imageName,
+      lines: result.lines,
     });
     setTab("nueva");
   }
@@ -109,27 +96,7 @@ export default function ComprasPage() {
 
         {tab === "nueva" && <PurchaseForm prefill={prefill} onPurchaseCreated={() => { setPrefill(null); refresh(); }} />}
 
-        {tab === "foto" && (
-          <div className="grid gap-6 xl:grid-cols-[420px_1fr]">
-            <div className="space-y-4">
-              <PurchasePhoto onTextDetected={(text, imageName) => setOcr({ key: Date.now(), text, imageName })} />
-              <input
-                value={ocrSupplier}
-                onChange={(e) => setOcrSupplier(e.target.value)}
-                placeholder="Proveedor del ticket (ayuda a reconocer los artículos)"
-                className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3"
-              />
-            </div>
-            {ocr ? (
-              <TicketTrainer key={ocr.key} text={ocr.text} supplier={ocrSupplier} onSupplier={setOcrSupplier} onReady={(blocks) => fromTicket(blocks)} />
-            ) : (
-              <section className="flex items-center justify-center rounded-3xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">
-                Toma la foto del ticket y presiona “Leer ticket”. Aquí vas a revisar cada línea; lo que ya tenga
-                equivalencia se reconoce solo.
-              </section>
-            )}
-          </div>
-        )}
+        {tab === "foto" && <PurchaseAiCapture onReady={fromAi} onManual={() => setTab("nueva")} />}
 
         {tab === "sugerencias" && <PurchaseSuggestions onUse={fromSuggestions} />}
         {tab === "proveedores" && <SuppliersPanel />}

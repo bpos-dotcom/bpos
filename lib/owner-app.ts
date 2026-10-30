@@ -91,8 +91,8 @@ export async function notifyOwner(n: { title: string; body: string; tag?: string
   if (!notificationsSupported() || Notification.permission !== "granted") return;
   const options: NotificationOptions = {
     body: n.body,
-    icon: "/app-icon?size=192",
-    badge: "/app-icon?size=192",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
     tag: n.tag,
     data: { url: n.url || "/dueno" },
   };
