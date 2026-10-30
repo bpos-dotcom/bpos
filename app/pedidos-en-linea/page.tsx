@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { DispatchModal } from "@/components/delivery/DispatchModal";
 import { getCurrentUser } from "@/lib/auth";
 import { DIGITAL_MENU_EVENT, getDigitalMenu, mapsLink } from "@/lib/digital-menu";
 import {
@@ -15,6 +16,7 @@ import {
   buildOnlineCart,
   listOnlineOrders,
   markOnlineOrder,
+  onlineDispatchInfo,
   rejectOnlineOrder,
   type OnlineOrder,
 } from "@/lib/online-orders";
@@ -29,6 +31,7 @@ const TYPE_ICON = { Recoger: "🛍️ Recoger", Domicilio: "🛵 Domicilio", Mes
 function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => void }) {
   const menu = getDigitalMenu();
   const [eta, setEta] = useState(menu.prepMinutes);
+  const [dispatching, setDispatching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const d = order.data;
@@ -51,6 +54,8 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
     await run(async () => {
       const result = await acceptOnlineOrder(order, eta, getCurrentUser()?.name);
       if (result.printFailed.length) setMessage(`Aceptado. No se imprimió en: ${result.printFailed.join(", ")}. Reimprime desde Impresiones.`);
+      // A domicilio: de una vez elegir quién lo lleva
+      if (order.data.type === "Domicilio") setDispatching(true);
     });
   }
 
@@ -130,6 +135,11 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       {order.status === "aceptado" && (
         <div className="mt-4 flex flex-wrap gap-2">
           <span className="rounded-xl bg-zinc-800 px-3 py-2 text-sm font-bold">👨‍🍳 En preparación · Pedido #{order.sale_order_id}</span>
+          {d.type === "Domicilio" && (
+            <button onClick={() => setDispatching(true)} className="rounded-2xl border border-orange-500 px-4 py-2 font-black text-orange-300">
+              🛵 Mandar a repartidor
+            </button>
+          )}
           <button disabled={busy} onClick={() => void run(() => markOnlineOrder(order, "listo"))} className="rounded-2xl bg-orange-500 px-4 py-2 font-black text-black">
             {d.type === "Domicilio" ? "Salió a entregar" : "Ya está listo"}
           </button>
@@ -143,6 +153,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       {order.status === "rechazado" && <p className="mt-3 text-sm text-red-300">Rechazado: {order.reason}</p>}
       {order.status === "entregado" && <p className="mt-3 text-sm text-zinc-500">Entregado ✅</p>}
       {message && <p className="mt-3 text-sm font-bold text-yellow-200">{message}</p>}
+      {dispatching && <DispatchModal info={onlineDispatchInfo(order)} saleId={order.sale_order_id || undefined} onClose={() => setDispatching(false)} />}
     </div>
   );
 }

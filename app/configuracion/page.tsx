@@ -35,6 +35,18 @@ const adminModules = [
     description: "Tu menú en internet y pedidos sin comisión: liga, QR de mesas, horario, agotados y ocultos.",
   },
   {
+    title: "Notificaciones",
+    href: "/configuracion/notificaciones",
+    icon: "🔔",
+    description: "Sonido, veces, color y parpadeo de cada aviso: pedidos en línea, equivalencias, inventario y errores.",
+  },
+  {
+    title: "Reparto",
+    href: "/configuracion/reparto",
+    icon: "🛵",
+    description: "Tus repartidores y su WhatsApp: al salir un pedido a domicilio eliges quién lo lleva y le llega todo por WhatsApp.",
+  },
+  {
     title: "Sistema",
     href: "/configuracion/sistema",
     icon: "⚙️",

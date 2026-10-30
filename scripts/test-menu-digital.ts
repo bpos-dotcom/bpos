@@ -117,6 +117,34 @@ async function main() {
   store.set("bpos_digital_menu", JSON.stringify({ soldOut: { "5": { until: null, at: "x" } }, hidden: [] }));
   check("avisa si se agotó después de pedir", buildOnlineCart(order).problems.some((p) => p.includes("Papas")));
 
+  // Formas de pago por tipo de pedido
+  const legacy = dm.normalizeDigitalMenu({ payments: { cash: true, card: false, transfer: true } });
+  check("sin configurar usa las formas de antes", legacy.paymentsByType.Domicilio.join() === "Efectivo,Transferencia", legacy.paymentsByType);
+  const byType = dm.normalizeDigitalMenu({ paymentsByType: { Recoger: ["Efectivo", "Tarjeta"], Domicilio: ["Transferencia", "Bitcoin"], Mesa: [] } as never });
+  check("domicilio solo lo permitido (sin formas inventadas)", byType.paymentsByType.Domicilio.join() === "Transferencia", byType.paymentsByType);
+  check("mesa sin formas de pago", byType.paymentsByType.Mesa.length === 0);
+
+  // Mensaje al repartidor
+  const { driverMessage, driverWhatsappLink } = await import("@/lib/drivers");
+  const info = {
+    title: "Folio 73A8",
+    businessName: "Burger Planet",
+    customer: { name: "Ana", phone: "8710000000", address: "Madero 364", reference: "Casa azul", mapsUrl: "https://maps.google.com/?q=25.5,-103.5" },
+    lines: [{ quantity: 2, name: "Planet Burger", detail: "sin cebolla" }],
+    total: 229,
+  };
+  const cobrar = driverMessage({ ...info, payment: { paid: false, method: "Efectivo", amount: 229, cashWith: 500 } });
+  check("repartidor: cuánto cobrar", cobrar.includes("COBRAR $229.00"), cobrar);
+  check("repartidor: cambio que lleva", cobrar.includes("$271.00 de cambio"), cobrar);
+  check("repartidor: liga de Maps", cobrar.includes("https://maps.google.com/?q=25.5,-103.5"));
+  check("repartidor: lo que se pidió", cobrar.includes("2 × Planet Burger (sin cebolla)"));
+  const pagado = driverMessage({ ...info, payment: { paid: true, method: "Transferencia" } });
+  check("repartidor: ya pagado no cobra", pagado.includes("YA PAGADO") && !pagado.includes("COBRAR"), pagado);
+  const sale = { ...info, payment: { paid: true as const, method: "Efectivo" } };
+  check("WhatsApp al repartidor con 52", driverWhatsappLink({ id: "r", name: "Luis", phone: "8711112222", active: true }, sale).startsWith("https://wa.me/528711112222?text="));
+  check("número mal escrito no arma liga", driverWhatsappLink({ id: "r", name: "Luis", phone: "123", active: true }, sale) === "");
+
+
   console.log(`\n${ok} bien, ${bad} mal`);
   process.exit(bad ? 1 : 0);
 }

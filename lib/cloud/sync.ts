@@ -51,6 +51,8 @@ const BUSINESS_KEYS = new Set([
   "bpos_bridge_aliases",
   "bpos_purchase_ticket_templates_v1",
   "bpos_ingredient_cost_history",
+  "bpos_notification_settings",
+  "bpos_drivers",
 ]);
 
 /** Eventos que ya escuchan las pantallas de B-POS */

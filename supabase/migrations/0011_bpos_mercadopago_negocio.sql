@@ -63,3 +63,8 @@ revoke all on public.bpos_mp_accounts from anon, authenticated;
 revoke all on public.bpos_mp_link_states from anon, authenticated;
 revoke all on public.bpos_mp_terminals from anon, authenticated;
 revoke all on public.bpos_mp_charges from anon, authenticated;
+
+-- Avisos con audio propio del negocio (Configuración → Notificaciones)
+update storage.buckets
+   set allowed_mime_types = array['image/jpeg','image/png','image/webp','audio/mpeg','audio/mp3','audio/wav','audio/x-wav','audio/ogg','audio/mp4','audio/x-m4a','audio/webm']
+ where id = 'bpos-media';
