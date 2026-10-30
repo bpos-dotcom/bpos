@@ -142,12 +142,12 @@ function Shell({ children }: { children: React.ReactNode }) {
 }
 
 /** Foto del producto, o su emoji en un fondo suave si no tiene. */
-function Photo({ product, className = "", big = false }: { product: Pick<Product, "image" | "emoji" | "name">; className?: string; big?: boolean }) {
+function Photo({ product, className = "", emoji = "text-5xl" }: { product: Pick<Product, "image" | "emoji" | "name">; className?: string; emoji?: string }) {
   if (product.image) {
     // eslint-disable-next-line @next/next/no-img-element -- fotos del negocio en la nube
     return <img src={product.image} alt={product.name} loading="lazy" className={`object-cover ${className}`} />;
   }
-  return <div className={`flex items-center justify-center bg-orange-50 ${big ? "text-7xl" : "text-5xl"} ${className}`}>{product.emoji || "🍽️"}</div>;
+  return <div className={`flex items-center justify-center bg-orange-50 ${emoji} ${className}`}>{product.emoji || "🍽️"}</div>;
 }
 
 // ------------------------------------------------------------ menú
@@ -165,6 +165,19 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
   const [cart, setCart] = useState<CartLine[]>([]);
   const [checkout, setCheckout] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
+  /** Alto del encabezado fijo: las categorías del menú se pegan justo debajo */
+  const [headerH, setHeaderH] = useState(57);
+  /** La imagen de "Pide donde quieras" es horizontal: va a todo lo ancho (si es cuadrada, de lado) */
+  const [channelsWide, setChannelsWide] = useState(true);
+
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setHeaderH(el.offsetHeight));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const open = isOpenNow(menu, now);
   const canOrder = menu.acceptOrders && open;
@@ -199,6 +212,10 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
     menuRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  const hero = design.hero;
+  const heroText = Boolean(hero.eyebrow || hero.title || hero.highlight || hero.text || hero.badges.some(Boolean));
+  const heroOnImage = Boolean(hero.image);
+
   function pick(product: Product) {
     if (!canOrder) return;
     setChoosing(product);
@@ -221,7 +238,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
 
   const hoursText = menu.hours ? scheduleLabel(menu.hours) : "";
   const plusBtn = (
-    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xl font-black text-white shadow" style={{ background: color }}>
+    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-lg font-black text-white shadow" style={{ background: color }}>
       +
     </span>
   );
@@ -240,10 +257,10 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
         </div>
       )}
 
-      <header className="sticky top-0 z-20 border-b border-orange-100 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3">
+      <header ref={headerRef} className="sticky top-0 z-20 border-b border-orange-100 bg-white/95 backdrop-blur">
+        <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-2">
           {/* eslint-disable-next-line @next/next/no-img-element -- logo del negocio */}
-          <img src={business.logo || "/bpos-logo.png"} alt="" className="h-11 w-11 rounded-xl object-contain" />
+          <img src={business.logo || "/bpos-logo.png"} alt="" className="h-10 w-10 rounded-xl object-contain" />
           <div className="min-w-0 flex-1">
             <p className="truncate text-lg font-black uppercase tracking-tight">{business.name}</p>
             <p className="truncate text-xs text-zinc-500">
@@ -271,44 +288,55 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
         )}
 
         {/* Portada */}
-        {design.hero.on && (design.hero.title || design.hero.highlight || design.hero.image) && (
-          <section className="mt-4 grid items-center gap-6 overflow-hidden rounded-3xl bg-gradient-to-br from-white to-orange-50 p-6 md:grid-cols-2 md:p-10">
-            <div>
-              {design.hero.eyebrow && <p className="text-xs font-black uppercase tracking-[0.3em]" style={{ color }}>{design.hero.eyebrow}</p>}
-              <h1 className="mt-2 text-4xl font-black uppercase leading-none tracking-tight md:text-6xl">
-                {design.hero.title}
-                {design.hero.highlight && <span className="block" style={{ color }}>{design.hero.highlight}</span>}
-              </h1>
-              {design.hero.text && <p className="mt-4 max-w-md text-zinc-600">{design.hero.text}</p>}
-              {design.hero.badges.some(Boolean) && (
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {design.hero.badges.filter(Boolean).map((b) => (
-                    <span key={b} className="rounded-full border px-3 py-1 text-xs font-bold" style={{ borderColor: color, color }}>
-                      {b}
-                    </span>
-                  ))}
-                </div>
-              )}
-              <button onClick={() => goToMenu()} className="mt-6 rounded-full px-7 py-3 font-black text-white shadow-lg" style={{ background: color }}>
-                {design.hero.button || "Ver menú"} →
-              </button>
-            </div>
-            {design.hero.image && (
+        {/* Portada: la imagen va a todo lo ancho y los textos encima, a la izquierda */}
+        {hero.on && (heroText || heroOnImage) && (
+          <section className={`relative mt-3 overflow-hidden rounded-3xl ${heroOnImage ? "bg-orange-50" : "bg-gradient-to-br from-white to-orange-50"}`}>
+            {heroOnImage && (
               // eslint-disable-next-line @next/next/no-img-element -- portada del negocio
-              <img src={design.hero.image} alt="" className="aspect-[4/3] w-full rounded-3xl object-cover shadow-xl" />
+              <img src={hero.image} alt="" className={`block max-h-[460px] w-full object-cover ${heroText ? "min-h-[200px]" : ""}`} />
             )}
+            <div
+              className={
+                heroOnImage
+                  ? `absolute inset-0 flex flex-col p-5 md:p-10 ${heroText ? "justify-center bg-gradient-to-r from-white/90 via-white/50 to-transparent" : "justify-end"}`
+                  : "p-5 md:p-8"
+              }
+            >
+              <div className="max-w-md md:max-w-xl">
+                {hero.eyebrow && <p className="text-[10px] font-black uppercase tracking-[0.3em] md:text-xs" style={{ color }}>{hero.eyebrow}</p>}
+                {(hero.title || hero.highlight) && (
+                  <h1 className="mt-1 text-3xl font-black uppercase leading-none tracking-tight md:text-6xl">
+                    {hero.title}
+                    {hero.highlight && <span className="block" style={{ color }}>{hero.highlight}</span>}
+                  </h1>
+                )}
+                {hero.text && <p className={`mt-3 max-w-md text-sm text-zinc-700 md:text-base ${heroOnImage ? "hidden md:block" : ""}`}>{hero.text}</p>}
+                {hero.badges.some(Boolean) && (
+                  <div className={`mt-3 flex-wrap gap-2 ${heroOnImage ? "hidden md:flex" : "flex"}`}>
+                    {hero.badges.filter(Boolean).map((b) => (
+                      <span key={b} className="rounded-full border bg-white/70 px-3 py-1 text-xs font-bold" style={{ borderColor: color, color }}>
+                        {b}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <button onClick={() => goToMenu()} className="mt-4 rounded-full px-5 py-2.5 text-sm font-black text-white shadow-lg md:mt-6 md:px-7 md:py-3 md:text-base" style={{ background: color }}>
+                  {hero.button || "Ver menú"} →
+                </button>
+              </div>
+            </div>
           </section>
         )}
 
         {/* Categorías */}
         {categories.length > 1 && (
-          <div className="mt-6 flex gap-3 overflow-x-auto pb-2">
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
             {categories.map((c) => {
               const sample = visible.find((p) => (p.category || "Otros") === c && p.image) || visible.find((p) => (p.category || "Otros") === c)!;
               return (
-                <button key={c} onClick={() => goToMenu(c)} className="w-28 shrink-0 overflow-hidden rounded-2xl border border-orange-100 bg-white text-center shadow-sm hover:shadow-md">
-                  <Photo product={sample} className="h-20 w-full" />
-                  <span className="block px-2 py-2 text-xs font-black">{c}</span>
+                <button key={c} onClick={() => goToMenu(c)} className="w-20 shrink-0 overflow-hidden rounded-xl border border-orange-100 bg-white text-center shadow-sm hover:shadow-md">
+                  <Photo product={sample} emoji="text-3xl" className="h-12 w-full" />
+                  <span className="block truncate px-1 py-1 text-[11px] font-black">{c}</span>
                 </button>
               );
             })}
@@ -317,10 +345,10 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
 
         {/* Combo destacado */}
         {design.featured.on && featured && (
-          <section className="mt-6 grid items-center gap-4 overflow-hidden rounded-3xl bg-zinc-950 p-6 text-white md:grid-cols-2 md:p-8">
+          <section className="mt-4 grid items-center gap-4 overflow-hidden rounded-3xl bg-zinc-950 p-4 text-white md:grid-cols-2 md:p-8">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.3em]" style={{ color }}>{design.featured.eyebrow}</p>
-              <h2 className="mt-2 text-3xl font-black">{featured.name}</h2>
+              <h2 className="mt-1 text-2xl font-black md:text-3xl">{featured.name}</h2>
               <p className="mt-2 text-sm text-zinc-300">{design.featured.text || featured.description}</p>
               <div className="mt-5 flex flex-wrap items-center gap-3">
                 <span className="rounded-full bg-white px-5 py-2 text-xl font-black" style={{ color }}>{price(Number(featured.price))} MXN</span>
@@ -336,7 +364,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
                 // eslint-disable-next-line @next/next/no-img-element -- banner del negocio
                 <img src={design.featured.image} alt="" className="aspect-[16/10] w-full rounded-2xl object-cover" />
               ) : (
-                <Photo product={featured} big className="aspect-[16/10] w-full rounded-2xl" />
+                <Photo product={featured} emoji="text-7xl" className="aspect-[16/10] w-full rounded-2xl" />
               )}
               {design.featured.badge && (
                 <span className="absolute right-3 top-3 rotate-6 rounded-full px-4 py-3 text-center text-xs font-black uppercase leading-tight text-white shadow-lg" style={{ background: color }}>
@@ -349,18 +377,17 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
 
         {/* Los más pedidos */}
         {design.top.on && top.length > 0 && (
-          <section className="mt-8">
-            <h2 className="text-2xl font-black">🔥 {design.top.title}</h2>
-            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 lg:grid-cols-5">
+          <section className="mt-5">
+            <h2 className="text-xl font-black">🔥 {design.top.title}</h2>
+            <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
               {top.map(({ product, qty }, i) => (
-                <button key={product.id} onClick={() => pick(product)} className="relative flex flex-col overflow-hidden rounded-2xl border border-orange-100 bg-white text-left shadow-sm hover:shadow-md">
-                  {qty > 0 && <span className="absolute left-2 top-2 z-10 rounded-full bg-zinc-900 px-2 py-0.5 text-[10px] font-black text-white">#{i + 1}</span>}
-                  <Photo product={product} className="aspect-square w-full" />
-                  <span className="flex flex-1 flex-col p-3">
-                    <span className="font-black leading-tight">{product.name}</span>
-                    {product.description && <span className="mt-1 line-clamp-2 text-xs text-zinc-500">{product.description}</span>}
-                    <span className="mt-auto flex items-center justify-between pt-2">
-                      <span className="font-black" style={{ color }}>{price(Number(product.price))} <small className="text-[10px]">MXN</small></span>
+                <button key={product.id} onClick={() => pick(product)} className="relative flex w-32 shrink-0 flex-col overflow-hidden rounded-xl border border-orange-100 bg-white text-left shadow-sm hover:shadow-md md:w-40">
+                  {qty > 0 && <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-black text-white">#{i + 1}</span>}
+                  <Photo product={product} emoji="text-4xl" className="h-20 w-full md:h-24" />
+                  <span className="flex flex-1 flex-col p-2">
+                    <span className="line-clamp-2 text-xs font-black leading-tight">{product.name}</span>
+                    <span className="mt-auto flex items-center justify-between pt-1">
+                      <span className="text-sm font-black" style={{ color }}>{price(Number(product.price))}</span>
                       {canOrder && plusBtn}
                     </span>
                   </span>
@@ -371,31 +398,32 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
         )}
 
         {/* Menú completo */}
-        <section ref={menuRef} className="mt-8 scroll-mt-24">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <h2 className="text-2xl font-black">Menú</h2>
+        <section ref={menuRef} className="mt-5" style={{ scrollMarginTop: headerH + 4 }}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-xl font-black">Menú</h2>
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar un platillo..." className="w-full max-w-xs rounded-full border border-orange-100 bg-white px-4 py-2 text-sm outline-none focus:border-orange-300" />
           </div>
-          <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+          {/* Las categorías se quedan pegadas arriba mientras se baja por el menú */}
+          <div className="sticky z-10 -mx-4 flex gap-2 overflow-x-auto bg-[#fff8f1]/95 px-4 py-2 backdrop-blur" style={{ top: headerH }}>
             {["Todos", ...categories].map((c) => (
               <button
                 key={c}
-                onClick={() => setCategory(c)}
-                className="shrink-0 rounded-full border px-4 py-1.5 text-sm font-bold"
+                onClick={() => goToMenu(c)}
+                className="shrink-0 rounded-full border px-3 py-1 text-sm font-bold"
                 style={category === c ? { background: color, borderColor: color, color: "#fff" } : { borderColor: "#fed7aa", background: "#fff" }}
               >
                 {c}
               </button>
             ))}
           </div>
-          <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {shown.map((p) => (
-              <button key={p.id} disabled={!canOrder} onClick={() => pick(p)} className="flex items-center gap-3 rounded-2xl border border-orange-100 bg-white p-3 text-left shadow-sm transition hover:shadow-md disabled:cursor-default">
-                <Photo product={p} className="h-20 w-20 shrink-0 rounded-xl" />
+              <button key={p.id} disabled={!canOrder} onClick={() => pick(p)} className="flex items-center gap-2.5 rounded-xl border border-orange-100 bg-white p-2 text-left shadow-sm transition hover:shadow-md disabled:cursor-default">
+                <Photo product={p} emoji="text-3xl" className="h-14 w-14 shrink-0 rounded-lg" />
                 <span className="min-w-0 flex-1">
-                  <span className="block font-black leading-tight">{p.name}</span>
-                  {p.description && <span className="mt-0.5 line-clamp-2 block text-xs text-zinc-500">{p.description}</span>}
-                  <span className="mt-1 block text-sm font-black" style={{ color }}>{price(Number(p.price))}</span>
+                  <span className="block text-sm font-black leading-tight">{p.name}</span>
+                  {p.description && <span className="line-clamp-1 block text-xs text-zinc-500">{p.description}</span>}
+                  <span className="block text-sm font-black" style={{ color }}>{price(Number(p.price))}</span>
                 </span>
                 {canOrder && plusBtn}
               </button>
@@ -404,32 +432,47 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
           {shown.length === 0 && <p className="py-12 text-center text-zinc-500">No hay platillos en esta sección.</p>}
         </section>
 
-        {/* Pide donde quieras */}
+        {/* Pide donde quieras: imagen horizontal a todo lo ancho con los botones encima; mascota cuadrada, de lado */}
         {channels.on && links.length > 0 && (
-          <section className="mt-10 grid items-center gap-4 rounded-3xl border border-orange-100 bg-white p-5 md:grid-cols-[auto_1fr_auto]">
+          <section
+            className={`relative mt-6 overflow-hidden rounded-3xl border border-orange-100 bg-white ${channels.image && channelsWide ? "" : "grid items-center gap-3 p-4 md:grid-cols-[auto_1fr_auto]"}`}
+          >
             {channels.image && (
               // eslint-disable-next-line @next/next/no-img-element -- imagen del negocio
-              <img src={channels.image} alt="" className="h-24 w-24 object-contain" />
+              <img
+                src={channels.image}
+                alt=""
+                onLoad={(e) => setChannelsWide(e.currentTarget.naturalWidth >= e.currentTarget.naturalHeight * 1.6)}
+                className={channelsWide ? "block max-h-[360px] min-h-[180px] w-full object-cover" : "h-20 w-20 object-contain"}
+              />
             )}
-            <div>
-              <h2 className="text-2xl font-black leading-tight">
-                {channels.title} <span style={{ color }}>{channels.highlight}</span>
-              </h2>
-              {channels.text && <p className="text-sm text-zinc-500">{channels.text}</p>}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {links.map((l) => (
-                <a key={l.key} href={l.href} target="_blank" rel="noreferrer" className={`rounded-xl px-4 py-3 text-sm font-black ${l.cls}`}>
-                  {l.label} →
-                </a>
-              ))}
+            <div
+              className={
+                channels.image && channelsWide
+                  ? "absolute inset-0 flex flex-col justify-center gap-3 bg-gradient-to-r from-white/90 via-white/50 to-transparent p-5 md:p-8"
+                  : "contents"
+              }
+            >
+              <div>
+                <h2 className="text-xl font-black leading-tight md:text-3xl">
+                  {channels.title} <span style={{ color }}>{channels.highlight}</span>
+                </h2>
+                {channels.text && <p className={`max-w-md text-sm text-zinc-600 ${channels.image && channelsWide ? "hidden md:block" : ""}`}>{channels.text}</p>}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {links.map((l) => (
+                  <a key={l.key} href={l.href} target="_blank" rel="noreferrer" className={`rounded-xl px-3 py-2 text-sm font-black shadow md:px-4 md:py-3 ${l.cls}`}>
+                    {l.label} →
+                  </a>
+                ))}
+              </div>
             </div>
           </section>
         )}
 
         {/* Banner final */}
         {design.banner.on && (design.banner.image || design.banner.title) && (
-          <section className="relative mt-6 overflow-hidden rounded-3xl" style={{ background: `linear-gradient(90deg, #ffe2c4, ${color})` }}>
+          <section className="relative mt-5 overflow-hidden rounded-3xl" style={{ background: `linear-gradient(90deg, #ffe2c4, ${color})` }}>
             {design.banner.image && (
               // eslint-disable-next-line @next/next/no-img-element -- banner del negocio
               <img src={design.banner.image} alt="" className="absolute inset-0 h-full w-full object-cover opacity-90" />
@@ -444,7 +487,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
           </section>
         )}
 
-        <p className="mt-10 text-center text-xs text-zinc-400">Menú digital por bpos.com.mx · pedidos sin comisión</p>
+        <p className="mt-8 text-center text-xs text-zinc-400">Menú digital por bpos.com.mx · pedidos sin comisión</p>
       </main>
 
       {count > 0 && !checkout && (

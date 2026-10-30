@@ -108,8 +108,8 @@ export function MenuDesignEditor({ design, products, onChange }: { design: MenuD
         <Text text="Ciudad" value={design.topBar.city} placeholder="Lerdo, Durango" onChange={(city) => set("topBar", { city })} />
       </Section>
 
-      <Section title="Portada" hint="La imagen grande con tu mensaje principal." on={design.hero.on} onToggle={(on) => set("hero", { on })}>
-        <ImageField text="Imagen de portada (horizontal)" value={design.hero.image} onChange={(image) => set("hero", { image })} />
+      <Section title="Portada" hint="La imagen grande de arriba, a todo lo ancho, con tu mensaje encima a la izquierda." on={design.hero.on} onToggle={(on) => set("hero", { on })}>
+        <ImageField text="Imagen de portada: horizontal a todo lo ancho (ej. 1600 × 600). Mejor una ilustración sin texto, tus textos van encima" value={design.hero.image} onChange={(image) => set("hero", { image })} />
         <Text text="Texto pequeño de arriba" value={design.hero.eyebrow} placeholder="MÁS QUE HAMBURGUESAS" onChange={(eyebrow) => set("hero", { eyebrow })} />
         <Text text="Botón" value={design.hero.button} placeholder="Ver menú" onChange={(button) => set("hero", { button })} />
         <Text text="Título" value={design.hero.title} placeholder="SABOR QUE" onChange={(title) => set("hero", { title })} />
@@ -164,7 +164,7 @@ export function MenuDesignEditor({ design, products, onChange }: { design: MenuD
       </Section>
 
       <Section title="Pide donde quieras" hint="Botones a tu WhatsApp, DiDi Food, Uber Eats y Rappi." on={design.channels.on} onToggle={(on) => set("channels", { on })}>
-        <ImageField text="Imagen o mascota (cuadrada)" value={design.channels.image} maxSide={600} onChange={(image) => set("channels", { image })} />
+        <ImageField text="Imagen horizontal a todo lo ancho (ilustración sin texto, ej. 1600 × 500); los botones van encima. Una mascota cuadrada sale de lado" value={design.channels.image} onChange={(image) => set("channels", { image })} />
         <Text text="Título" value={design.channels.title} placeholder="Pide" onChange={(title) => set("channels", { title })} />
         <Text text="Título (en tu color)" value={design.channels.highlight} placeholder="donde quieras" onChange={(highlight) => set("channels", { highlight })} />
         <Text text="Texto" wide max={120} value={design.channels.text} placeholder="Tu Burger Planet favorito, ahora más cerca de ti." onChange={(text) => set("channels", { text })} />
@@ -186,7 +186,7 @@ export function MenuDesignEditor({ design, products, onChange }: { design: MenuD
       </Section>
 
       <Section title="Banner final" hint="Imagen con un mensaje al final del menú." on={design.banner.on} onToggle={(on) => set("banner", { on })}>
-        <ImageField text="Imagen del banner (horizontal)" value={design.banner.image} onChange={(image) => set("banner", { image })} />
+        <ImageField text="Imagen del banner: horizontal a todo lo ancho, se ve completa" value={design.banner.image} onChange={(image) => set("banner", { image })} />
         <Text text="Título" value={design.banner.title} placeholder="HAMBURGUESAS" onChange={(title) => set("banner", { title })} />
         <Text text="Título (en tu color)" value={design.banner.highlight} placeholder="CON GRAN ACTITUD" onChange={(highlight) => set("banner", { highlight })} />
         <Text text="Texto al lado" wide value={design.banner.side} placeholder="Buena comida, mejores momentos" onChange={(side) => set("banner", { side })} />
