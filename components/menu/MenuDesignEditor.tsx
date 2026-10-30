@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import type { Product } from "@/data/products";
-import type { ChannelLink, MenuDesign } from "@/lib/digital-menu";
+import type { Align, ChannelLink, MenuDesign } from "@/lib/digital-menu";
 import { uploadBusinessImage } from "@/lib/media";
 
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -74,6 +74,32 @@ function ImageField({ text, value, onChange, maxSide = 1600 }: { text: string; v
   );
 }
 
+/** De qué lado salen los textos y botones encima de la imagen */
+function AlignPicker({ value, onChange }: { value: Align; onChange: (v: Align) => void }) {
+  const options: [Align, string][] = [
+    ["left", "⬅️ Izquierda"],
+    ["center", "⬆️ Centro"],
+    ["right", "➡️ Derecha"],
+  ];
+  return (
+    <div className="md:col-span-2">
+      <p className={label}>Textos y botones encima de la imagen</p>
+      <div className="mt-1 grid grid-cols-3 gap-2">
+        {options.map(([v, text]) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onChange(v)}
+            className={`rounded-2xl border px-3 py-2 text-sm font-black ${value === v ? "border-orange-500 bg-orange-500/15 text-orange-300" : "border-zinc-800 text-zinc-400"}`}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Channel({ name, hint, value, onChange }: { name: string; hint: string; value: ChannelLink; onChange: (v: ChannelLink) => void }) {
   // La liga se guarda al salir del campo (a medio escribir todavía no es válida)
   const [draft, setDraft] = useState(value.url);
@@ -110,6 +136,7 @@ export function MenuDesignEditor({ design, products, onChange }: { design: MenuD
 
       <Section title="Portada" hint="La imagen grande de arriba, a todo lo ancho, con tu mensaje encima a la izquierda." on={design.hero.on} onToggle={(on) => set("hero", { on })}>
         <ImageField text="Imagen de portada: horizontal a todo lo ancho (ej. 1600 × 600). Mejor una ilustración sin texto, tus textos van encima" value={design.hero.image} onChange={(image) => set("hero", { image })} />
+        <AlignPicker value={design.hero.align} onChange={(align) => set("hero", { align })} />
         <Text text="Texto pequeño de arriba" value={design.hero.eyebrow} placeholder="MÁS QUE HAMBURGUESAS" onChange={(eyebrow) => set("hero", { eyebrow })} />
         <Text text="Botón" value={design.hero.button} placeholder="Ver menú" onChange={(button) => set("hero", { button })} />
         <Text text="Título" value={design.hero.title} placeholder="SABOR QUE" onChange={(title) => set("hero", { title })} />
@@ -165,6 +192,7 @@ export function MenuDesignEditor({ design, products, onChange }: { design: MenuD
 
       <Section title="Pide donde quieras" hint="Botones a tu WhatsApp, DiDi Food, Uber Eats y Rappi." on={design.channels.on} onToggle={(on) => set("channels", { on })}>
         <ImageField text="Imagen horizontal a todo lo ancho (ilustración sin texto, ej. 1600 × 500); los botones van encima. Una mascota cuadrada sale de lado" value={design.channels.image} onChange={(image) => set("channels", { image })} />
+        <AlignPicker value={design.channels.align} onChange={(align) => set("channels", { align })} />
         <Text text="Título" value={design.channels.title} placeholder="Pide" onChange={(title) => set("channels", { title })} />
         <Text text="Título (en tu color)" value={design.channels.highlight} placeholder="donde quieras" onChange={(highlight) => set("channels", { highlight })} />
         <Text text="Texto" wide max={120} value={design.channels.text} placeholder="Tu Burger Planet favorito, ahora más cerca de ti." onChange={(text) => set("channels", { text })} />
