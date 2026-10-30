@@ -17,6 +17,7 @@ export type PushPrefs = {
   cancelaciones: boolean;
   caja: boolean; // cortes de caja
   seguridad: boolean; // respaldos restaurados, usuarios y permisos
+  opiniones: boolean; // opiniones de 1 a 3 estrellas del menú digital
 };
 
 export const DEFAULT_PUSH_PREFS: PushPrefs = {
@@ -26,6 +27,7 @@ export const DEFAULT_PUSH_PREFS: PushPrefs = {
   cancelaciones: true,
   caja: true,
   seguridad: true,
+  opiniones: true,
 };
 
 /** Acciones de la bitácora que pueden generar aviso. */

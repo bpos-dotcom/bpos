@@ -20,6 +20,7 @@ import { runDailyBackup } from "@/lib/cloud/backup";
 import { flushCloudAudit } from "@/lib/cloud/audit-outbox";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
 import { useOnlineOrdersWatch } from "@/lib/online-orders-watch";
+import { usePendingReviews } from "@/lib/reviews";
 import { UpdateNotice } from "@/components/layout/UpdateNotice";
 
 const navItems = [
@@ -35,6 +36,7 @@ const navItems = [
   { label: "Inventario", href: "/inventario", icon: "📦" },
   { label: "Compras", href: "/compras", icon: "🛒" },
   { label: "Clientes", href: "/clientes", icon: "👥" },
+  { label: "Opiniones", href: "/opiniones", icon: "⭐" },
   { label: "Reportes", href: "/reportes", icon: "📈" },
   { label: "App del dueño", href: "/dueno", icon: "📱" },
   { label: "Configuración", href: "/configuracion", icon: "⚙️" },
@@ -70,6 +72,7 @@ export function Sidebar() {
   // Pedidos del menú digital esperando que alguien los acepte
   const online = useOnlineOrdersWatch();
   const onlineWaiting = online.count;
+  const reviewsPending = usePendingReviews();
 
   // Marca del negocio (Configuración → Sistema): nombre, logo y color
   const [brand, setBrand] = useState({ name: "", logo: "", color: "#f97316" });
@@ -322,6 +325,9 @@ export function Sidebar() {
                 <span className="mr-2">{item.icon}</span>
                 {item.label}
               </>
+            )}
+            {item.href === "/opiniones" && reviewsPending > 0 && (
+              <span className={`flex min-w-6 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-black text-white ${slim ? "absolute -right-1 -top-1" : "float-right"}`}>{reviewsPending}</span>
             )}
             {item.href === "/pedidos-en-linea" && onlineWaiting > 0 && (
               <span className={`flex min-w-6 items-center justify-center rounded-full bg-emerald-400 px-1.5 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : "float-right"}`}>{onlineWaiting}</span>

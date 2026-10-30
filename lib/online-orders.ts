@@ -247,7 +247,7 @@ export function customerWhatsappLink(order: OnlineOrder, notice: CustomerNotice,
         : d.type === "Mesa"
           ? `✅ ¡${hi}tu pedido *${order.folio}* ya está listo y va a tu mesa!`
           : `✅ ¡${hi}tu pedido *${order.folio}* ya está listo! Pasa a recogerlo a ${business}.${follow}`,
-    entregado: `🎉 ¡Gracias por tu pedido${name ? `, ${name}` : ""}! Esperamos que lo disfrutes 😋${link ? `\n\nTu pedido: ${link}` : ""}`,
+    entregado: `🎉 ¡Gracias por tu pedido${name ? `, ${name}` : ""}! Esperamos que lo disfrutes 😋${link ? `\n\n¿Cómo te fue? Califícanos aquí, son 5 segundos ⭐: ${link}` : ""}`,
     rechazado:
       `😔 ${hi}lo sentimos: no pudimos tomar tu pedido *${order.folio}* en ${business}.` + (opts.reason || order.reason ? `\nMotivo: ${opts.reason || order.reason}` : ""),
   };
