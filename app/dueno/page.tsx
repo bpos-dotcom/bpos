@@ -387,6 +387,7 @@ function OwnerApp() {
                         ["cancelaciones", "❌ Ventas canceladas"],
                         ["caja", "🔒 Cortes de caja"],
                         ["seguridad", "🔐 Respaldos, usuarios y permisos"],
+                        ["opiniones", "⭐ Opiniones malas (1 a 3 estrellas)"],
                       ] as [keyof PushPrefs, string][]
                     ).map(([key, label]) => (
                       <label key={key} className="flex items-center justify-between gap-3 text-sm text-zinc-300">

@@ -99,6 +99,8 @@ export type DigitalMenuSettings = {
   autoAccept: boolean;
   /** Al cambiar un pedido de estado, abrir WhatsApp con el aviso para el cliente (gratis, wa.me) */
   whatsappNotify: boolean;
+  /** Liga para dejar reseña en Google (se ofrece a quien califica con 4 o 5 estrellas) */
+  googleReviewUrl: string;
   /** Productos que no se muestran en el menú digital (ids) */
   hidden: number[];
   /** Productos agotados (también se ocultan) */
@@ -124,6 +126,7 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   paymentsByType: { Recoger: ["Efectivo", "Tarjeta"], Domicilio: ["Efectivo"], Mesa: ["Efectivo", "Tarjeta"] },
   autoAccept: false,
   whatsappNotify: true,
+  googleReviewUrl: "",
   hidden: [],
   soldOut: {},
   whatsapp: "",
@@ -253,6 +256,7 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
     paymentsByType: normalizePaymentsByType(r.paymentsByType, r.payments),
     autoAccept: r.autoAccept === true,
     whatsappNotify: r.whatsappNotify !== false,
+    googleReviewUrl: /^https:\/\/\S+$/i.test(String(r.googleReviewUrl || "").trim()) ? String(r.googleReviewUrl).trim().slice(0, 300) : "",
     hidden: Array.isArray(r.hidden) ? r.hidden.map(Number).filter(Number.isFinite) : [],
     soldOut,
     whatsapp: String(r.whatsapp || "").replace(/\D/g, "").slice(0, 13),

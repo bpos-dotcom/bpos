@@ -51,6 +51,8 @@ type OrderStatus = {
   updated_at: string;
   data: OnlineOrderData;
   branch: string;
+  /** Su calificación, si ya la dio */
+  review: { stars: number; comment: string } | null;
 };
 
 type Picks = Record<string, string[]>;
@@ -905,6 +907,96 @@ function Checkout({
   );
 }
 
+// ------------------------------------------------------------ opinión
+
+/**
+ * El cliente califica su pedido. 4 o 5 estrellas: se le invita a dejar su
+ * reseña en Google. 1 a 3: su comentario llega solo al negocio (con aviso
+ * al celular del dueño) para que lo atienda.
+ */
+function RateOrder({ placed, color, done }: { placed: Placed; color: string; done: OrderStatus["review"] }) {
+  const [stars, setStars] = useState(done?.stars || 0);
+  const [comment, setComment] = useState(done?.comment || "");
+  const [sent, setSent] = useState<{ google: string } | null>(done ? { google: "" } : null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const good = stars >= 4;
+
+  async function send() {
+    if (!stars) return;
+    setBusy(true);
+    setError("");
+    try {
+      const { data: res, error: e } = await getSupabase().rpc("bpos_menu_review", { p_id: placed.id, p_token: placed.token, p_stars: stars, p_comment: comment });
+      if (e) throw new Error(e.message);
+      setSent({ google: String((res as { google?: string })?.google || "") });
+      // Opinión baja: aviso al celular del dueño (si no se puede, la ve en Opiniones)
+      if (stars <= 3) void fetch("/api/push/review", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: placed.id, token: placed.token }) }).catch(() => undefined);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo enviar.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="mt-6 rounded-2xl border border-orange-100 bg-white p-5 text-center shadow-sm">
+        <p className="text-2xl">{"★".repeat(stars)}<span className="text-zinc-300">{"★".repeat(5 - stars)}</span></p>
+        {stars >= 4 ? (
+          <>
+            <p className="mt-2 font-black">¡Gracias! Nos alegra que te haya gustado 🧡</p>
+            {sent.google && (
+              <>
+                <p className="mt-1 text-sm text-zinc-500">¿Nos ayudas contándolo en Google? Así más gente nos conoce.</p>
+                <a href={sent.google} target="_blank" rel="noreferrer" className="mt-3 block rounded-xl py-3 font-black text-white" style={{ background: color }}>
+                  ⭐ Dejar mi reseña en Google
+                </a>
+              </>
+            )}
+          </>
+        ) : (
+          <p className="mt-2 font-black">Gracias por decirnos. El negocio ya recibió tu comentario y lo va a atender.</p>
+        )}
+        {!done && (
+          <button onClick={() => setSent(null)} className="mt-3 text-xs font-bold text-zinc-400 underline">
+            Cambiar mi calificación
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-6 rounded-2xl border border-orange-100 bg-white p-5 text-center shadow-sm">
+      <p className="font-black">¿Cómo estuvo tu pedido?</p>
+      <div className="mt-2 flex justify-center gap-1">
+        {[1, 2, 3, 4, 5].map((n) => (
+          <button key={n} onClick={() => setStars(n)} aria-label={`${n} estrellas`} className="text-4xl transition-transform active:scale-90" style={{ color: n <= stars ? "#f59e0b" : "#e4e4e7" }}>
+            ★
+          </button>
+        ))}
+      </div>
+      {stars > 0 && (
+        <>
+          <textarea
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+            maxLength={600}
+            rows={3}
+            placeholder={good ? "¿Qué fue lo que más te gustó? (opcional)" : "¿Qué pasó? Cuéntanos para arreglarlo (solo lo ve el negocio)"}
+            className="mt-3 w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+          />
+          <button disabled={busy} onClick={() => void send()} className="mt-2 w-full rounded-xl py-3 font-black text-white disabled:opacity-50" style={{ background: color }}>
+            {busy ? "Enviando..." : "Enviar calificación"}
+          </button>
+        </>
+      )}
+      {error && <p className="mt-2 text-sm font-bold text-red-600">{error}</p>}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------ seguimiento
 
 const STEPS = [
@@ -1000,6 +1092,8 @@ function OrderTracking({ slug, placed, data, onBack }: { slug: string; placed: P
             </div>
           </>
         )}
+
+        {(status.status === "listo" || status.status === "entregado") && <RateOrder placed={placed} color={color} done={status.review} />}
 
         {transfer && bank && (
           <div className="mt-6 rounded-2xl border-2 border-emerald-500 bg-emerald-50 p-5">
