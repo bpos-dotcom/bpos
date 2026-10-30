@@ -54,6 +54,10 @@ export type Product = {
   category: string;
   price: number;
   emoji: string;
+  /** Foto del producto (menú digital); dirección pública en la nube */
+  image?: string;
+  /** Descripción para el menú digital ("Carne, cheddar, tocino...") */
+  description?: string;
   station: KitchenStation;
   /** Antes (1.10): partes de un combo. Se convierten solas en opciones enlazadas (ver migrateComponents). */
   components?: ProductComponent[];

@@ -10,6 +10,34 @@ import { DIGITAL_MENU_EVENT, getDigitalMenu } from "@/lib/digital-menu";
 import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, listOnlineOrders } from "@/lib/online-orders";
 
 const CHECK_MS = 10_000;
+const VOICE_TEXT = "Recordatorio de B-POS. Acaba de llegar un nuevo pedido del menú en línea.";
+const TONE = "/sounds/BPOS_Official_Delivery_Equivalences.wav";
+
+/** Tono y luego la voz en español, 3 veces (sin voz en español: el tono 3 veces). */
+function announceNewOrder() {
+  const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
+  const voice = synth?.getVoices().find((v) => v.lang.toLowerCase().startsWith("es"));
+  const tone = new Audio(TONE);
+  if (!synth || !voice) {
+    let plays = 1;
+    tone.addEventListener("ended", () => {
+      if (plays++ < 3) void tone.play().catch(() => {});
+    });
+    void tone.play().catch(() => {});
+    return;
+  }
+  const speak = () => {
+    synth.cancel();
+    for (let i = 0; i < 3; i++) {
+      const u = new SpeechSynthesisUtterance(VOICE_TEXT);
+      u.voice = voice;
+      u.lang = voice.lang;
+      synth.speak(u);
+    }
+  };
+  tone.addEventListener("ended", speak, { once: true });
+  tone.play().catch(speak);
+}
 
 export function useOnlineOrdersWatch() {
   const [waiting, setWaiting] = useState(0);
@@ -18,6 +46,8 @@ export function useOnlineOrdersWatch() {
 
   useEffect(() => {
     let alive = true;
+    // Chrome carga las voces después: se piden desde ya para tener la de español al llegar un pedido
+    window.speechSynthesis?.getVoices();
     const check = async () => {
       const menu = getDigitalMenu();
       if (!menu.enabled || !menu.slug || busy.current) {
@@ -45,7 +75,7 @@ export function useOnlineOrdersWatch() {
           setWaiting(fresh.length);
         }
         if (arrived.length) {
-          new Audio("/sounds/BPOS_Official_Delivery_Equivalences.wav").play().catch(() => {});
+          announceNewOrder();
           window.dispatchEvent(new Event(ONLINE_ORDERS_EVENT));
         }
       } catch {

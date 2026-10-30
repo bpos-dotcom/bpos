@@ -26,6 +26,7 @@ import {
 import { PUSH_SERVER as PUBLIC_SITE } from "@/lib/push/rules";
 import { DAY_SHORT } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
+import { MenuDesignEditor } from "@/components/menu/MenuDesignEditor";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -267,6 +268,60 @@ export default function MenuDigitalPage() {
               Aviso arriba del menú (opcional)
               <input value={menu.notice} maxLength={200} onChange={(e) => update({ notice: e.target.value })} placeholder="Ej. Martes 2x1 en papas" className={`${input} mt-1`} />
             </label>
+          </section>
+
+          {/* WhatsApp y transferencia */}
+          <section className={card}>
+            <h2 className="text-lg font-black">💬 WhatsApp y transferencia</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Cuando el cliente paga por transferencia, ve estos datos y se abre WhatsApp con el desglose de su pedido para mandarte el comprobante a este número.
+            </p>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className={label}>
+                WhatsApp del negocio (10 dígitos)
+                <input
+                  value={menu.whatsapp}
+                  inputMode="tel"
+                  maxLength={13}
+                  placeholder={getBusinessSettings().ownerWhatsapp.slice(-10) || "8711234567"}
+                  onChange={(e) => update({ whatsapp: e.target.value })}
+                  className={`${input} mt-1`}
+                />
+              </label>
+              <label className={label}>
+                Banco
+                <input value={menu.bank.bank} maxLength={40} placeholder="BBVA" onChange={(e) => update({ bank: { ...menu.bank, bank: e.target.value } })} className={`${input} mt-1`} />
+              </label>
+              <label className={label}>
+                CLABE (18 dígitos)
+                <input value={menu.bank.clabe} inputMode="numeric" maxLength={18} onChange={(e) => update({ bank: { ...menu.bank, clabe: e.target.value } })} className={`${input} mt-1 font-mono`} />
+              </label>
+              <label className={label}>
+                Titular de la cuenta
+                <input value={menu.bank.holder} maxLength={80} onChange={(e) => update({ bank: { ...menu.bank, holder: e.target.value } })} className={`${input} mt-1`} />
+              </label>
+            </div>
+            {menu.payments.transfer && (!menu.whatsapp || menu.bank.clabe.length !== 18) && (
+              <p className="mt-3 text-sm font-bold text-yellow-200">Tienes activado el pago por transferencia: completa el WhatsApp y la CLABE.</p>
+            )}
+          </section>
+
+          {/* Diseño */}
+          <section className={card}>
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div>
+                <h2 className="text-lg font-black">🎨 Diseño del menú</h2>
+                <p className="mt-1 text-sm text-zinc-400">Imágenes, textos y botones de tu menú. Se guarda solo; ábrelo para ver cómo queda.</p>
+              </div>
+              {link && (
+                <a href={link} target="_blank" rel="noreferrer" className="rounded-2xl border border-zinc-700 px-4 py-2 text-sm font-black hover:border-orange-500">
+                  Ver mi menú ↗
+                </a>
+              )}
+            </div>
+            <div className="mt-4">
+              <MenuDesignEditor design={menu.design} products={products} onChange={(design) => update({ design })} />
+            </div>
           </section>
 
           {/* Productos */}

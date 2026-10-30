@@ -197,6 +197,11 @@ export function Sidebar() {
   }, [criticalSignature]);
 
   function openOperationsCenter() {
+    // Un pedido del menú en línea esperando va primero: se abre directo
+    if (onlineWaiting > 0) {
+      router.push("/pedidos-en-linea");
+      return;
+    }
     if (signature) {
       localStorage.setItem(ACK_KEY, signature);
       setAcknowledgedSignature(signature);
@@ -209,8 +214,9 @@ export function Sidebar() {
   const hasCritical = criticalCount > 0;
   const hasWarning = lowStockCount > 0;
 
-  const visualState = hasCritical ? "critical" : hasPending ? "delivery" : hasWarning ? "warning" : "normal";
-  const badgeCount = hasCritical ? criticalCount : hasPending ? pendingCount : hasWarning ? lowStockCount : 0;
+  const hasOnline = onlineWaiting > 0;
+  const visualState = hasCritical ? "critical" : hasPending || hasOnline ? "delivery" : hasWarning ? "warning" : "normal";
+  const badgeCount = hasCritical ? criticalCount : hasOnline ? onlineWaiting : hasPending ? pendingCount : hasWarning ? lowStockCount : 0;
 
   const visibleItems = useMemo(
     () => navItems.filter((item) => {
@@ -285,7 +291,7 @@ export function Sidebar() {
           {/* eslint-disable-next-line @next/next/no-img-element -- logo del negocio (data URL) o el de B-POS */}
           <img src={brand.logo || "/bpos-logo.png"} alt={brand.name || "B-POS"} className={`shrink-0 rounded-lg object-contain ${slim ? "h-10 w-10" : "h-14 w-14"}`} />
           {badgeCount > 0 && (
-            <span className={`flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : ""} ${hasCritical ? "bg-red-400" : hasPending ? "bg-emerald-300" : "bg-yellow-300"}`}>
+            <span className={`flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : ""} ${hasCritical ? "bg-red-400" : hasPending || hasOnline ? "bg-emerald-300" : "bg-yellow-300"}`}>
               {badgeCount}
             </span>
           )}
@@ -295,8 +301,8 @@ export function Sidebar() {
 
         <div className="mt-3 flex items-center gap-2">
           <h1
-            className={`break-words text-xl font-black leading-tight ${hasCritical ? "text-red-200" : hasPending ? "text-emerald-200" : hasWarning ? "text-yellow-200" : ""}`}
-            style={hasCritical || hasPending || hasWarning ? undefined : { color: brand.color }}
+            className={`break-words text-xl font-black leading-tight ${hasCritical ? "text-red-200" : hasPending || hasOnline ? "text-emerald-200" : hasWarning ? "text-yellow-200" : ""}`}
+            style={hasCritical || hasPending || hasOnline || hasWarning ? undefined : { color: brand.color }}
           >
             {brand.name}
           </h1>
@@ -307,8 +313,9 @@ export function Sidebar() {
         <p className="mt-1 text-[11px] font-semibold text-zinc-500">Operado por bpos.com.mx</p>
 
         {hasCritical && <p className="mt-2 text-xs font-bold text-red-100">Error crítico · abrir para revisar</p>}
-        {!hasCritical && hasPending && <p className="mt-2 text-xs font-bold text-emerald-100">Equivalencias por enlazar · abrir ahora</p>}
-        {!hasCritical && !hasPending && hasWarning && <p className="mt-2 text-xs font-bold text-yellow-100">Insumos por reponer</p>}
+        {!hasCritical && hasOnline && <p className="mt-2 text-xs font-bold text-emerald-100">🔔 Nuevo pedido del menú en línea · abrir ahora</p>}
+        {!hasCritical && !hasOnline && hasPending && <p className="mt-2 text-xs font-bold text-emerald-100">Equivalencias por enlazar · abrir ahora</p>}
+        {!hasCritical && !hasPending && !hasOnline && hasWarning && <p className="mt-2 text-xs font-bold text-yellow-100">Insumos por reponer</p>}
         </>
         )}
       </button>
