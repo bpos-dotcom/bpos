@@ -1,55 +1,52 @@
-# B-POS para Windows (bloque 13)
+# B-POS Agent para Windows (B-POS 2.0)
 
-Un solo instalador, `BPOS-Setup-<versión>.exe`, deja lista la computadora de la caja:
+B-POS se usa en la web (www.bpos.com.mx): cajas, cocina, tablets y celulares
+entran con el navegador. En el local solo se instala **B-POS Agent**, y solo en
+la computadora que tiene las impresoras y donde llegan los pedidos de
+Rappi, Uber Eats y DiDi Food.
 
-| Qué instala | Para qué |
+`BPOS-Setup-<versión>.exe` instala:
+
+| Qué | Para qué |
 |---|---|
-| **Sistema B-POS** (build de producción) | Corre en segundo plano en el puerto 3000; las cajas, la cocina y los celulares de la red lo abren igual que antes |
-| **B-POS Agent** | Impresión térmica (4850) e impresora virtual "B-POS Agent Virtual Printer" (9100) para los tickets de Rappi/Uber/DiDi |
-| **Actualizador automático** | Revisa GitHub Releases al arrancar y cada 6 h; descarga en segundo plano e instala al cerrar B-POS |
-| **Inicio automático** | B-POS arranca solo al encender la computadora (sin abrir ventanas) |
-| **Regla de firewall** | Permite que los dispositivos de la red privada entren al puerto 3000 |
+| **Impresora virtual** "B-POS Agent Virtual Printer" (puerto 9100) | Ahí se mandan los tickets de las plataformas; el Agent los lee (texto o Tesseract) y los sube al Bridge en la nube |
+| **Impresión** | Imprime lo que mandan las pantallas de B-POS (comandas por estación, ticket de la bolsa, ticket original) |
+| **Conexión con la nube** | Cada 2 s avisa que está conectado, sus impresoras, y recoge los trabajos de impresión (`lib/cloud-link.js`) |
+| **Actualizador automático** | Revisa GitHub Releases al arrancar y cada 6 h; descarga en segundo plano e instala al cerrar |
+| **Inicio automático** | Arranca solo al encender la computadora (sin abrir ventanas) |
 
-Ya no hace falta Node.js ni `INICIAR-BPOS.bat` en la caja.
+## Vincular
+
+1. En la web: Configuración → Sistema → **Vincular una computadora** (código
+   de 8 letras, dura 15 minutos).
+2. En la ventana de B-POS Agent: escribir el código → **Vincular**.
+
+Desde ese momento la tarjeta de Sistema muestra el Agent como "Conectado" con
+sus impresoras, y Configuración → Impresoras las ofrece para cada estación.
+Desvincular se puede desde la web o desde el Agent.
+
+## Actualizar desde B-POS 1.x
+
+La 1.x se actualiza sola a la 2.0 (o se instala la 2.0 encima): el instalador
+quita la versión anterior, borra el sistema local y la regla de firewall del
+puerto 3000, y conserva `%APPDATA%\B-POS\data`. Al vincular, el Agent sube a
+la nube las equivalencias del Bridge y los pedidos pendientes que había en la
+PC.
 
 ## Usarlo
 
-- B-POS vive en la **bandeja** (junto al reloj). Clic derecho en el ícono:
-  Abrir B-POS · App del dueño · Ver estado · Buscar actualizaciones ·
-  Reiniciar servidor · **Reparar instalación** · Abrir carpeta de registros · Salir.
-- **Ver estado** muestra la versión, si el sistema está funcionando, el avance
-  de las actualizaciones y el registro reciente.
-- **Reparar instalación** revisa los archivos, reinstala la impresora virtual
-  (Windows pide permiso de administrador), reactiva el inicio automático y
-  reinicia el servidor.
-- **Registros**: `%APPDATA%\B-POS\logs\bpos.log` (se rota a los 5 MB, guarda 5).
-- **Datos del Bridge**: `%APPDATA%\B-POS\data`.
+- Vive en la **bandeja** (junto al reloj): Abrir B-POS · Ver estado ·
+  Buscar actualizaciones · **Reparar instalación** · Abrir carpeta de
+  registros · Salir.
+- Sin internet o sin vincular, los pedidos leídos esperan en
+  `%APPDATA%\B-POS\data\outbox.json` y se suben solos al volver.
+- **Registros**: `%APPDATA%\B-POS\logs\bpos.log`.
 
-## Desinstalar
+## Armar y publicar
 
-Panel de control → Programas → B-POS → Desinstalar. Quita la impresora
-virtual, la regla de firewall y el inicio automático, y pregunta si borrar
-los registros y archivos locales. Las ventas, productos e inventario están en
-la nube y no se borran.
+```
+npm run desktop:build     # bpos-agent/dist/BPOS-Setup-<versión>.exe
+npm run desktop:release   # además lo publica en GitHub Releases
+```
 
-## Antes de instalar en una caja que ya usaba B-POS
-
-1. Cierra la ventana de `INICIAR-BPOS.bat` (usa el mismo puerto 3000).
-2. Instala `BPOS-Setup-<versión>.exe`. Si había un B-POS Agent viejo, se
-   reemplaza solo.
-3. Abre B-POS desde la bandeja. Se abre en el mismo navegador y la misma
-   dirección (`http://localhost:3000`), así que los datos de ese navegador
-   siguen ahí.
-
-## Sacar una versión nueva (para quien programa)
-
-1. Sube `version` en `bpos-agent/package.json` (ej. 1.1.0 → 1.2.0).
-2. `npm run desktop:build`: arma `bpos-agent/dist/BPOS-Setup-<versión>.exe` para probar.
-3. `npm run desktop:release`: arma y **publica** en GitHub Releases de
-   `bpos-dotcom/bpos` (usa la sesión de `gh auth login`). Las cajas la
-   descargan solas en las siguientes horas.
-
-> El instalador no está firmado con un certificado de código: Windows
-> SmartScreen muestra "Windows protegió su PC" → **Más información** →
-> **Ejecutar de todas formas**. Para quitar ese aviso hace falta comprar un
-> certificado de firma de código.
+Sube la versión de `bpos-agent/package.json` antes de cada release.

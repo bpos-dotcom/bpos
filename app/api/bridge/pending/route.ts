@@ -1,9 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { guardBridgeRequest } from "@/lib/bridge/api-guard";
-import { BRIDGE_DATA_DIR } from "@/lib/bridge/data-dir";
-import { bridgeOrders } from "@/lib/bridge/orders-store";
-import fs from "fs";
-import path from "path";
+import { bridgeAuth } from "@/lib/bridge/api-guard";
+import { bridgeStore } from "@/lib/bridge/store";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,8 +23,6 @@ type BridgeOrder = {
   [key: string]: unknown;
 };
 
-
-const DATA_FILE = path.join(BRIDGE_DATA_DIR, "bridge-aliases.json");
 
 function normalize(value: unknown) {
   return String(value ?? "")
@@ -68,18 +63,6 @@ function extractQuantifiedItems(rawText: string) {
     );
 }
 
-function readAliases(): BridgeAlias[] {
-  try {
-    if (!fs.existsSync(DATA_FILE)) return [];
-    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8")) as {
-      aliases?: BridgeAlias[];
-    };
-    return Array.isArray(parsed.aliases) ? parsed.aliases : [];
-  } catch {
-    return [];
-  }
-}
-
 function findAlias(
   aliases: BridgeAlias[],
   externalName: string,
@@ -102,11 +85,11 @@ function findAlias(
 }
 
 export async function GET(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
+  const store = bridgeStore(auth.ctx);
 
-  const aliases = readAliases();
-  const orders = bridgeOrders<BridgeOrder>();
+  const [aliases, orders] = (await Promise.all([store.aliases(), store.orders()])) as [BridgeAlias[], BridgeOrder[]];
   const pending: Array<{
     platform: string;
     orderId: string;

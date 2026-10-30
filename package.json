@@ -7,7 +7,6 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "desktop:prepare": "node scripts/build-desktop.mjs prepare",
     "desktop:build": "node scripts/build-desktop.mjs build",
     "desktop:release": "node scripts/build-desktop.mjs release"
   },

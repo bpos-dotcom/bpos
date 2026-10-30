@@ -16,8 +16,12 @@ const {
 const { initLogger } = require("./lib/logger");
 const { startDesktop } = require("./lib/desktop");
 const stationPrinter = require("./lib/station-printer");
+const cloudLink = require("./lib/cloud-link");
 
-// Bloque 13: una sola copia de B-POS a la vez (los puertos 3000/4850/9100 son únicos)
+// Pruebas: otra carpeta de datos para correr junto a un B-POS instalado
+if (process.env.BPOS_AGENT_PROFILE) app.setPath("userData", process.env.BPOS_AGENT_PROFILE);
+
+// Una sola copia de B-POS Agent a la vez (los puertos 4850/9100 son únicos)
 if (!app.requestSingleInstanceLock()) {
   app.quit();
   process.exit(0);
@@ -45,8 +49,9 @@ let printQueue = [];
 // ------------------------------------------------------------------
 // Impresora virtual (127.0.0.1:9100). Con el controlador "Microsoft Print
 // To PDF" cada ticket llega como PDF; también se aceptan XPS y texto.
-// Todo ticket se lee, se interpreta y se manda al Bridge de B-POS; si algo
-// falla se manda igual con el error, para que nunca se pierda un pedido.
+// Todo ticket se lee, se interpreta y se sube al Bridge de B-POS en la nube;
+// si algo falla se manda igual con el error, para que nunca se pierda un
+// pedido (sin internet queda en espera y se sube al volver).
 
 function saveJobFile(folder, name, buffer) {
   const dir = path.join(app.getPath("userData"), folder);
@@ -169,8 +174,8 @@ async function handlePrintJob(buffer) {
   }
 
   try {
-    const bridgeResult = await sendOrderToBpos(job);
-    job.status = bridgeResult.duplicate ? "Duplicado" : "Enviado a B-POS";
+    const bridgeResult = await cloudLink.submitOrder(job);
+    job.status = bridgeResult.duplicate ? "Duplicado" : bridgeResult.sent ? "Enviado a B-POS" : "En espera (sin conexión)";
     // Si el Bridge no lo manda a estaciones a tiempo, el original sale en Cocina
     if (!bridgeResult.duplicate && job.format !== "text") stationPrinter.scheduleFallback(job);
     job.sentToBposAt = new Date().toISOString();
@@ -230,62 +235,6 @@ const printer = new ThermalPrinter({
   await printer.execute();
 }
 
-// Llave en ~/.bpos/agent-key con la que el servidor de B-POS acepta pedidos
-// de este Agent. En una instalación nueva todavía no existe: se crea aquí
-// (el servidor lee el mismo archivo), si no el primer pedido se rechazaba con
-// "Inicia sesión en B-POS para usar el Bridge".
-const AGENT_KEY_FILE = path.join(require("os").homedir(), ".bpos", "agent-key");
-
-function readAgentKey() {
-  try {
-    const key = fs.readFileSync(AGENT_KEY_FILE, "utf8").trim();
-    if (key) return key;
-  } catch {}
-  try {
-    const key = require("crypto").randomBytes(32).toString("hex");
-    fs.mkdirSync(path.dirname(AGENT_KEY_FILE), { recursive: true });
-    fs.writeFileSync(AGENT_KEY_FILE, key, { encoding: "utf8", mode: 0o600, flag: "wx" });
-    return key;
-  } catch {
-    // Otro proceso la acaba de crear: se usa esa
-    try {
-      return fs.readFileSync(AGENT_KEY_FILE, "utf8").trim();
-    } catch {
-      return "";
-    }
-  }
-}
-
-async function postOrder(job) {
-  const agentKey = readAgentKey();
-  const response = await fetch("http://localhost:3000/api/bridge/orders", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      ...(agentKey ? { "x-bpos-agent-key": agentKey } : {}),
-    },
-    body: JSON.stringify(job),
-  });
-  const result = await response.json().catch(() => ({}));
-  return { response, result };
-}
-
-async function sendOrderToBpos(job) {
-  let { response, result } = await postOrder(job);
-  // Un reintento si la llave no coincidió (el servidor la acaba de crear) o
-  // el servidor seguía arrancando
-  if (response.status === 401 || response.status === 503) {
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    ({ response, result } = await postOrder(job));
-  }
-
-  if (!response.ok) {
-    throw new Error(result?.error || `B-POS respondió ${response.status}`);
-  }
-
-  return result;
-}
-
 server.get("/queue", (req, res) => {
   res.json(printQueue);
 });
@@ -300,35 +249,70 @@ server.get("/kds", (req, res) => {
   res.json(pendingOrders);
 });
 
-server.post("/print", async (req, res) => {
-  const job = {
-    id: Date.now(),
-    receivedAt: new Date().toISOString(),
-    ...req.body,
-  };
+// ------------------------------------------------------------------
+// Lo que piden las pantallas de B-POS. Llega por la nube (cola de trabajos,
+// lib/cloud-link.js) o, en pruebas sin nube, por http://localhost:4850.
 
+async function printCommandJob(body) {
+  const job = { id: Date.now(), receivedAt: new Date().toISOString(), ...body };
   printQueue.push(job);
-
   try {
-  await printThermalJob(job);
-  job.status = "Impreso";
-} catch (error) {
-  console.error(error);
-  job.status = "Error";
-  job.error = error.message;
+    await printThermalJob(job);
+    job.status = "Impreso";
+  } catch (error) {
+    console.error(error);
+    job.status = "Error";
+    job.error = error.message;
+  }
+  console.log(`Comanda ${job.station || ""} → ${job.printerName || ""}: ${job.status}`);
+  return { success: true, job };
 }
 
-  console.log("==============");
-  console.log("Nuevo trabajo recibido por B-POS Agent");
-  console.log(job.station);
-  console.log(job.printerName);
-  console.log(job.content);
-  console.log("==============");
+/** Tickets propios del pedido: uno por estación y el de la bolsa (Caja) */
+async function printTicketsJob(body) {
+  const { platform, orderId, tickets, force } = body || {};
+  if (!platform || !orderId || !Array.isArray(tickets) || !tickets.length) throw new Error("Faltan pedido o tickets.");
+  const clean = tickets
+    .filter((t) => t && typeof t.html === "string" && typeof t.target === "string")
+    .map((t) => ({ target: t.target, html: t.html }));
+  const result = await stationPrinter.printTickets({ platform, orderId, tickets: clean, force: Boolean(force) });
+  return { success: true, ...result };
+}
 
-  res.json({
-    success: true,
-    job,
+/** Ticket ORIGINAL de la plataforma (reimpresión desde el Bridge) */
+async function printOriginalJob(body) {
+  const { platform, orderId, stations, force } = body || {};
+  // El PDF se toma de la cola del Agent, nunca de una ruta que manden las pantallas
+  const same = (j) =>
+    String(j.platform || "").toLowerCase() === String(platform || "").toLowerCase() &&
+    String(j.orderId || "").toUpperCase() === String(orderId || "").toUpperCase();
+  // Primero la cola de esta sesión; si el Agent se reinició, el índice guardado en disco
+  const job = [...printQueue].reverse().find(same) || [...readOriginalsIndex()].reverse().find(same);
+  if (!job) throw new Error("El Agent no tiene el ticket original de ese pedido.");
+  const result = await stationPrinter.printOriginal({
+    platform,
+    orderId,
+    filePath: job.filePath,
+    rawText: job.rawText,
+    stations: Array.isArray(stations) ? stations : [],
+    force: Boolean(force),
   });
+  return { success: true, ...result };
+}
+
+function stationPrintersJob(body) {
+  return { success: true, config: stationPrinter.setConfig(body || {}) };
+}
+
+const AGENT_JOBS = {
+  print: printCommandJob,
+  "print-tickets": printTicketsJob,
+  "print-original": printOriginalJob,
+  "station-printers": async (body) => stationPrintersJob(body),
+};
+
+server.post("/print", async (req, res) => {
+  res.json(await printCommandJob(req.body));
 });
 
 server.delete("/queue", (req, res) => {
@@ -355,51 +339,25 @@ server.get("/station-printers", (req, res) => {
 
 server.post("/station-printers", (req, res) => {
   try {
-    res.json({ success: true, config: stationPrinter.setConfig(req.body || {}) });
+    res.json(stationPrintersJob(req.body));
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
   }
 });
 
-// El Bridge manda los tickets propios del pedido: uno por estación y el de la bolsa (Caja)
 server.post("/print-tickets", async (req, res) => {
   try {
-    const { platform, orderId, tickets, force } = req.body || {};
-    if (!platform || !orderId || !Array.isArray(tickets) || !tickets.length) {
-      return res.status(400).json({ success: false, error: "Faltan pedido o tickets." });
-    }
-    const clean = tickets
-      .filter((t) => t && typeof t.html === "string" && typeof t.target === "string")
-      .map((t) => ({ target: t.target, html: t.html }));
-    const result = await stationPrinter.printTickets({ platform, orderId, tickets: clean, force: Boolean(force) });
-    res.json({ success: true, ...result });
+    res.json(await printTicketsJob(req.body));
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
-// Ticket ORIGINAL de la plataforma (reimpresión desde el Bridge)
 server.post("/print-original", async (req, res) => {
   try {
-    const { platform, orderId, stations, force } = req.body || {};
-    // El PDF se toma de la cola del Agent, nunca de una ruta que mande el navegador
-    const same = (j) =>
-      String(j.platform || "").toLowerCase() === String(platform || "").toLowerCase() &&
-      String(j.orderId || "").toUpperCase() === String(orderId || "").toUpperCase();
-    // Primero la cola de esta sesión; si B-POS se reinició, el índice guardado en disco
-    const job = [...printQueue].reverse().find(same) || [...readOriginalsIndex()].reverse().find(same);
-    if (!job) return res.status(404).json({ success: false, error: "El Agent no tiene el ticket original de ese pedido." });
-    const result = await stationPrinter.printOriginal({
-      platform,
-      orderId,
-      filePath: job.filePath,
-      rawText: job.rawText,
-      stations: Array.isArray(stations) ? stations : [],
-      force: Boolean(force),
-    });
-    res.json({ success: true, ...result });
+    res.json(await printOriginalJob(req.body));
   } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+    res.status(error.message.includes("no tiene el ticket") ? 404 : 500).json({ success: false, error: error.message });
   }
 });
 
@@ -433,14 +391,19 @@ server.post("/read-pdf-ocr", async (req, res) => {
 });
 
 server
-  // Solo esta computadora: el navegador de la caja llama a localhost:4850
+  // Solo esta computadora (pruebas sin nube); en la nube todo llega por cloud-link
   .listen(4850, "127.0.0.1", () => {
     console.log("B-POS Agent escuchando en puerto 4850");
   })
   .on("error", (error) => console.error("Agent (puerto 4850):", error.message));
 
-// Ventana, bandeja, servidor de B-POS, actualizador y reparación: lib/desktop.js
+// Ventana, bandeja, conexión con la nube, actualizador y reparación: lib/desktop.js
 startDesktop({
+  cloud: {
+    handlers: AGENT_JOBS,
+    listPrinters: () => stationPrinter.listPrinters(),
+    applyStationPrinters: (config) => stationPrinter.setConfig(config),
+  },
   onQuit: async () => {
     try {
       await terminateOcrWorker();

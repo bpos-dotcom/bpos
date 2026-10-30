@@ -1,37 +1,42 @@
-import { PrintJob } from "@/lib/bridge/printManager";
+/**
+ * Todo lo que las pantallas le piden a B-POS Agent (imprimir, guardar qué
+ * impresora tiene cada estación).
+ *   En la nube (B-POS 2.0): por la cola de trabajos (lib/agent/client.ts),
+ *   desde cualquier dispositivo del negocio.
+ *   Sin nube (pruebas locales): directo al Agent de esta computadora.
+ */
+import { runAgentJob, type AgentJobKind } from "@/lib/agent/client";
+import type { PrintJob } from "@/lib/bridge/printManager";
+import { isCloudConfigured } from "@/lib/supabase/client";
 
 const LOCAL_SERVICE_URL = "http://localhost:4850";
 
-export async function checkLocalService() {
-  try {
-    const response = await fetch(LOCAL_SERVICE_URL, {
-      method: "GET",
-    });
+const LOCAL_PATHS: Record<AgentJobKind, string> = {
+  print: "/print",
+  "station-printers": "/station-printers",
+  "print-original": "/print-original",
+  "print-tickets": "/print-tickets",
+};
 
-    if (!response.ok) return false;
-
-    const data = await response.json();
-
-    return data?.status === "running";
-  } catch {
-    return false;
+/** Respuesta del Agent; con error si no lo pudo hacer. */
+async function callAgent<T extends { success?: boolean; error?: string }>(kind: AgentJobKind, body: unknown, fallbackError: string): Promise<T> {
+  if (isCloudConfigured) {
+    const result = await runAgentJob<T>(kind, body);
+    if (result.success === false) throw new Error(result.error || fallbackError);
+    return result;
   }
+  const response = await fetch(`${LOCAL_SERVICE_URL}${LOCAL_PATHS[kind]}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  const payload = (await response.json().catch(() => ({}))) as T;
+  if (!response.ok || payload.success === false) throw new Error(payload.error || fallbackError);
+  return payload;
 }
 
 export async function sendJobToLocalService(job: PrintJob) {
-  const response = await fetch(`${LOCAL_SERVICE_URL}/print`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(job),
-  });
-
-  if (!response.ok) {
-    throw new Error("No se pudo enviar la comanda al servicio local.");
-  }
-
-  return response.json();
+  return callAgent<{ success?: boolean; error?: string; job?: unknown }>("print", job, "No se pudo enviar la comanda al Agent.");
 }
 export type StationPrintersConfig = {
   printers: Partial<Record<"Parrilla" | "Freidora" | "Barra" | "Cocina" | "Caja", string>>;
@@ -42,23 +47,14 @@ export type StationPrintersConfig = {
 
 /** Le pasa al Agent qué impresora tiene cada estación (lo usa para el ticket original y el respaldo). */
 export async function syncStationPrinters(config: StationPrintersConfig) {
-  const response = await fetch(`${LOCAL_SERVICE_URL}/station-printers`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(config),
-  });
-  if (!response.ok) throw new Error("El Agent no guardó las impresoras.");
-  return response.json();
+  // En la nube el Agent la lee sola de la configuración sincronizada (bpos_agent_poll)
+  if (isCloudConfigured) return { success: true };
+  return callAgent<{ success?: boolean; error?: string }>("station-printers", config, "El Agent no guardó las impresoras.");
 }
 
 /** Imprime el ticket original de la plataforma en esas estaciones (force: reimpresión). */
 export async function printOriginalTicket(input: { platform: string; orderId: string; stations: string[]; force?: boolean }) {
-  const response = await fetch(`${LOCAL_SERVICE_URL}/print-original`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const payload = (await response.json().catch(() => ({}))) as {
+  return callAgent<{
     success?: boolean;
     error?: string;
     alreadyPrinted?: boolean;
@@ -66,9 +62,7 @@ export async function printOriginalTicket(input: { platform: string; orderId: st
     stations?: string[];
     results?: { printer: string; ok: boolean; error?: string }[];
     missing?: string[];
-  };
-  if (!response.ok || !payload.success) throw new Error(payload.error || "El Agent no pudo imprimir el ticket.");
-  return payload;
+  }>("print-original", input, "El Agent no pudo imprimir el ticket.");
 }
 
 /** Lo que guarda Configuración → Impresoras (bpos_station_printers) en el formato del Agent. */
@@ -88,18 +82,11 @@ export async function printDeliveryTickets(input: {
   tickets: { target: string; html: string }[];
   force?: boolean;
 }) {
-  const response = await fetch(`${LOCAL_SERVICE_URL}/print-tickets`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
-  });
-  const payload = (await response.json().catch(() => ({}))) as {
+  return callAgent<{
     success?: boolean;
     error?: string;
     alreadyPrinted?: boolean;
     targets?: string[];
     results?: { target: string; printer?: string; ok: boolean; error?: string }[];
-  };
-  if (!response.ok || !payload.success) throw new Error(payload.error || "El Agent no pudo imprimir los tickets.");
-  return payload;
+  }>("print-tickets", input, "El Agent no pudo imprimir los tickets.");
 }

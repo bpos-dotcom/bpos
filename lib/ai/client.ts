@@ -4,7 +4,6 @@
  * sesión del negocio. La llave de Anthropic nunca está en esta computadora.
  */
 import { getSupabase } from "@/lib/supabase/client";
-import { PUSH_SERVER as CLOUD_SERVER } from "@/lib/push/rules";
 
 export type AiStatus = { plan: string; active: boolean; available: boolean; reason: "plan" | "inactive" | "limit" | null };
 
@@ -18,7 +17,7 @@ export async function aiFetch(path: string, init: RequestInit = {}) {
   const t = await token();
   if (t) headers.set("Authorization", `Bearer ${t}`);
   if (init.body) headers.set("Content-Type", "application/json");
-  return fetch(`${CLOUD_SERVER}${path}`, { ...init, headers });
+  return fetch(path, { ...init, headers });
 }
 
 /** Estado de la IA del negocio, o null si no se pudo consultar. */

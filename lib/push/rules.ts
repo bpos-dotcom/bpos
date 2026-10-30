@@ -4,7 +4,7 @@
  * y el servidor en Vercel (app/api/push/notify, que arma el aviso).
  */
 
-/** B-POS en Vercel: desde ahí salen los avisos (tiene la llave privada). */
+/** Dirección pública de B-POS (avisos push y regreso de Mercado Pago). Las pantallas llaman a su propio servidor. */
 export const PUSH_SERVER = "https://bpos-alpha.vercel.app";
 
 /** Llave pública VAPID (la privada está solo en Vercel: VAPID_PRIVATE_KEY). */

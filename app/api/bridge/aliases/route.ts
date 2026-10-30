@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardBridgeRequest } from "@/lib/bridge/api-guard";
-import { BRIDGE_DATA_DIR } from "@/lib/bridge/data-dir";
-import fs from "fs";
-import path from "path";
+import { bridgeAuth } from "@/lib/bridge/api-guard";
+import { bridgeStore } from "@/lib/bridge/store";
 
 export const dynamic = "force-dynamic";
 
@@ -30,31 +28,6 @@ type BridgeAlias = {
   updatedAt: string;
 };
 
-type AliasFile = {
-  aliases: BridgeAlias[];
-};
-
-const DATA_DIR = BRIDGE_DATA_DIR;
-const DATA_FILE = path.join(DATA_DIR, "bridge-aliases.json");
-
-function ensureStorage() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-
-  if (!fs.existsSync(DATA_FILE)) {
-    const initialData: AliasFile = {
-      aliases: [],
-    };
-
-    fs.writeFileSync(
-      DATA_FILE,
-      JSON.stringify(initialData, null, 2),
-      "utf8"
-    );
-  }
-}
-
 function normalizeExternalName(value: string) {
   return String(value || "")
     .normalize("NFD")
@@ -64,51 +37,23 @@ function normalizeExternalName(value: string) {
     .trim();
 }
 
-function readAliases(): AliasFile {
-  ensureStorage();
-
-  try {
-    const raw = fs.readFileSync(DATA_FILE, "utf8");
-    const parsed = JSON.parse(raw) as AliasFile;
-
-    return {
-      aliases: Array.isArray(parsed.aliases)
-        ? parsed.aliases
-        : [],
-    };
-  } catch {
-    return {
-      aliases: [],
-    };
-  }
-}
-
-function writeAliases(data: AliasFile) {
-  ensureStorage();
-
-  fs.writeFileSync(
-    DATA_FILE,
-    JSON.stringify(data, null, 2),
-    "utf8"
-  );
-}
-
 export async function GET(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
 
-  const data = readAliases();
+  const aliases = await bridgeStore(auth.ctx).aliases();
 
   return NextResponse.json({
     success: true,
-    count: data.aliases.length,
-    aliases: data.aliases,
+    count: aliases.length,
+    aliases,
   });
 }
 
 export async function POST(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
+  const store = bridgeStore(auth.ctx);
 
   try {
     const body = await request.json();
@@ -190,10 +135,10 @@ export async function POST(request: NextRequest) {
     const normalizedExternalName =
       normalizeExternalName(externalName);
 
-    const data = readAliases();
+    const aliases = (await store.aliases()) as BridgeAlias[];
     const now = new Date().toISOString();
 
-    const existingIndex = data.aliases.findIndex(
+    const existingIndex = aliases.findIndex(
       (alias) =>
         alias.normalizedExternalName ===
           normalizedExternalName &&
@@ -203,7 +148,7 @@ export async function POST(request: NextRequest) {
     let savedAlias: BridgeAlias;
 
     if (existingIndex >= 0) {
-      const existing = data.aliases[existingIndex];
+      const existing = aliases[existingIndex];
 
       savedAlias = {
         ...existing,
@@ -214,8 +159,6 @@ export async function POST(request: NextRequest) {
         targets,
         updatedAt: now,
       };
-
-      data.aliases[existingIndex] = savedAlias;
     } else {
       savedAlias = {
         id: `alias-${Date.now()}`,
@@ -227,11 +170,9 @@ export async function POST(request: NextRequest) {
         createdAt: now,
         updatedAt: now,
       };
-
-      data.aliases.push(savedAlias);
     }
 
-    writeAliases(data);
+    await store.saveAlias(savedAlias);
 
     return NextResponse.json({
       success: true,
@@ -252,8 +193,8 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
 
   try {
     const body = await request.json();
@@ -269,18 +210,11 @@ export async function DELETE(request: NextRequest) {
       );
     }
 
-    const data = readAliases();
-    const originalCount = data.aliases.length;
-
-    data.aliases = data.aliases.filter(
-      (alias) => alias.id !== id
-    );
-
-    writeAliases(data);
+    const deleted = await bridgeStore(auth.ctx).deleteAlias(id);
 
     return NextResponse.json({
       success: true,
-      deleted: data.aliases.length < originalCount,
+      deleted,
     });
   } catch (error) {
     return NextResponse.json(

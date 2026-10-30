@@ -7,7 +7,7 @@ import { buildOrderTickets } from "@/lib/bridge/order-tickets";
 import { buildDeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { stationsByLine, stationsForOrder } from "@/lib/bridge/station-routing";
 import { getBusinessSettings } from "@/lib/business-settings";
-import { printDeliveryTickets, printOriginalTicket, syncStationPrinters, toStationPrintersConfig } from "@/lib/localService";
+import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
@@ -585,16 +585,6 @@ export default function BridgePage() {
   const stationPrintLocks = useRef(new Set<string>());
 
   useEffect(() => {
-    // El Agent guarda la asignación estación → impresora para su respaldo
-    try {
-      const saved = JSON.parse(localStorage.getItem("bpos_station_printers") || "null");
-      if (saved) void syncStationPrinters(toStationPrintersConfig(saved)).catch(() => {});
-    } catch {
-      // sin configuración guardada
-    }
-  }, []);
-
-  useEffect(() => {
     let cancelled = false;
 
     const printTickets = async () => {
@@ -628,7 +618,7 @@ export default function BridgePage() {
           });
           changed = true;
         } catch (error) {
-          // Sin Agent en este dispositivo (ej. un celular) o sin PDF: el Agent imprime en Cocina por su cuenta
+          // Sin Agent conectado o sin PDF: el Agent imprime en Cocina por su cuenta cuando vuelva
           console.error(`No se pudo mandar ${key} a las estaciones:`, error);
           stationPrintLocks.current.delete(key);
         }
@@ -660,7 +650,7 @@ export default function BridgePage() {
       const failed = (result.results || []).filter((r) => !r.ok);
       if (failed.length) alert(`No salió en: ${failed.map((f) => `${f.target} (${f.error})`).join(", ")}`);
     } catch (error) {
-      alert(error instanceof Error ? error.message : "No se pudo reimprimir. Revisa que B-POS esté abierto en esta computadora.");
+      alert(error instanceof Error ? error.message : "No se pudo reimprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras.");
     }
   }
 

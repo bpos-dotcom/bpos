@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" />
-    <title>B-POS</title>
+    <title>B-POS Agent</title>
     <style>
       * { box-sizing: border-box; }
       body { margin: 0; background: #050505; color: #fff; font-family: "Segoe UI", Arial, sans-serif; padding: 22px; }
@@ -14,6 +14,7 @@
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
       .box { border: 1px solid #27272a; background: #09090b; border-radius: 18px; padding: 14px 16px; }
       .box h2 { margin: 0 0 6px; font-size: 13px; color: #a1a1aa; font-weight: 600; }
+      .wide { grid-column: 1 / -1; }
       .val { font-size: 15px; font-weight: 700; }
       .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: #71717a; }
       .ok { background: #22c55e; } .warn { background: #f59e0b; } .bad { background: #ef4444; }
@@ -23,50 +24,68 @@
       button:disabled { opacity: .5; cursor: default; }
       .bar { height: 6px; border-radius: 4px; background: #27272a; margin-top: 8px; overflow: hidden; }
       .bar > div { height: 100%; background: #f97316; width: 0; }
-      ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+      ul, ol { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
       li.fail { color: #fca5a5; }
       pre { background: #000; border: 1px solid #27272a; border-radius: 12px; padding: 10px; max-height: 170px; overflow: auto; font-size: 11px; color: #a1a1aa; white-space: pre-wrap; margin: 8px 0 0; }
       label { font-size: 13px; color: #d4d4d8; display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+      .pair { border-color: #f97316; background: #1c0f05; }
+      .pair input { width: 220px; font: 900 24px Consolas, monospace; letter-spacing: 4px; text-transform: uppercase; background: #000; color: #fb923c; border: 1px solid #f97316; border-radius: 12px; padding: 8px 12px; }
+      .err { color: #fca5a5; font-size: 13px; margin-top: 8px; }
     </style>
   </head>
   <body>
     <header>
       <div class="logo">BP</div>
       <div>
-        <h1>B-POS <span id="version" class="muted"></span></h1>
-        <div class="muted">Esta computadora atiende a las cajas, la cocina y los celulares del negocio.</div>
+        <h1>B-POS Agent <span id="version" class="muted"></span></h1>
+        <div class="muted">Lee los pedidos de Rappi, Uber Eats y DiDi Food e imprime lo que mandas desde B-POS en la web.</div>
       </div>
     </header>
 
     <div class="grid">
-      <div class="box">
-        <h2>Sistema B-POS</h2>
-        <div class="val"><span id="serverDot" class="dot"></span><span id="serverMsg">...</span></div>
-        <div class="muted" id="serverUrl">http://localhost:3000</div>
+      <div class="box pair wide" id="pairBox" hidden>
+        <h2 style="color: #fdba74">Vincular esta computadora con tu negocio</h2>
+        <ol>
+          <li>Abre B-POS en la web e inicia sesión: <b id="webUrl"></b></li>
+          <li>Ve a <b>Configuración → Sistema → Vincular una computadora</b>.</li>
+          <li>Escribe aquí el código de 8 letras que te muestra:</li>
+        </ol>
+        <div class="row">
+          <input id="code" maxlength="9" placeholder="ABCD-1234" autocomplete="off" spellcheck="false" />
+          <button class="primary" id="pairBtn">Vincular</button>
+          <button id="openWebBtn">Abrir B-POS</button>
+        </div>
+        <div class="err" id="pairErr"></div>
       </div>
+
+      <div class="box wide" id="linkBox" hidden>
+        <h2>Conexión con B-POS</h2>
+        <div class="val"><span id="cloudDot" class="dot"></span><span id="cloudMsg">...</span></div>
+        <div class="muted" id="linkInfo"></div>
+      </div>
+
       <div class="box">
-        <h2>Agent de impresión</h2>
-        <div class="val"><span class="dot ok"></span>Puertos 4850 y 9100</div>
-        <div class="muted">Impresora virtual "B-POS Agent Virtual Printer"</div>
+        <h2>Impresora virtual</h2>
+        <div class="val"><span class="dot ok"></span>"B-POS Agent Virtual Printer"</div>
+        <div class="muted">Ahí se mandan los tickets de las plataformas</div>
       </div>
       <div class="box">
         <h2>Actualizaciones</h2>
         <div class="val" id="updateMsg">...</div>
         <div class="bar" id="updateBar" hidden><div id="updateProgress"></div></div>
       </div>
-      <div class="box">
+      <div class="box wide">
         <h2>Inicio automático</h2>
-        <label><input type="checkbox" id="autoStart" /> Abrir B-POS al encender la computadora</label>
+        <label><input type="checkbox" id="autoStart" /> Abrir B-POS Agent al encender la computadora</label>
       </div>
     </div>
 
     <div class="row">
       <button class="primary" id="openBtn">Abrir B-POS</button>
-      <button id="ownerBtn">App del dueño</button>
       <button id="updateBtn">Buscar actualizaciones</button>
-      <button id="restartBtn">Reiniciar servidor</button>
       <button id="repairBtn">Reparar instalación</button>
       <button id="logsBtn">Carpeta de registros</button>
+      <button id="unlinkBtn" hidden>Desvincular</button>
     </div>
 
     <div class="box" id="repairBox" style="margin-top: 14px" hidden>
@@ -81,12 +100,21 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
-      const dotClass = { running: "ok", starting: "warn", error: "bad", stopped: "" };
+      const dotClass = { connected: "ok", connecting: "warn", offline: "bad", unlinked: "" };
 
       function render(s) {
         $("version").textContent = `v${s.appVersion}`;
-        $("serverDot").className = `dot ${dotClass[s.server.state] || ""}`;
-        $("serverMsg").textContent = s.server.message;
+        $("webUrl").textContent = s.webUrl.replace(/^https?:\/\//, "");
+        const c = s.cloud;
+        $("pairBox").hidden = c.linked;
+        $("linkBox").hidden = !c.linked;
+        $("unlinkBtn").hidden = !c.linked;
+        if (!c.linked && c.message && c.message !== "Sin vincular") $("pairErr").textContent = c.message;
+        $("cloudDot").className = `dot ${dotClass[c.state] || ""}`;
+        $("cloudMsg").textContent = c.message;
+        $("linkInfo").textContent = c.linked
+          ? `${c.businessName} · ${c.branchName}${c.pending ? ` · ${c.pending} pedido(s) en espera de subir` : ""}`
+          : "";
         $("updateMsg").textContent = s.update.message;
         const downloading = s.update.state === "downloading";
         $("updateBar").hidden = !downloading;
@@ -117,14 +145,30 @@
         $("log").scrollTop = $("log").scrollHeight;
       }
 
+      async function pair() {
+        const code = $("code").value.trim();
+        if (code.replace(/[^a-z0-9]/gi, "").length !== 8) {
+          $("pairErr").textContent = "El código tiene 8 letras y números.";
+          return;
+        }
+        $("pairBtn").disabled = true;
+        $("pairErr").textContent = "Vinculando...";
+        const result = await window.bpos.pair(code);
+        $("pairBtn").disabled = false;
+        $("pairErr").textContent = result.ok ? "" : result.error;
+        if (result.ok) $("code").value = "";
+      }
+
       $("openBtn").onclick = () => window.bpos.open("/");
-      $("ownerBtn").onclick = () => window.bpos.open("/dueno");
+      $("openWebBtn").onclick = () => window.bpos.open("/configuracion/sistema");
+      $("pairBtn").onclick = pair;
+      $("code").onkeydown = (e) => e.key === "Enter" && pair();
+      $("unlinkBtn").onclick = () => window.bpos.unlink();
       $("updateBtn").onclick = async () => {
         const s = await window.bpos.getState();
         if (s.update.state === "ready") window.bpos.installUpdate();
         else window.bpos.checkUpdates();
       };
-      $("restartBtn").onclick = () => window.bpos.restartServer();
       $("repairBtn").onclick = () => window.bpos.repair();
       $("logsBtn").onclick = () => window.bpos.openLogs();
       $("logRefresh").onclick = refreshLog;

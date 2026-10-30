@@ -1,13 +1,18 @@
-; Instalador de B-POS (bloque 13). electron-builder agrega esto al NSIS.
+; Instalador de B-POS Agent (B-POS 2.0). electron-builder agrega esto al NSIS.
 ; Se instala para toda la computadora (pide permiso de administrador una
-; vez), porque la impresora virtual y el firewall lo necesitan.
+; vez), porque la impresora virtual lo necesita.
+;
+; Al actualizar desde B-POS 1.x (o desde cualquier versión) el instalador
+; primero quita la versión anterior y luego instala esta: no hace falta
+; desinstalar nada a mano y los datos de la PC se conservan.
 
 !macro customInstall
   ; Impresora virtual por donde llegan los tickets de Rappi/Uber/DiDi
   nsExec::ExecToLog 'powershell.exe -NoProfile -ExecutionPolicy Bypass -File "$INSTDIR\resources\virtual-printer\install-virtual-printer.ps1"'
-  ; Que los celulares y tablets de la red puedan abrir B-POS (puerto 3000)
+  ; B-POS 1.x abría el puerto 3000 para los celulares de la red: ya no se usa
   nsExec::ExecToLog 'netsh advfirewall firewall delete rule name="B-POS"'
-  nsExec::ExecToLog 'netsh advfirewall firewall add rule name="B-POS" dir=in action=allow protocol=TCP localport=3000 profile=private,domain'
+  ; Restos del sistema local de B-POS 1.x
+  RMDir /r "$INSTDIR\resources\web"
 !macroend
 
 !macro customUnInstall
@@ -18,7 +23,7 @@
     ; Inicio automático con Windows
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "com.burgerplanet.bposagent"
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "B-POS"
-    MessageBox MB_YESNO|MB_ICONQUESTION "¿Borrar también los registros y archivos locales de B-POS en esta computadora?$\r$\n$\r$\nTus ventas, productos e inventario están en la nube y no se borran." /SD IDNO IDNO bpos_keep_data
+    MessageBox MB_YESNO|MB_ICONQUESTION "¿Borrar también los registros y archivos locales de B-POS Agent en esta computadora?$\r$\n$\r$\nTus ventas, productos e inventario están en la nube y no se borran." /SD IDNO IDNO bpos_keep_data
       ; Instalación para toda la PC: $APPDATA apuntaría a ProgramData; los datos son del usuario
       SetShellVarContext current
       RMDir /r "$APPDATA\B-POS"

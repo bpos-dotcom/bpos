@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { syncStationPrinters, toStationPrintersConfig } from "@/lib/localService";
+import { listAgents } from "@/lib/agent/client";
+import { isCloudConfigured } from "@/lib/supabase/client";
 
 type Printer = {
   name: string;
@@ -54,14 +56,22 @@ export default function PrinterSettingsPage() {
     setAgentError("");
 
     try {
-      const response = await fetch("http://localhost:4850/printers");
-      const data = (await response.json()) as { printers?: Printer[]; error?: string };
-      if (!Array.isArray(data.printers)) throw new Error(data.error || "Respuesta inválida del Agent.");
-      setPrinters(data.printers);
-    } catch {
-      setAgentError(
-        "No se pudo conectar con B-POS en esta computadora. Abre esta pantalla en la caja donde está instalado B-POS."
-      );
+      if (isCloudConfigured) {
+        // Las impresoras de la PC con B-POS Agent (las avisa a la nube cada pocos segundos)
+        const agents = await listAgents();
+        if (agents.length === 0) throw new Error("Esta sucursal no tiene B-POS Agent vinculado. Vincúlalo en Configuración → Sistema.");
+        const seen = new Map<string, Printer>();
+        for (const agent of agents) for (const p of agent.printers) if (!seen.has(p.name)) seen.set(p.name, p);
+        setPrinters([...seen.values()]);
+        if (!agents.some((a) => a.online)) setAgentError("B-POS Agent está desconectado: revisa que la computadora de las impresoras esté prendida.");
+      } else {
+        const response = await fetch("http://localhost:4850/printers");
+        const data = (await response.json()) as { printers?: Printer[]; error?: string };
+        if (!Array.isArray(data.printers)) throw new Error(data.error || "Respuesta inválida del Agent.");
+        setPrinters(data.printers);
+      }
+    } catch (error) {
+      setAgentError(error instanceof Error && isCloudConfigured ? error.message : "No se pudo conectar con B-POS Agent en esta computadora.");
     }
 
     setLoading(false);
@@ -74,7 +84,7 @@ export default function PrinterSettingsPage() {
       await syncStationPrinters(toStationPrintersConfig(config));
       alert("Configuración guardada.");
     } catch {
-      alert("Se guardó en B-POS, pero el Agent de esta computadora no respondió. Ábrela en la caja para que se aplique.");
+      alert("Se guardó en B-POS, pero el Agent no respondió. Se aplicará cuando se conecte.");
     }
   }
 

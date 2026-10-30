@@ -9,7 +9,7 @@
  */
 import { loadCloudAccount } from "@/lib/cloud/account";
 import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
-import { DEFAULT_PUSH_PREFS, PUSH_SERVER, VAPID_PUBLIC_KEY, type PushPrefs } from "@/lib/push/rules";
+import { DEFAULT_PUSH_PREFS, VAPID_PUBLIC_KEY, type PushPrefs } from "@/lib/push/rules";
 
 // Solo de este dispositivo (ver DEVICE_LOCAL_KEYS)
 const OUTBOX_KEY = "bpos_push_outbox";
@@ -121,7 +121,7 @@ export async function sendTestPush(): Promise<string> {
     const { data } = await getSupabase().auth.getSession();
     const token = data.session?.access_token;
     if (!token) return "Inicia sesión con la cuenta del negocio.";
-    const response = await fetch(`${PUSH_SERVER}/api/push/test`, {
+    const response = await fetch("/api/push/test", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ endpoint: sub.endpoint }),
@@ -176,7 +176,7 @@ export async function flushPushEvents() {
     const token = data.session?.access_token;
     if (!token) return;
     const ids = queue.slice(0, 200).map((p) => p.id);
-    const response = await fetch(`${PUSH_SERVER}/api/push/notify`, {
+    const response = await fetch("/api/push/notify", {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ eventIds: ids }),
