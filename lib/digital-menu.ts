@@ -26,9 +26,12 @@ export type ChannelLink = { on: boolean; url: string };
  * Diseño del menú digital (Configuración → Menú digital → Diseño): cada
  * sección se puede apagar; las imágenes son direcciones en la nube.
  */
+/** De qué lado van los textos y botones encima de una imagen */
+export type Align = "left" | "center" | "right";
+
 export type MenuDesign = {
   topBar: { on: boolean; text: string; city: string };
-  hero: { on: boolean; image: string; eyebrow: string; title: string; highlight: string; text: string; badges: string[]; button: string };
+  hero: { on: boolean; image: string; eyebrow: string; title: string; highlight: string; text: string; badges: string[]; button: string; align: Align };
   featured: { on: boolean; productId: number | null; image: string; eyebrow: string; text: string; badge: string };
   top: { on: boolean; title: string; count: number };
   channels: {
@@ -37,6 +40,7 @@ export type MenuDesign = {
     title: string;
     highlight: string;
     text: string;
+    align: Align;
     whatsapp: ChannelLink;
     didi: ChannelLink;
     uber: ChannelLink;
@@ -47,7 +51,7 @@ export type MenuDesign = {
 
 export const DEFAULT_DESIGN: MenuDesign = {
   topBar: { on: true, text: "", city: "" },
-  hero: { on: true, image: "", eyebrow: "", title: "", highlight: "", text: "", badges: ["", "", ""], button: "Ver menú" },
+  hero: { on: true, image: "", eyebrow: "", title: "", highlight: "", text: "", badges: ["", "", ""], button: "Ver menú", align: "left" },
   featured: { on: true, productId: null, image: "", eyebrow: "Combo destacado", text: "", badge: "El favorito" },
   top: { on: true, title: "Los más pedidos", count: 5 },
   channels: {
@@ -56,6 +60,7 @@ export const DEFAULT_DESIGN: MenuDesign = {
     title: "Pide",
     highlight: "donde quieras",
     text: "",
+    align: "left",
     whatsapp: { on: true, url: "" },
     didi: { on: false, url: "" },
     uber: { on: false, url: "" },
@@ -127,6 +132,7 @@ const str = (value: unknown, fallback: string, max = 200) => (typeof value === "
 const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
 /** Solo direcciones https (fotos en la nube, ligas de DiDi/Uber/Rappi) */
 const url = (value: unknown) => (typeof value === "string" && /^https:\/\/\S+$/i.test(value.trim()) ? value.trim().slice(0, 500) : "");
+const align = (value: unknown): Align => (value === "center" || value === "right" ? value : "left");
 const channel = (value: unknown, fallback: ChannelLink): ChannelLink => {
   const v = (value || {}) as Partial<ChannelLink>;
   return { on: bool(v.on, fallback.on), url: url(v.url) };
@@ -147,6 +153,7 @@ export function normalizeDesign(raw: unknown): MenuDesign {
       text: str(r.hero?.text, "", 200),
       badges: [0, 1, 2].map((i) => str(badges[i], "", 30)),
       button: str(r.hero?.button, d.hero.button, 30) || d.hero.button,
+      align: align(r.hero?.align),
     },
     featured: {
       on: bool(r.featured?.on, d.featured.on),
@@ -167,6 +174,7 @@ export function normalizeDesign(raw: unknown): MenuDesign {
       title: str(r.channels?.title, d.channels.title, 30),
       highlight: str(r.channels?.highlight, d.channels.highlight, 30),
       text: str(r.channels?.text, "", 120),
+      align: align(r.channels?.align),
       whatsapp: channel(r.channels?.whatsapp, d.channels.whatsapp),
       didi: channel(r.channels?.didi, d.channels.didi),
       uber: channel(r.channels?.uber, d.channels.uber),

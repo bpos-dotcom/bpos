@@ -21,6 +21,7 @@ import {
   onlineGroups,
   orderWhatsappText,
   whatsappNumber,
+  type Align,
   type DigitalMenuSettings,
   type OnlineOrderData,
   type OnlineOrderLine,
@@ -140,6 +141,13 @@ export default function PublicMenuPage({ params }: { params: Promise<{ slug: str
 function Shell({ children }: { children: React.ReactNode }) {
   return <div className="min-h-screen w-full bg-[#fff8f1] text-zinc-900">{children}</div>;
 }
+
+/** Textos y botones encima de la imagen: a la izquierda, al centro o a la derecha (con el difuminado de ese lado) */
+const ALIGN: Record<Align, { box: string; row: string; fade: string }> = {
+  left: { box: "items-start text-left", row: "justify-start", fade: "bg-gradient-to-r from-white/90 via-white/50 to-transparent" },
+  center: { box: "items-center text-center", row: "justify-center", fade: "bg-white/55" },
+  right: { box: "items-end text-right", row: "justify-end", fade: "bg-gradient-to-l from-white/90 via-white/50 to-transparent" },
+};
 
 /** Foto del producto, o su emoji en un fondo suave si no tiene. */
 function Photo({ product, className = "", emoji = "text-5xl" }: { product: Pick<Product, "image" | "emoji" | "name">; className?: string; emoji?: string }) {
@@ -343,8 +351,8 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
             <div
               className={
                 heroOnImage
-                  ? `absolute inset-0 flex flex-col p-5 md:p-10 ${heroText ? "justify-center bg-gradient-to-r from-white/90 via-white/50 to-transparent" : "justify-end"}`
-                  : "p-5 md:p-8"
+                  ? `absolute inset-0 flex flex-col p-5 md:p-10 ${ALIGN[hero.align].box} ${heroText ? `justify-center ${ALIGN[hero.align].fade}` : "justify-end"}`
+                  : `flex flex-col p-5 md:p-8 ${ALIGN[hero.align].box}`
               }
             >
               <div className="max-w-md md:max-w-xl">
@@ -357,7 +365,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
                 )}
                 {hero.text && <p className={`mt-3 max-w-md text-sm text-zinc-700 md:text-base ${heroOnImage ? "hidden md:block" : ""}`}>{hero.text}</p>}
                 {hero.badges.some(Boolean) && (
-                  <div className={`mt-3 flex-wrap gap-2 ${heroOnImage ? "hidden md:flex" : "flex"}`}>
+                  <div className={`mt-3 flex-wrap gap-2 ${ALIGN[hero.align].row} ${heroOnImage ? "hidden md:flex" : "flex"}`}>
                     {hero.badges.filter(Boolean).map((b) => (
                       <span key={b} className="rounded-full border bg-white/70 px-3 py-1 text-xs font-bold" style={{ borderColor: color, color }}>
                         {b}
@@ -484,7 +492,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
             <div
               className={
                 channels.image && channelsWide
-                  ? "absolute inset-0 flex flex-col justify-center gap-3 bg-gradient-to-r from-white/90 via-white/50 to-transparent p-5 md:p-8"
+                  ? `absolute inset-0 flex flex-col justify-center gap-3 p-5 md:p-8 ${ALIGN[channels.align].box} ${ALIGN[channels.align].fade}`
                   : "contents"
               }
             >
@@ -494,7 +502,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
                 </h2>
                 {channels.text && <p className={`max-w-md text-sm text-zinc-600 ${channels.image && channelsWide ? "hidden md:block" : ""}`}>{channels.text}</p>}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className={`flex flex-wrap gap-2 ${channels.image && channelsWide ? ALIGN[channels.align].row : ""}`}>
                 {links.map((l) => (
                   <a key={l.key} href={l.href} target="_blank" rel="noreferrer" className={`rounded-xl px-3 py-2 text-sm font-black shadow md:px-4 md:py-3 ${l.cls}`}>
                     {l.label} →
