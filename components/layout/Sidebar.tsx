@@ -20,6 +20,7 @@ import { runDailyBackup } from "@/lib/cloud/backup";
 import { flushCloudAudit } from "@/lib/cloud/audit-outbox";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
 import { useOnlineOrdersWatch } from "@/lib/online-orders-watch";
+import { UpdateNotice } from "@/components/layout/UpdateNotice";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: "📊" },
@@ -345,6 +346,7 @@ export function Sidebar() {
         </div>
       )}
     </aside>
+    <UpdateNotice />
     <EquivalencePrompt items={pendingItems} signature={signature} canEquivalate={hasPermission(currentUser, "bridge.aliases")} />
     </>
   );

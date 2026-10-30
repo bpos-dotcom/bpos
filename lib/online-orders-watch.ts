@@ -1,8 +1,8 @@
 "use client";
 /**
  * Vigila los pedidos en línea nuevos de la sucursal desde cualquier
- * pantalla de B-POS: cuántos esperan (para el menú lateral), suena al llegar
- * uno y, si el menú está en "Aceptar solos" y hay caja abierta, los acepta.
+ * pantalla de B-POS: cuántos esperan (para el menú lateral; el sonido sale
+ * de Configuración → Notificaciones) y, si el menú está en "Aceptar solos" y hay caja abierta, los acepta.
  * Solo revisa si el menú digital está publicado.
  */
 import { useEffect, useRef, useState } from "react";
@@ -10,6 +10,7 @@ import { DIGITAL_MENU_EVENT, getDigitalMenu } from "@/lib/digital-menu";
 import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, listOnlineOrders } from "@/lib/online-orders";
 
 const CHECK_MS = 10_000;
+
 export function useOnlineOrdersWatch() {
   const [waiting, setWaiting] = useState<{ count: number; ids: string }>({ count: 0, ids: "" });
   const seen = useRef<Set<string> | null>(null);
@@ -17,8 +18,6 @@ export function useOnlineOrdersWatch() {
 
   useEffect(() => {
     let alive = true;
-    // Chrome carga las voces después: se piden desde ya para tener la de español al llegar un pedido
-    window.speechSynthesis?.getVoices();
     const check = async () => {
       const menu = getDigitalMenu();
       if (!menu.enabled || !menu.slug || busy.current) {
