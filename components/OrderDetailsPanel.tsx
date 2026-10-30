@@ -5,6 +5,8 @@ export type OrderDetails = {
   customerAddress: string;
   paymentMethod: string;
   discount: number;
+  /** Cupón con el que se hizo el descuento */
+  couponCode?: string;
 };
 
 type OrderDetailsPanelProps = {

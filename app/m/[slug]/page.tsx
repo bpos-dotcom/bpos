@@ -27,6 +27,7 @@ import {
   type OnlineOrderLine,
   type OnlineOrderType,
 } from "@/lib/digital-menu";
+import { couponDiscount } from "@/lib/coupons";
 import { scheduleLabel } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
 import { AddressMap } from "@/components/menu/AddressMap";
@@ -716,6 +717,11 @@ function Checkout({
   const payment = payments.includes(chosenPayment) ? chosenPayment : payments[0];
   const [cashWith, setCashWith] = useState("");
   const [note, setNote] = useState("");
+  /** Cupón revisado en la nube; el descuento se recalcula si cambia el pedido */
+  const [coupon, setCoupon] = useState<{ code: string; kind: "percent" | "amount"; value: number; minPurchase: number; maxDiscount: number } | null>(null);
+  const [couponInput, setCouponInput] = useState("");
+  const [couponError, setCouponError] = useState("");
+  const [checkingCoupon, setCheckingCoupon] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
@@ -731,7 +737,25 @@ function Checkout({
 
   const subtotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
   const fee = type === "Domicilio" ? menu.deliveryFee : 0;
-  const total = subtotal + fee;
+  const couponOk = coupon && subtotal >= coupon.minPurchase ? coupon : null;
+  const discount = couponOk ? couponDiscount(couponOk, subtotal) : 0;
+  const total = Math.max(0, subtotal + fee - discount);
+
+  async function applyCoupon() {
+    setCouponError("");
+    setCheckingCoupon(true);
+    try {
+      const { data: res, error: e } = await getSupabase().rpc("bpos_menu_coupon", { p_slug: slug, p_code: couponInput, p_subtotal: subtotal });
+      if (e) throw new Error(e.message);
+      const r = res as { code: string; kind: "percent" | "amount"; value: number; minPurchase: number; maxDiscount: number };
+      setCoupon({ code: r.code, kind: r.kind === "amount" ? "amount" : "percent", value: Number(r.value), minPurchase: Number(r.minPurchase), maxDiscount: Number(r.maxDiscount) });
+    } catch (e) {
+      setCoupon(null);
+      setCouponError(e instanceof Error ? e.message : "No se pudo revisar el cupón.");
+    } finally {
+      setCheckingCoupon(false);
+    }
+  }
   const belowMin = menu.minOrder > 0 && subtotal < menu.minOrder;
 
   function qty(key: string, delta: number) {
@@ -763,6 +787,7 @@ function Checkout({
       lines: cart.map(({ productId, name: n, quantity, unitPrice, picks, summary, comment }) => ({ productId, name: n, quantity, unitPrice, picks, summary, ...(comment ? { comment } : {}) })),
       subtotal,
       deliveryFee: fee,
+      ...(couponOk && discount > 0 ? { coupon: { code: couponOk.code, discount } } : {}),
       total,
     };
     setSending(true);
@@ -891,9 +916,34 @@ function Checkout({
           <input value={note} onChange={(e) => setNote(e.target.value)} maxLength={200} className={field} />
         </label>
 
+        <div className="mt-4">
+          <p className="text-sm font-bold">¿Tienes un cupón?</p>
+          {couponOk ? (
+            <div className="mt-1 flex items-center justify-between rounded-xl border-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm">
+              <b className="text-emerald-800">🎟️ {couponOk.code} · -{money(discount)}</b>
+              <button onClick={() => setCoupon(null)} className="text-xs font-bold text-zinc-500 underline">Quitar</button>
+            </div>
+          ) : (
+            <div className="mt-1 flex gap-2">
+              <input
+                value={couponInput}
+                onChange={(e) => setCouponInput(e.target.value.toUpperCase().replace(/[^A-Z0-9Ñ-]/g, "").slice(0, 20))}
+                placeholder="CÓDIGO"
+                className="min-w-0 flex-1 rounded-xl border border-zinc-200 px-3 py-2.5 font-mono uppercase"
+              />
+              <button disabled={!couponInput || checkingCoupon} onClick={() => void applyCoupon()} className="rounded-xl px-4 font-black text-white disabled:opacity-40" style={{ background: color }}>
+                {checkingCoupon ? "..." : "Aplicar"}
+              </button>
+            </div>
+          )}
+          {coupon && !couponOk && <p className="mt-1 text-xs font-bold text-amber-700">El cupón {coupon.code} es para compras desde {money(coupon.minPurchase)}.</p>}
+          {couponError && <p className="mt-1 text-xs font-bold text-red-600">{couponError}</p>}
+        </div>
+
         <div className="mt-5 space-y-1 border-t border-zinc-100 pt-4 text-sm">
           <p className="flex justify-between"><span>Subtotal</span><span>{money(subtotal)}</span></p>
           {fee > 0 && <p className="flex justify-between"><span>Envío</span><span>{money(fee)}</span></p>}
+          {discount > 0 && couponOk && <p className="flex justify-between text-emerald-700"><span>Cupón {couponOk.code}</span><span>-{money(discount)}</span></p>}
           <p className="flex justify-between text-lg font-black"><span>Total</span><span>{money(total)}</span></p>
         </div>
 
@@ -1131,6 +1181,7 @@ function OrderTracking({ slug, placed, data, onBack }: { slug: string; placed: P
           ))}
           <div className="my-3 border-t border-dashed border-zinc-300" />
           {d.deliveryFee > 0 && <p className="flex justify-between"><span>Envío</span><span>{money(d.deliveryFee)}</span></p>}
+          {d.coupon && <p className="flex justify-between"><span>Cupón {d.coupon.code}</span><span>-{money(d.coupon.discount)}</span></p>}
           <p className="flex justify-between font-black"><span>TOTAL</span><span>{money(d.total)}</span></p>
           <p className="mt-3 text-center text-xs text-zinc-500">Ticket digital · bpos.com.mx</p>
         </div>

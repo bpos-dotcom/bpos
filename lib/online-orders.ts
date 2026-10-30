@@ -11,6 +11,7 @@ import { getAdminProducts } from "@/lib/admin";
 import { buildSelection, extrasPrice, lineIdFor } from "@/lib/compound";
 import { getDigitalMenu, isAvailableOnline, mapsLink, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
 import { PUSH_SERVER } from "@/lib/push/rules";
+import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { getBusinessSettings } from "@/lib/business-settings";
 import type { DispatchInfo } from "@/lib/drivers";
 import { discountInventoryByOrder } from "@/lib/inventory";
@@ -112,7 +113,14 @@ export function buildOnlineCart(data: OnlineOrderData) {
     } as CartItem);
   }
   const subtotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
-  return { cart, subtotal, problems };
+  // El cupón se vuelve a revisar con los precios de B-POS
+  let coupon: { code: string; discount: number } | null = null;
+  if (data.coupon?.code) {
+    const check = checkCoupon(data.coupon.code, subtotal, "online");
+    if (check.ok) coupon = { code: check.coupon.code, discount: check.discount };
+    else problems.push(`Cupón ${data.coupon.code}: ${check.error} Se cobrará sin descuento.`);
+  }
+  return { cart, subtotal, problems, coupon };
 }
 
 const TYPE_LABEL: Record<OnlineOrderData["type"], string> = {
@@ -127,7 +135,7 @@ const TYPE_LABEL: Record<OnlineOrderData["type"], string> = {
  */
 export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, userName = "") {
   if (!localStorage.getItem("bpos_active_shift")) throw new Error("Abre la caja para aceptar pedidos en línea.");
-  const { cart, subtotal } = buildOnlineCart(order.data);
+  const { cart, subtotal, coupon } = buildOnlineCart(order.data);
   if (!cart.length) throw new Error("Ningún producto del pedido existe ya en B-POS. Recházalo.");
 
   const { data: claimed, error } = await getSupabase().rpc("bpos_online_claim", { p_id: order.id });
@@ -140,7 +148,8 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
     // El envío va en el total (no es un producto: no pasa por cocina ni inventario)
     const deliveryFee = order.data.type === "Domicilio" ? Math.max(0, Number(getDigitalMenu().deliveryFee) || 0) : 0;
     const items = cart;
-    const total = subtotal + deliveryFee;
+    const discount = coupon?.discount || 0;
+    const total = Math.max(0, subtotal + deliveryFee - discount);
     const c = order.data.customer;
     const tableNote = order.data.type === "Mesa" && order.data.table ? `Mesa ${order.data.table}` : "";
     const sale = {
@@ -155,7 +164,8 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
         customerPhone: c.phone || "",
         customerAddress: [c.address, c.reference, deliveryFee ? `Envío $${deliveryFee.toFixed(2)}` : ""].filter(Boolean).join(" · "),
         paymentMethod: order.data.payment || "Efectivo",
-        discount: 0,
+        discount,
+        ...(coupon ? { couponCode: coupon.code } : {}),
       },
       subtotal,
       total,
@@ -168,6 +178,7 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
 
     localStorage.setItem(ORDERS_KEY, JSON.stringify([...orders, sale]));
     window.dispatchEvent(new Event("bpos:orders-updated"));
+    if (coupon) countCouponUse(coupon.code);
     discountInventoryByOrder(sale.id, cart);
     notifyKdsUpdated(sale.id);
     await setStatus(order.id, { status: "aceptado", sale_order_id: sale.id, eta_minutes: etaMinutes });

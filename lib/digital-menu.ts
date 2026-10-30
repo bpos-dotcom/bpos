@@ -369,6 +369,8 @@ export type OnlineOrderData = {
   lines: OnlineOrderLine[];
   subtotal: number;
   deliveryFee: number;
+  /** Cupón que escribió el cliente y el descuento que vio */
+  coupon?: { code: string; discount: number };
   total: number;
 };
 
@@ -397,6 +399,7 @@ export function orderWhatsappText(businessName: string, folio: string, d: Online
     "",
     ...lines,
     d.deliveryFee ? `Envío ${money(d.deliveryFee)}` : "",
+    d.coupon ? `Cupón ${d.coupon.code} -${money(d.coupon.discount)}` : "",
     `*Total ${money(d.total)}*`,
     "",
     ...where,

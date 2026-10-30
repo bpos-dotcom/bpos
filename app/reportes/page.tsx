@@ -19,7 +19,7 @@ import {
 import { downloadXlsx, type Cell, type Sheet } from "@/lib/xlsx";
 import { isCloudConfigured } from "@/lib/supabase/client";
 
-type Tab = "ventas" | "productos" | "canales" | "sucursales" | "turnos" | "compras" | "inventario";
+type Tab = "ventas" | "productos" | "estrella" | "canales" | "sucursales" | "turnos" | "compras" | "inventario";
 
 const PRESETS: { id: RangePreset; label: string }[] = [
   { id: "hoy", label: "Hoy" },
@@ -47,13 +47,18 @@ export default function ReportesPage() {
   const [preset, setPreset] = useState<RangePreset | "custom">("hoy");
   const [range, setRange] = useState<DateRange>(() => presetRange("hoy"));
   const [report, setReport] = useState<ReportData | null>(null);
+  /** El periodo anterior del mismo largo (para comparar) */
+  const [previous, setPrevious] = useState<ReportData | null>(null);
   const [tab, setTab] = useState<Tab>("ventas");
   const [branches, setBranches] = useState<Row[] | null>(null);
   const [branchError, setBranchError] = useState("");
   const [showCosts, setShowCosts] = useState(false);
 
   const refresh = useCallback(() => {
-    setReport(buildReport(loadReportSources(), range));
+    const src = loadReportSources();
+    const length = range.to.getTime() - range.from.getTime();
+    setReport(buildReport(src, range));
+    setPrevious(buildReport(src, { from: new Date(range.from.getTime() - length), to: range.from }));
   }, [range]);
 
   useEffect(() => {
@@ -293,6 +298,7 @@ export default function ReportesPage() {
                 [
                   ["ventas", "📈 Ventas"],
                   ["productos", "🍔 Productos"],
+                  ["estrella", "⭐ Estrella y comparativo"],
                   ["canales", "🛵 Canales y pagos"],
                   ["sucursales", "🏬 Sucursales"],
                   ["turnos", "💵 Turnos"],
@@ -333,6 +339,20 @@ export default function ReportesPage() {
                 </Panel>
                 <Panel title="Categorías" wide>
                   <Table rows={report.byCategory} first="Categoría" showCosts={showCosts} qty />
+                </Panel>
+              </div>
+            )}
+
+            {tab === "estrella" && previous && (
+              <div className="grid gap-6 xl:grid-cols-2">
+                <Panel title="Contra el periodo anterior">
+                  <Compare now={report} before={previous} showCosts={showCosts} />
+                </Panel>
+                <Panel title="Productos: ahora vs antes">
+                  <ProductsCompare now={report.byProduct} before={previous.byProduct} />
+                </Panel>
+                <Panel title="Platillos estrella (ingeniería de menú)" wide>
+                  <MenuEngineering rows={report.byProduct} showCosts={showCosts} />
                 </Panel>
               </div>
             )}
@@ -521,6 +541,151 @@ export default function ReportesPage() {
 }
 
 // ------------------------------------------------------------ piezas
+
+const change = (now: number, before: number) => {
+  if (!before) return now ? { text: "nuevo", cls: "text-sky-300" } : { text: "—", cls: "text-zinc-500" };
+  const p = ((now - before) / Math.abs(before)) * 100;
+  return { text: `${p >= 0 ? "▲" : "▼"} ${Math.abs(p).toFixed(0)}%`, cls: p >= 0 ? "text-green-400" : "text-red-400" };
+};
+
+function Compare({ now, before, showCosts }: { now: ReportData; before: ReportData; showCosts: boolean }) {
+  const a = now.kpis;
+  const b = before.kpis;
+  const rows: [string, number, number, (n: number) => string][] = [
+    ["Ventas", a.sales, b.sales, money],
+    ["Pedidos", a.orders, b.orders, num],
+    ["Ticket promedio", a.averageTicket, b.averageTicket, money],
+    ["Artículos vendidos", a.itemsSold, b.itemsSold, num],
+    ["Descuentos", a.discounts, b.discounts, money],
+    ...(showCosts ? ([["Utilidad bruta", a.profit, b.profit, money]] as [string, number, number, (n: number) => string][]) : []),
+  ];
+  const fmt = (d: Date) => d.toLocaleDateString("es-MX", { day: "numeric", month: "short" });
+  return (
+    <div className="overflow-x-auto">
+      <p className="mb-3 text-xs text-zinc-500">
+        Periodo anterior: {fmt(before.range.from)} a {fmt(new Date(before.range.to.getTime() - 1))}
+      </p>
+      <table className="w-full min-w-[420px] text-sm">
+        <thead>
+          <tr className="text-left text-zinc-500">
+            <th className="pb-2"></th>
+            <th className="pb-2 text-right">Ahora</th>
+            <th className="pb-2 text-right">Antes</th>
+            <th className="pb-2 text-right">Cambio</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(([label, x, y, f]) => {
+            const c = change(x, y);
+            return (
+              <tr key={label} className="border-t border-zinc-800">
+                <td className="py-2 font-bold">{label}</td>
+                <td className="py-2 text-right font-black">{f(x)}</td>
+                <td className="py-2 text-right text-zinc-400">{f(y)}</td>
+                <td className={`py-2 text-right font-black ${label === "Descuentos" ? "text-zinc-300" : c.cls}`}>{c.text}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ProductsCompare({ now, before }: { now: Row[]; before: Row[] }) {
+  const prev = new Map(before.map((r) => [r.label, r]));
+  const rows = [...now].sort((x, y) => y.sales - x.sales).slice(0, 12);
+  const dropped = before.filter((r) => r.quantity > 0 && !now.some((n) => n.label === r.label)).slice(0, 5);
+  if (!rows.length) return <p className="text-sm text-zinc-500">Sin ventas en el periodo.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full min-w-[420px] text-sm">
+        <thead>
+          <tr className="text-left text-zinc-500">
+            <th className="pb-2">Producto</th>
+            <th className="pb-2 text-right">Ahora</th>
+            <th className="pb-2 text-right">Antes</th>
+            <th className="pb-2 text-right">Cambio</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => {
+            const b = prev.get(r.label)?.quantity || 0;
+            const c = change(r.quantity, b);
+            return (
+              <tr key={r.label} className="border-t border-zinc-800">
+                <td className="py-2">{r.label}</td>
+                <td className="py-2 text-right font-black">{num(r.quantity)}</td>
+                <td className="py-2 text-right text-zinc-400">{num(b)}</td>
+                <td className={`py-2 text-right font-black ${c.cls}`}>{c.text}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {dropped.length > 0 && <p className="mt-3 text-xs text-red-300">Se vendieron antes y ahora no: {dropped.map((d) => d.label).join(", ")}</p>}
+    </div>
+  );
+}
+
+const QUADRANTS = {
+  estrella: { title: "⭐ Estrellas", hint: "Se venden mucho y dejan buena ganancia. Cuídalos y ponlos al frente del menú.", cls: "border-amber-400/50" },
+  caballo: { title: "🐴 Caballos de batalla", hint: "Se venden mucho pero dejan poco. Sube un poco el precio o ajusta la receta.", cls: "border-sky-500/40" },
+  rompecabezas: { title: "🧩 Rompecabezas", hint: "Dejan buena ganancia pero se venden poco. Promociónalos: foto, combo, destacado.", cls: "border-emerald-500/40" },
+  perro: { title: "🐶 Perros", hint: "Se venden poco y dejan poco. Piensa en cambiarlos o quitarlos.", cls: "border-red-500/40" },
+} as const;
+
+/**
+ * Ingeniería de menú: popular = vende al menos el 70% del promedio de
+ * piezas; rentable = deja por pieza al menos la ganancia promedio.
+ */
+function MenuEngineering({ rows, showCosts }: { rows: Row[]; showCosts: boolean }) {
+  const sold = rows.filter((r) => r.quantity > 0);
+  if (sold.length < 3) return <p className="text-sm text-zinc-500">Se necesitan ventas de al menos 3 productos en el periodo.</p>;
+  if (!showCosts) return <p className="text-sm text-zinc-500">Necesitas permiso para ver costos para esta clasificación.</p>;
+  const withCost = sold.filter((r) => r.cost > 0);
+  const noCost = sold.filter((r) => !(r.cost > 0));
+  if (withCost.length < 3) return <p className="text-sm text-zinc-500">Agrega recetas con costo a tus productos (Configuración → Recetas) para saber cuáles dejan más ganancia.</p>;
+  const avgQty = withCost.reduce((s, r) => s + r.quantity, 0) / withCost.length;
+  const unit = (r: Row) => r.profit / r.quantity;
+  const avgUnit = withCost.reduce((s, r) => s + r.profit, 0) / withCost.reduce((s, r) => s + r.quantity, 0);
+  const groups: Record<keyof typeof QUADRANTS, Row[]> = { estrella: [], caballo: [], rompecabezas: [], perro: [] };
+  withCost.forEach((r) => {
+    const popular = r.quantity >= avgQty * 0.7;
+    const rich = unit(r) >= avgUnit;
+    groups[popular ? (rich ? "estrella" : "caballo") : rich ? "rompecabezas" : "perro"].push(r);
+  });
+  return (
+    <div>
+      <p className="mb-4 text-xs text-zinc-500">
+        Promedio: {num(avgQty)} piezas por producto · {money(avgUnit)} de ganancia por pieza.
+      </p>
+      <div className="grid gap-4 md:grid-cols-2">
+        {(Object.keys(QUADRANTS) as (keyof typeof QUADRANTS)[]).map((key) => (
+          <div key={key} className={`rounded-2xl border bg-black p-4 ${QUADRANTS[key].cls}`}>
+            <p className="font-black">{QUADRANTS[key].title} ({groups[key].length})</p>
+            <p className="text-xs text-zinc-400">{QUADRANTS[key].hint}</p>
+            <ul className="mt-2 space-y-1 text-sm">
+              {groups[key]
+                .sort((a, b) => b.quantity - a.quantity)
+                .map((r) => (
+                  <li key={r.label} className="flex justify-between gap-2">
+                    <span className="truncate">{r.label}</span>
+                    <span className="shrink-0 text-xs text-zinc-400">
+                      {num(r.quantity)} pzs · {money(unit(r))} c/u · {pct(r.margin)}
+                    </span>
+                  </li>
+                ))}
+              {groups[key].length === 0 && <li className="text-xs text-zinc-600">Ninguno</li>}
+            </ul>
+          </div>
+        ))}
+      </div>
+      {noCost.length > 0 && <p className="mt-3 text-xs text-yellow-200">Sin receta con costo (no se clasifican): {noCost.map((r) => r.label).join(", ")}</p>}
+    </div>
+  );
+}
+
 
 function Kpi({ title, value, hint, accent = "text-orange-500" }: { title: string; value: string; hint?: string; accent?: string }) {
   return (
