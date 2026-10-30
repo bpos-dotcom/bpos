@@ -630,13 +630,14 @@ Gracias por pedir en ${businessName} 🚀`;
               ))}
             </div>
 
-            <div className="mt-3 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto pr-1 sm:mt-5 sm:gap-3 md:max-h-none md:overflow-visible md:pr-0 lg:grid-cols-3 2xl:grid-cols-4">
+            <div className="mt-1 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto px-1 pt-2 sm:mt-3 sm:gap-3 md:max-h-none md:overflow-visible md:pr-0 lg:grid-cols-3 2xl:grid-cols-4">
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}
                   product={product}
                   onAdd={addToCart}
                   offSchedule={offSchedule(product)}
+                  inCart={cart.reduce((n, item) => (item.id === product.id ? n + item.quantity : n), 0)}
                 />
               ))}
             </div>

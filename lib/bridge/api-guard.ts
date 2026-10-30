@@ -28,8 +28,8 @@ let agentKey: string | null = null;
 const verified = new Map<string, number>(); // token → vence
 
 /** Llave del Agent; se crea la primera vez y se guarda para que el Agent la lea. */
-export function getAgentKey() {
-  if (agentKey) return agentKey;
+export function getAgentKey(fresh = false) {
+  if (agentKey && !fresh) return agentKey;
   try {
     agentKey = fs.readFileSync(AGENT_KEY_FILE, "utf8").trim() || null;
   } catch {
@@ -96,8 +96,11 @@ export async function guardBridgeRequest(request: NextRequest, { agent = false }
 
   const key = request.headers.get(AGENT_KEY_HEADER);
   if (key) {
-    return agent && sameKey(key, getAgentKey()) ? null : deny(401, "Llave del Agent inválida.");
+    // Si no coincide se vuelve a leer el archivo: el Agent pudo crearla después
+    const ok = agent && (sameKey(key, getAgentKey()) || sameKey(key, getAgentKey(true)));
+    return ok ? null : deny(401, "Llave del Agent inválida.");
   }
+  getAgentKey(); // en una instalación nueva deja la llave lista para el Agent
 
   // Sin nube (modo local) no hay cuentas que revisar
   if (!isCloudConfigured) return null;
