@@ -13,6 +13,7 @@ import { compoundRouting, suggestExtraStations } from "@/lib/compound";
 import { stationLabel } from "@/lib/kds-config";
 import { SaleScheduleEditor, saveSchedule } from "@/components/products/SaleScheduleEditor";
 import { scheduleLabel } from "@/lib/sale-schedule";
+import { uploadBusinessImage } from "@/lib/media";
 
 type DraftProduct = Product;
 
@@ -26,6 +27,20 @@ export default function ProductosAdminPage() {
   const [recipes, setRecipes] = useState<RecipeItem[]>([]);
   const [recipeDraft, setRecipeDraft] = useState<RecipeLine[]>([]);
   const [listQuery, setListQuery] = useState("");
+  const [uploading, setUploading] = useState(false);
+
+  async function uploadPhoto(file: File | undefined) {
+    if (!file || !draft) return;
+    setUploading(true);
+    try {
+      const image = await uploadBusinessImage(file, "productos", 900);
+      setDraft((d) => (d ? { ...d, image } : d));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "No se pudo subir la foto.");
+    } finally {
+      setUploading(false);
+    }
+  }
 
   const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const [category, setCategory] = useState(""); // "" = todas
@@ -95,6 +110,9 @@ export default function ProductosAdminPage() {
     });
     if (!saved.noOwnTicket) delete saved.noOwnTicket;
     if (!saved.notSoldAlone) delete saved.notSoldAlone;
+    if (!saved.image) delete saved.image;
+    if (saved.description?.trim()) saved.description = saved.description.trim().slice(0, 160);
+    else delete saved.description;
     const schedule = saveSchedule(saved.saleSchedule);
     if (schedule) saved.saleSchedule = schedule;
     else delete saved.saleSchedule;
@@ -258,8 +276,13 @@ export default function ProductosAdminPage() {
               <>
                 <div className="flex flex-col gap-4 border-b border-zinc-800 pb-6 md:flex-row md:items-center md:justify-between">
                   <div className="flex items-center gap-4">
-                    <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-black text-5xl">
-                      {draft.emoji}
+                    <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-black text-5xl">
+                      {draft.image ? (
+                        // eslint-disable-next-line @next/next/no-img-element -- foto del producto en la nube
+                        <img src={draft.image} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        draft.emoji
+                      )}
                     </div>
 
                     <div>
@@ -376,6 +399,31 @@ export default function ProductosAdminPage() {
                   <div className="xl:col-span-2">
                     <SaleScheduleEditor value={draft.saleSchedule} onChange={(saleSchedule) => setDraft({ ...draft, saleSchedule })} />
                   </div>
+
+                  <Field label="📷 Foto (menú digital)">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="cursor-pointer rounded-2xl border border-orange-500 px-4 py-3 text-sm font-black text-orange-300 hover:bg-orange-500/10">
+                        {uploading ? "Subiendo..." : draft.image ? "Cambiar foto" : "Subir foto"}
+                        <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={uploading} onChange={(e) => void uploadPhoto(e.target.files?.[0])} />
+                      </label>
+                      {draft.image && (
+                        <button onClick={() => setDraft({ ...draft, image: undefined })} className="rounded-2xl border border-zinc-800 px-4 py-3 text-sm text-zinc-400">
+                          Quitar foto
+                        </button>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-zinc-500">Aparece en tu menú digital. Guarda los cambios para que se vea.</p>
+                  </Field>
+
+                  <Field label="Descripción (menú digital)">
+                    <input
+                      value={draft.description || ""}
+                      maxLength={160}
+                      placeholder="Carne, queso cheddar, tocino y cebolla crispy"
+                      onChange={(event) => setDraft({ ...draft, description: event.target.value })}
+                      className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
+                    />
+                  </Field>
 
                   <Field label="Emoji / icono temporal">
                     <input

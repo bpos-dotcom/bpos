@@ -19,6 +19,54 @@ export type SoldOut = {
   at: string;
 };
 
+/** Botón de "Pide donde quieras": prendido y a dónde lleva */
+export type ChannelLink = { on: boolean; url: string };
+
+/**
+ * Diseño del menú digital (Configuración → Menú digital → Diseño): cada
+ * sección se puede apagar; las imágenes son direcciones en la nube.
+ */
+export type MenuDesign = {
+  topBar: { on: boolean; text: string; city: string };
+  hero: { on: boolean; image: string; eyebrow: string; title: string; highlight: string; text: string; badges: string[]; button: string };
+  featured: { on: boolean; productId: number | null; image: string; eyebrow: string; text: string; badge: string };
+  top: { on: boolean; title: string; count: number };
+  channels: {
+    on: boolean;
+    image: string;
+    title: string;
+    highlight: string;
+    text: string;
+    whatsapp: ChannelLink;
+    didi: ChannelLink;
+    uber: ChannelLink;
+    rappi: ChannelLink;
+  };
+  banner: { on: boolean; image: string; title: string; highlight: string; side: string };
+};
+
+export const DEFAULT_DESIGN: MenuDesign = {
+  topBar: { on: true, text: "", city: "" },
+  hero: { on: true, image: "", eyebrow: "", title: "", highlight: "", text: "", badges: ["", "", ""], button: "Ver menú" },
+  featured: { on: true, productId: null, image: "", eyebrow: "Combo destacado", text: "", badge: "El favorito" },
+  top: { on: true, title: "Los más pedidos", count: 5 },
+  channels: {
+    on: true,
+    image: "",
+    title: "Pide",
+    highlight: "donde quieras",
+    text: "",
+    whatsapp: { on: true, url: "" },
+    didi: { on: false, url: "" },
+    uber: { on: false, url: "" },
+    rappi: { on: false, url: "" },
+  },
+  banner: { on: false, image: "", title: "", highlight: "", side: "" },
+};
+
+/** Datos para que el cliente transfiera */
+export type BankInfo = { bank: string; clabe: string; holder: string };
+
 export type DigitalMenuSettings = {
   /** El menú se ve en la liga pública */
   enabled: boolean;
@@ -46,6 +94,10 @@ export type DigitalMenuSettings = {
   hidden: number[];
   /** Productos agotados (también se ocultan) */
   soldOut: Record<string, SoldOut>;
+  /** WhatsApp del negocio para pedidos (transferencia y botón de WhatsApp), 10 dígitos */
+  whatsapp: string;
+  bank: BankInfo;
+  design: MenuDesign;
 };
 
 export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
@@ -63,7 +115,78 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   autoAccept: false,
   hidden: [],
   soldOut: {},
+  whatsapp: "",
+  bank: { bank: "", clabe: "", holder: "" },
+  design: DEFAULT_DESIGN,
 };
+
+const str = (value: unknown, fallback: string, max = 200) => (typeof value === "string" ? value.slice(0, max) : fallback);
+const bool = (value: unknown, fallback: boolean) => (typeof value === "boolean" ? value : fallback);
+/** Solo direcciones https (fotos en la nube, ligas de DiDi/Uber/Rappi) */
+const url = (value: unknown) => (typeof value === "string" && /^https:\/\/\S+$/i.test(value.trim()) ? value.trim().slice(0, 500) : "");
+const channel = (value: unknown, fallback: ChannelLink): ChannelLink => {
+  const v = (value || {}) as Partial<ChannelLink>;
+  return { on: bool(v.on, fallback.on), url: url(v.url) };
+};
+
+export function normalizeDesign(raw: unknown): MenuDesign {
+  const r = (raw || {}) as Partial<{ [K in keyof MenuDesign]: Partial<MenuDesign[K]> }>;
+  const d = DEFAULT_DESIGN;
+  const badges = Array.isArray(r.hero?.badges) ? r.hero.badges : d.hero.badges;
+  return {
+    topBar: { on: bool(r.topBar?.on, d.topBar.on), text: str(r.topBar?.text, "", 90), city: str(r.topBar?.city, "", 60) },
+    hero: {
+      on: bool(r.hero?.on, d.hero.on),
+      image: url(r.hero?.image),
+      eyebrow: str(r.hero?.eyebrow, "", 50),
+      title: str(r.hero?.title, "", 40),
+      highlight: str(r.hero?.highlight, "", 40),
+      text: str(r.hero?.text, "", 200),
+      badges: [0, 1, 2].map((i) => str(badges[i], "", 30)),
+      button: str(r.hero?.button, d.hero.button, 30) || d.hero.button,
+    },
+    featured: {
+      on: bool(r.featured?.on, d.featured.on),
+      productId: Number.isFinite(Number(r.featured?.productId)) && r.featured?.productId !== null ? Number(r.featured?.productId) : null,
+      image: url(r.featured?.image),
+      eyebrow: str(r.featured?.eyebrow, d.featured.eyebrow, 40),
+      text: str(r.featured?.text, "", 200),
+      badge: str(r.featured?.badge, d.featured.badge, 30),
+    },
+    top: {
+      on: bool(r.top?.on, d.top.on),
+      title: str(r.top?.title, d.top.title, 40) || d.top.title,
+      count: Math.round(num(r.top?.count, d.top.count, 3, 10)),
+    },
+    channels: {
+      on: bool(r.channels?.on, d.channels.on),
+      image: url(r.channels?.image),
+      title: str(r.channels?.title, d.channels.title, 30),
+      highlight: str(r.channels?.highlight, d.channels.highlight, 30),
+      text: str(r.channels?.text, "", 120),
+      whatsapp: channel(r.channels?.whatsapp, d.channels.whatsapp),
+      didi: channel(r.channels?.didi, d.channels.didi),
+      uber: channel(r.channels?.uber, d.channels.uber),
+      rappi: channel(r.channels?.rappi, d.channels.rappi),
+    },
+    banner: {
+      on: bool(r.banner?.on, d.banner.on),
+      image: url(r.banner?.image),
+      title: str(r.banner?.title, "", 40),
+      highlight: str(r.banner?.highlight, "", 40),
+      side: str(r.banner?.side, "", 60),
+    },
+  };
+}
+
+/** "8711234567" → "528711234567" para wa.me ("" si no es un número válido) */
+export function whatsappNumber(value: string) {
+  const digits = String(value || "").replace(/\D/g, "");
+  if (digits.length === 10) return `52${digits}`;
+  if (digits.length === 12 && digits.startsWith("52")) return digits;
+  if (digits.length === 13 && digits.startsWith("521")) return `52${digits.slice(3)}`;
+  return "";
+}
 
 const num = (value: unknown, fallback: number, min = 0, max = 100000) => {
   const n = Number(value);
@@ -96,6 +219,13 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
     autoAccept: r.autoAccept === true,
     hidden: Array.isArray(r.hidden) ? r.hidden.map(Number).filter(Number.isFinite) : [],
     soldOut,
+    whatsapp: String(r.whatsapp || "").replace(/\D/g, "").slice(0, 13),
+    bank: {
+      bank: str(r.bank?.bank, "", 40),
+      clabe: String(r.bank?.clabe || "").replace(/\D/g, "").slice(0, 18),
+      holder: str(r.bank?.holder, "", 80),
+    },
+    design: normalizeDesign(r.design),
   };
 }
 
@@ -191,7 +321,7 @@ export type OnlineOrderType = "Recoger" | "Domicilio" | "Mesa";
 export type OnlineOrderData = {
   type: OnlineOrderType;
   table?: string;
-  customer: { name: string; phone: string; address: string; reference: string };
+  customer: { name: string; phone: string; address: string; reference: string; location?: { lat: number; lng: number } };
   payment: "Efectivo" | "Tarjeta" | "Transferencia";
   /** Con cuánto paga (efectivo, para llevar cambio) */
   cashWith?: number;
@@ -201,3 +331,38 @@ export type OnlineOrderData = {
   deliveryFee: number;
   total: number;
 };
+
+/** Liga de Google Maps de la ubicación que compartió el cliente */
+export function mapsLink(location?: { lat: number; lng: number }) {
+  if (!location || !Number.isFinite(location.lat) || !Number.isFinite(location.lng)) return "";
+  return `https://maps.google.com/?q=${location.lat.toFixed(6)},${location.lng.toFixed(6)}`;
+}
+
+/** Mensaje de WhatsApp con el desglose del pedido (pago por transferencia o para avisar al negocio). */
+export function orderWhatsappText(businessName: string, folio: string, d: OnlineOrderData) {
+  const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
+  const lines = d.lines.map((l) => {
+    const extra = [l.summary, l.comment ? `"${l.comment}"` : ""].filter(Boolean).join(" · ");
+    return `• ${l.quantity} × ${l.name}${extra ? ` (${extra})` : ""} ${money(l.unitPrice * l.quantity)}`;
+  });
+  const where =
+    d.type === "Domicilio"
+      ? [`🛵 A domicilio: ${d.customer.address}${d.customer.reference ? ` (${d.customer.reference})` : ""}`, mapsLink(d.customer.location) ? `📍 Ubicación: ${mapsLink(d.customer.location)}` : ""]
+      : d.type === "Mesa"
+        ? [`🍽️ Mesa ${d.table}`]
+        : ["🛍️ Paso a recoger"];
+  return [
+    `🧾 *Pedido ${folio} · ${businessName}*`,
+    `Cliente: ${d.customer.name}${d.customer.phone ? ` · ${d.customer.phone}` : ""}`,
+    "",
+    ...lines,
+    d.deliveryFee ? `Envío ${money(d.deliveryFee)}` : "",
+    `*Total ${money(d.total)}*`,
+    "",
+    ...where,
+    `💳 Pago: ${d.payment}${d.payment === "Transferencia" ? " · te envío el comprobante" : ""}`,
+    d.note ? `📝 ${d.note}` : "",
+  ]
+    .filter((l, i, all) => l !== "" || (all[i - 1] !== "" && i > 0))
+    .join("\n");
+}

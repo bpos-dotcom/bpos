@@ -8,7 +8,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { getCurrentUser } from "@/lib/auth";
-import { DIGITAL_MENU_EVENT, getDigitalMenu } from "@/lib/digital-menu";
+import { DIGITAL_MENU_EVENT, getDigitalMenu, mapsLink } from "@/lib/digital-menu";
 import {
   ONLINE_ORDERS_EVENT,
   acceptOnlineOrder,
@@ -82,6 +82,11 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
           </a>
         )}
         {d.customer.address && <p className="text-zinc-300">📍 {d.customer.address}{d.customer.reference ? ` · ${d.customer.reference}` : ""}</p>}
+        {mapsLink(d.customer.location) && (
+          <a href={mapsLink(d.customer.location)} target="_blank" rel="noreferrer" className="text-sky-400 underline">
+            🗺️ Ver ubicación en el mapa
+          </a>
+        )}
         <p className="text-zinc-400">
           Paga con {d.payment}
           {d.cashWith ? ` (trae ${money(d.cashWith)})` : ""}
