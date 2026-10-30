@@ -21,6 +21,7 @@ import {
   isSoldOut,
   saveDigitalMenu,
   suggestSlug,
+  ONLINE_PAYMENTS,
   type DigitalMenuSettings,
 } from "@/lib/digital-menu";
 import { PUSH_SERVER as PUBLIC_SITE } from "@/lib/push/rules";
@@ -234,12 +235,43 @@ export default function MenuDigitalPage() {
               </button>
             )}
 
-            <p className="mt-5 text-sm font-bold text-zinc-300">El cliente paga al recoger o al recibir con:</p>
-            <div className="mt-2 grid gap-3 md:grid-cols-3">
-              <Switch checked={menu.payments.cash} onChange={(v) => update({ payments: { ...menu.payments, cash: v } })} text="Efectivo" />
-              <Switch checked={menu.payments.card} onChange={(v) => update({ payments: { ...menu.payments, card: v } })} text="Tarjeta" />
-              <Switch checked={menu.payments.transfer} onChange={(v) => update({ payments: { ...menu.payments, transfer: v } })} text="Transferencia" />
+            <p className="mt-5 text-sm font-bold text-zinc-300">Formas de pago según el tipo de pedido (el cliente paga al recoger, al recibir o en la mesa):</p>
+            <div className="mt-2 overflow-x-auto rounded-2xl border border-zinc-800">
+              <table className="w-full text-sm">
+                <thead className="bg-black text-zinc-400">
+                  <tr>
+                    <th className="px-4 py-2 text-left">Tipo</th>
+                    {ONLINE_PAYMENTS.map((p) => (
+                      <th key={p} className="px-4 py-2">{p}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(["Recoger", "Domicilio", "Mesa"] as const).map((type) => (
+                    <tr key={type} className="border-t border-zinc-800">
+                      <td className="px-4 py-3 font-black">{type === "Recoger" ? "🛍️ Para recoger" : type === "Domicilio" ? "🛵 A domicilio" : "🍽️ En mesa (QR)"}</td>
+                      {ONLINE_PAYMENTS.map((p) => {
+                        const on = menu.paymentsByType[type].includes(p);
+                        return (
+                          <td key={p} className="px-4 py-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              onChange={() =>
+                                update({ paymentsByType: { ...menu.paymentsByType, [type]: on ? menu.paymentsByType[type].filter((x) => x !== p) : [...menu.paymentsByType[type], p] } })
+                              }
+                              className="h-5 w-5 accent-orange-500"
+                              aria-label={`${p} en ${type}`}
+                            />
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
+            <p className="mt-1 text-xs text-zinc-500">Mercado Pago en línea se agrega aquí cuando activemos el cobro en línea. Transferencia necesita tu CLABE y WhatsApp abajo.</p>
 
             <p className="mt-5 text-sm font-bold text-zinc-300">Horario para recibir pedidos (vacío = siempre)</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -301,7 +333,7 @@ export default function MenuDigitalPage() {
                 <input value={menu.bank.holder} maxLength={80} onChange={(e) => update({ bank: { ...menu.bank, holder: e.target.value } })} className={`${input} mt-1`} />
               </label>
             </div>
-            {menu.payments.transfer && (!menu.whatsapp || menu.bank.clabe.length !== 18) && (
+            {Object.values(menu.paymentsByType).some((l) => l.includes("Transferencia")) && (!menu.whatsapp || menu.bank.clabe.length !== 18) && (
               <p className="mt-3 text-sm font-bold text-yellow-200">Tienes activado el pago por transferencia: completa el WhatsApp y la CLABE.</p>
             )}
           </section>

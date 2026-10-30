@@ -47,3 +47,15 @@ export async function uploadBusinessImage(file: File, folder: string, maxSide = 
   if (error) throw new Error(error.message);
   return getSupabase().storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
+
+/** Sube un audio del negocio (avisos de Notificaciones) tal cual; máximo 3 MB. */
+export async function uploadBusinessAudio(file: File): Promise<string> {
+  if (!/^audio\//i.test(file.type)) throw new Error("Sube un audio MP3, WAV, OGG o M4A.");
+  if (file.size > 3 * 1024 * 1024) throw new Error("El audio pesa más de 3 MB. Usa uno más corto.");
+  const { businessId } = await agentScope();
+  const ext = (file.name.split(".").pop() || "mp3").toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 5) || "mp3";
+  const path = `${businessId}/sonidos/${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}.${ext}`;
+  const { error } = await getSupabase().storage.from(BUCKET).upload(path, file, { contentType: file.type, cacheControl: "31536000" });
+  if (error) throw new Error(error.message);
+  return getSupabase().storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
+}

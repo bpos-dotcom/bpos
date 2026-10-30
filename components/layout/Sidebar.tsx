@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNotificationSound } from "@/lib/notifications/useNotificationSound";
+import { useAlertSettings, useAlertSound } from "@/lib/notifications/useAlert";
 import { getCurrentUser, clearCurrentUser } from "@/lib/auth";
 import { hasPermission, permissionForPath } from "@/lib/permissions";
 import {
@@ -67,7 +67,8 @@ export function Sidebar() {
   // usarlo. "📌 Fijar abierto" lo deja abierto (se recuerda en este dispositivo).
   const [pinned, setPinned] = useState(false);
   // Pedidos del menú digital esperando que alguien los acepte
-  const onlineWaiting = useOnlineOrdersWatch();
+  const online = useOnlineOrdersWatch();
+  const onlineWaiting = online.count;
 
   // Marca del negocio (Configuración → Sistema): nombre, logo y color
   const [brand, setBrand] = useState({ name: "", logo: "", color: "#f97316" });
@@ -177,24 +178,13 @@ export function Sidebar() {
     };
   }, [refreshOperations]);
 
+  // Avisos con el sonido, veces y color de Configuración → Notificaciones
+  const alerts = useAlertSettings();
   const shouldSoundDelivery = pendingCount > 0 && Boolean(signature) && signature !== acknowledgedSignature;
-  useNotificationSound({ active: shouldSoundDelivery, kind: "delivery-equivalences" });
-
-  useEffect(() => {
-    if (!warningSignature) return;
-    const key = `bpos_warning_sound:${warningSignature}`;
-    if (sessionStorage.getItem(key)) return;
-    new Audio("/sounds/BPOS_Official_Inventory_Warning.wav").play().catch(() => {});
-    sessionStorage.setItem(key, "1");
-  }, [warningSignature]);
-
-  useEffect(() => {
-    if (!criticalSignature) return;
-    const key = `bpos_critical_sound:${criticalSignature}`;
-    if (sessionStorage.getItem(key)) return;
-    new Audio("/sounds/BPOS_Official_Critical_Error.wav").play().catch(() => {});
-    sessionStorage.setItem(key, "1");
-  }, [criticalSignature]);
+  useAlertSound("delivery-equivalences", alerts["delivery-equivalences"], shouldSoundDelivery, signature || "");
+  useAlertSound("online-order", alerts["online-order"], onlineWaiting > 0, online.ids);
+  useAlertSound("inventory-warning", alerts["inventory-warning"], Boolean(warningSignature), warningSignature);
+  useAlertSound("critical-error", alerts["critical-error"], Boolean(criticalSignature), criticalSignature);
 
   function openOperationsCenter() {
     // Un pedido del menú en línea esperando va primero: se abre directo
@@ -215,7 +205,11 @@ export function Sidebar() {
   const hasWarning = lowStockCount > 0;
 
   const hasOnline = onlineWaiting > 0;
-  const visualState = hasCritical ? "critical" : hasPending || hasOnline ? "delivery" : hasWarning ? "warning" : "normal";
+  // Color y parpadeo del aviso que se está mostrando
+  const activeAlert = hasCritical ? alerts["critical-error"] : hasOnline ? alerts["online-order"] : hasPending ? alerts["delivery-equivalences"] : hasWarning ? alerts["inventory-warning"] : null;
+  const alertStyle = activeAlert
+    ? { borderColor: activeAlert.color, background: `${activeAlert.color}33`, boxShadow: `0 0 28px ${activeAlert.color}8c` }
+    : undefined;
   const badgeCount = hasCritical ? criticalCount : hasOnline ? onlineWaiting : hasPending ? pendingCount : hasWarning ? lowStockCount : 0;
 
   const visibleItems = useMemo(
@@ -276,22 +270,15 @@ export function Sidebar() {
       <button
         type="button"
         onClick={openOperationsCenter}
-        className={`w-full rounded-2xl border text-left transition-all ${slim ? "mb-4 p-2" : "mb-8 p-4"} ${
-          visualState === "critical"
-            ? "animate-pulse border-red-400 bg-red-500/25 shadow-[0_0_32px_rgba(239,68,68,0.65)]"
-            : visualState === "delivery"
-            ? "animate-pulse border-emerald-300 bg-emerald-500/25 shadow-[0_0_28px_rgba(52,211,153,0.55)]"
-            : visualState === "warning"
-            ? "border-yellow-300/70 bg-yellow-400/10 shadow-[0_0_16px_rgba(253,224,71,0.35)]"
-            : "border-zinc-800 bg-black"
-        }`}
+        className={`w-full rounded-2xl border text-left transition-all ${slim ? "mb-4 p-2" : "mb-8 p-4"} ${activeAlert ? (activeAlert.blink ? "animate-pulse" : "") : "border-zinc-800 bg-black"}`}
+        style={alertStyle}
         title="Abrir Centro de Operaciones"
       >
         <div className={`flex items-start gap-3 ${slim ? "relative justify-center" : "justify-between"}`}>
           {/* eslint-disable-next-line @next/next/no-img-element -- logo del negocio (data URL) o el de B-POS */}
           <img src={brand.logo || "/bpos-logo.png"} alt={brand.name || "B-POS"} className={`shrink-0 rounded-lg object-contain ${slim ? "h-10 w-10" : "h-14 w-14"}`} />
           {badgeCount > 0 && (
-            <span className={`flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : ""} ${hasCritical ? "bg-red-400" : hasPending || hasOnline ? "bg-emerald-300" : "bg-yellow-300"}`}>
+            <span className={`flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : ""}`} style={{ background: activeAlert?.color || "#fde047" }}>
               {badgeCount}
             </span>
           )}
@@ -301,8 +288,8 @@ export function Sidebar() {
 
         <div className="mt-3 flex items-center gap-2">
           <h1
-            className={`break-words text-xl font-black leading-tight ${hasCritical ? "text-red-200" : hasPending || hasOnline ? "text-emerald-200" : hasWarning ? "text-yellow-200" : ""}`}
-            style={hasCritical || hasPending || hasOnline || hasWarning ? undefined : { color: brand.color }}
+            className="break-words text-xl font-black leading-tight"
+            style={{ color: activeAlert ? "#ffffff" : brand.color }}
           >
             {brand.name}
           </h1>
@@ -312,10 +299,10 @@ export function Sidebar() {
 
         <p className="mt-1 text-[11px] font-semibold text-zinc-500">Operado por bpos.com.mx</p>
 
-        {hasCritical && <p className="mt-2 text-xs font-bold text-red-100">Error crítico · abrir para revisar</p>}
-        {!hasCritical && hasOnline && <p className="mt-2 text-xs font-bold text-emerald-100">🔔 Nuevo pedido del menú en línea · abrir ahora</p>}
-        {!hasCritical && !hasOnline && hasPending && <p className="mt-2 text-xs font-bold text-emerald-100">Equivalencias por enlazar · abrir ahora</p>}
-        {!hasCritical && !hasPending && !hasOnline && hasWarning && <p className="mt-2 text-xs font-bold text-yellow-100">Insumos por reponer</p>}
+        {hasCritical && <p className="mt-2 text-xs font-bold text-white">Error crítico · abrir para revisar</p>}
+        {!hasCritical && hasOnline && <p className="mt-2 text-xs font-bold text-white">🔔 Nuevo pedido del menú en línea · abrir ahora</p>}
+        {!hasCritical && !hasOnline && hasPending && <p className="mt-2 text-xs font-bold text-white">Equivalencias por enlazar · abrir ahora</p>}
+        {!hasCritical && !hasPending && !hasOnline && hasWarning && <p className="mt-2 text-xs font-bold text-white">Insumos por reponer</p>}
         </>
         )}
       </button>

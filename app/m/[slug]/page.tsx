@@ -28,6 +28,7 @@ import {
 } from "@/lib/digital-menu";
 import { scheduleLabel } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
+import { AddressMap } from "@/components/menu/AddressMap";
 
 type PublicMenu = {
   slug: string;
@@ -608,19 +609,19 @@ function Checkout({
 }) {
   const { menu, slug } = data;
   const wa = whatsappNumber(menu.whatsapp);
-  const types: OnlineOrderType[] = table ? ["Mesa"] : [...(menu.pickup ? (["Recoger"] as const) : []), ...(menu.delivery ? (["Domicilio"] as const) : [])];
-  // Transferencia solo si el negocio dejó su CLABE y su WhatsApp
-  const payments = (["Efectivo", "Tarjeta", "Transferencia"] as const).filter((p) =>
-    p === "Efectivo" ? menu.payments.cash : p === "Tarjeta" ? menu.payments.card : menu.payments.transfer && wa && menu.bank.clabe.length === 18
-  );
-  const [type, setType] = useState<OnlineOrderType>(types[0] || "Recoger");
+  // Recoger y domicilio se muestran siempre; lo que el negocio no ofrece sale como "No disponible"
+  const offered: Record<OnlineOrderType, boolean> = { Recoger: menu.pickup, Domicilio: menu.delivery, Mesa: Boolean(table) };
+  const [type, setType] = useState<OnlineOrderType>(table ? "Mesa" : menu.pickup || !menu.delivery ? "Recoger" : "Domicilio");
+  // Formas de pago de ese tipo de pedido; transferencia solo con CLABE y WhatsApp del negocio
+  const payments = menu.paymentsByType[type].filter((p) => p !== "Transferencia" || (wa && menu.bank.clabe.length === 18));
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [reference, setReference] = useState("");
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
-  const [locating, setLocating] = useState("");
-  const [payment, setPayment] = useState<OnlineOrderData["payment"]>(payments[0] || "Efectivo");
+  const [chosenPayment, setPayment] = useState<OnlineOrderData["payment"]>(payments[0] || "Efectivo");
+  // Si cambia el tipo de pedido y esa forma de pago no aplica, se toma la primera permitida
+  const payment = payments.includes(chosenPayment) ? chosenPayment : payments[0];
   const [cashWith, setCashWith] = useState("");
   const [note, setNote] = useState("");
   const [sending, setSending] = useState(false);
@@ -645,25 +646,14 @@ function Checkout({
     setCart((c) => c.map((l) => (l.key === key ? { ...l, quantity: l.quantity + delta } : l)).filter((l) => l.quantity > 0));
   }
 
-  function locate() {
-    if (!navigator.geolocation) return setLocating("Tu celular no permite compartir la ubicación.");
-    setLocating("Buscando tu ubicación...");
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setLocation({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setLocating("✅ Ubicación agregada");
-      },
-      () => setLocating("No se pudo obtener tu ubicación. Escribe bien tu dirección."),
-      { enableHighAccuracy: true, timeout: 15000 }
-    );
-  }
-
   async function send() {
     setError("");
     if (!name.trim()) return setError("Escribe tu nombre.");
     if (type !== "Mesa" && phone.replace(/\D/g, "").length < 10) return setError("Escribe tu teléfono a 10 dígitos para avisarte.");
     if (type === "Domicilio" && !address.trim()) return setError("Escribe la dirección de entrega.");
     if (belowMin) return setError(`El pedido mínimo es de ${money(menu.minOrder)}.`);
+    if (!offered[type]) return setError(type === "Domicilio" ? "Por ahora no tenemos servicio a domicilio. Elige para recoger." : "Por ahora no tenemos pedidos para recoger.");
+    if (!payment) return setError("El negocio no tiene formas de pago para este tipo de pedido.");
     const order: OnlineOrderData = {
       type,
       ...(type === "Mesa" ? { table } : {}),
@@ -728,11 +718,18 @@ function Checkout({
         </div>
         {cart.length === 0 && <p className="py-6 text-center text-zinc-500">Tu pedido está vacío.</p>}
 
-        {types.length > 1 && (
+        {!table && (
           <div className="mt-4 grid grid-cols-2 gap-2">
-            {types.map((t) => (
-              <button key={t} onClick={() => setType(t)} className="rounded-xl border py-3 font-black" style={type === t ? { background: color, borderColor: color, color: "#fff" } : { borderColor: "#e4e4e7" }}>
+            {(["Recoger", "Domicilio"] as const).map((t) => (
+              <button
+                key={t}
+                disabled={!offered[t]}
+                onClick={() => setType(t)}
+                className="rounded-xl border py-3 font-black disabled:cursor-not-allowed disabled:opacity-40"
+                style={type === t ? { background: color, borderColor: color, color: "#fff" } : { borderColor: "#e4e4e7" }}
+              >
                 {t === "Recoger" ? "🛍️ Paso a recoger" : "🛵 A domicilio"}
+                {!offered[t] && <span className="block text-[10px] font-bold">No disponible</span>}
               </button>
             ))}
           </div>
@@ -741,28 +738,33 @@ function Checkout({
 
         <label className="mt-4 block text-sm font-bold">
           Tu nombre
-          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} className={field} />
+          <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} name="name" autoComplete="name" className={field} />
         </label>
         {type !== "Mesa" && (
           <label className="mt-3 block text-sm font-bold">
             Teléfono (WhatsApp)
-            <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" maxLength={15} className={field} />
+            <input value={phone} onChange={(e) => setPhone(e.target.value)} inputMode="tel" maxLength={15} name="tel" autoComplete="tel-national" className={field} />
           </label>
         )}
         {type === "Domicilio" && (
           <>
+            <p className="mt-3 text-sm font-bold">¿Dónde te lo llevamos?</p>
+            <AddressMap
+              location={location}
+              color={color}
+              onChange={(place, found) => {
+                setLocation(place);
+                if (found) setAddress(found);
+              }}
+            />
             <label className="mt-3 block text-sm font-bold">
-              Dirección de entrega
-              <input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={200} className={field} />
+              Dirección de entrega (revisa calle y número)
+              <input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={200} name="street-address" autoComplete="street-address" className={field} />
             </label>
             <label className="mt-3 block text-sm font-bold">
               Referencias (opcional)
               <input value={reference} onChange={(e) => setReference(e.target.value)} maxLength={120} placeholder="Casa azul, junto a la tienda" className={field} />
             </label>
-            <button type="button" onClick={locate} className="mt-3 w-full rounded-xl border border-zinc-200 py-3 text-sm font-black">
-              📍 {location ? "Actualizar mi ubicación" : "Agregar mi ubicación (más fácil para el repartidor)"}
-            </button>
-            {locating && <p className="mt-1 text-xs text-zinc-500">{locating}</p>}
           </>
         )}
 

@@ -9,7 +9,9 @@
 import { addAuditEvent } from "@/lib/audit";
 import { getAdminProducts } from "@/lib/admin";
 import { buildSelection, extrasPrice, lineIdFor } from "@/lib/compound";
-import { getDigitalMenu, isAvailableOnline, type OnlineOrderData } from "@/lib/digital-menu";
+import { getDigitalMenu, isAvailableOnline, mapsLink, type OnlineOrderData } from "@/lib/digital-menu";
+import { getBusinessSettings } from "@/lib/business-settings";
+import type { DispatchInfo } from "@/lib/drivers";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { notifyKdsUpdated } from "@/lib/kds";
 import { allocateShiftOrderNumber, formatOrderNumber } from "@/lib/order-sequence";
@@ -199,4 +201,23 @@ export async function rejectOnlineOrder(order: OnlineOrder, reason: string, user
 /** Avisa al cliente que su pedido está listo o entregado. */
 export function markOnlineOrder(order: OnlineOrder, status: "listo" | "entregado") {
   return setStatus(order.id, { status });
+}
+
+/** Datos para el repartidor de un pedido del menú digital. */
+export function onlineDispatchInfo(order: OnlineOrder): DispatchInfo {
+  const d = order.data;
+  const c = d.customer;
+  return {
+    title: `Folio ${order.folio}`,
+    businessName: getBusinessSettings().businessName,
+    customer: { name: c.name, phone: c.phone, address: c.address, reference: c.reference, mapsUrl: mapsLink(c.location) || undefined },
+    lines: d.lines.map((l) => ({ quantity: l.quantity, name: l.name, detail: [l.summary, l.comment].filter(Boolean).join(" · ") || undefined })),
+    total: d.total,
+    // Transferencia: el negocio ya revisó el comprobante; efectivo o tarjeta se cobran al entregar
+    payment:
+      d.payment === "Transferencia"
+        ? { paid: true, method: "Transferencia" }
+        : { paid: false, method: d.payment === "Tarjeta" ? "Tarjeta (lleva la terminal)" : "Efectivo", amount: d.total, ...(d.cashWith ? { cashWith: d.cashWith } : {}) },
+    note: d.note || undefined,
+  };
 }

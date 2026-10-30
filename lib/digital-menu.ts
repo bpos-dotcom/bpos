@@ -86,8 +86,10 @@ export type DigitalMenuSettings = {
   hours?: SaleSchedule;
   /** Aviso arriba del menú ("Hoy 2x1 en papas") */
   notice: string;
-  /** Pago al recoger o al recibir */
+  /** Pago al recoger o al recibir (forma antigua; ahora manda paymentsByType) */
   payments: { cash: boolean; card: boolean; transfer: boolean };
+  /** Formas de pago que acepta cada tipo de pedido */
+  paymentsByType: Record<OnlineOrderType, OnlinePayment[]>;
   /** Aceptar solos los pedidos (si hay caja abierta) */
   autoAccept: boolean;
   /** Productos que no se muestran en el menú digital (ids) */
@@ -112,6 +114,7 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   prepMinutes: 20,
   notice: "",
   payments: { cash: true, card: true, transfer: false },
+  paymentsByType: { Recoger: ["Efectivo", "Tarjeta"], Domicilio: ["Efectivo"], Mesa: ["Efectivo", "Tarjeta"] },
   autoAccept: false,
   hidden: [],
   soldOut: {},
@@ -179,6 +182,26 @@ export function normalizeDesign(raw: unknown): MenuDesign {
   };
 }
 
+export const ONLINE_PAYMENTS = ["Efectivo", "Tarjeta", "Transferencia"] as const;
+export type OnlinePayment = (typeof ONLINE_PAYMENTS)[number];
+const ORDER_TYPES = ["Recoger", "Domicilio", "Mesa"] as const;
+
+/** Formas de pago por tipo de pedido; sin configurar, las de antes para todos. */
+function normalizePaymentsByType(raw: unknown, old?: Partial<DigitalMenuSettings["payments"]>): Record<OnlineOrderType, OnlinePayment[]> {
+  const legacy: OnlinePayment[] = [
+    ...(old?.cash !== false ? (["Efectivo"] as const) : []),
+    ...(old?.card !== false ? (["Tarjeta"] as const) : []),
+    ...(old?.transfer === true ? (["Transferencia"] as const) : []),
+  ];
+  const r = (raw || {}) as Partial<Record<OnlineOrderType, unknown>>;
+  return Object.fromEntries(
+    ORDER_TYPES.map((t) => {
+      const list = Array.isArray(r[t]) ? (r[t] as unknown[]).filter((p): p is OnlinePayment => (ONLINE_PAYMENTS as readonly unknown[]).includes(p)) : null;
+      return [t, list ?? (raw ? [] : legacy.length ? legacy : ["Efectivo"])];
+    })
+  ) as Record<OnlineOrderType, OnlinePayment[]>;
+}
+
 /** "8711234567" → "528711234567" para wa.me ("" si no es un número válido) */
 export function whatsappNumber(value: string) {
   const digits = String(value || "").replace(/\D/g, "");
@@ -216,6 +239,7 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
       card: r.payments?.card !== false,
       transfer: r.payments?.transfer === true,
     },
+    paymentsByType: normalizePaymentsByType(r.paymentsByType, r.payments),
     autoAccept: r.autoAccept === true,
     hidden: Array.isArray(r.hidden) ? r.hidden.map(Number).filter(Number.isFinite) : [],
     soldOut,

@@ -10,37 +10,8 @@ import { DIGITAL_MENU_EVENT, getDigitalMenu } from "@/lib/digital-menu";
 import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, listOnlineOrders } from "@/lib/online-orders";
 
 const CHECK_MS = 10_000;
-const VOICE_TEXT = "Recordatorio de B-POS. Acaba de llegar un nuevo pedido del menú en línea.";
-const TONE = "/sounds/BPOS_Official_Delivery_Equivalences.wav";
-
-/** Tono y luego la voz en español, 3 veces (sin voz en español: el tono 3 veces). */
-function announceNewOrder() {
-  const synth = typeof window !== "undefined" ? window.speechSynthesis : undefined;
-  const voice = synth?.getVoices().find((v) => v.lang.toLowerCase().startsWith("es"));
-  const tone = new Audio(TONE);
-  if (!synth || !voice) {
-    let plays = 1;
-    tone.addEventListener("ended", () => {
-      if (plays++ < 3) void tone.play().catch(() => {});
-    });
-    void tone.play().catch(() => {});
-    return;
-  }
-  const speak = () => {
-    synth.cancel();
-    for (let i = 0; i < 3; i++) {
-      const u = new SpeechSynthesisUtterance(VOICE_TEXT);
-      u.voice = voice;
-      u.lang = voice.lang;
-      synth.speak(u);
-    }
-  };
-  tone.addEventListener("ended", speak, { once: true });
-  tone.play().catch(speak);
-}
-
 export function useOnlineOrdersWatch() {
-  const [waiting, setWaiting] = useState(0);
+  const [waiting, setWaiting] = useState<{ count: number; ids: string }>({ count: 0, ids: "" });
   const seen = useRef<Set<string> | null>(null);
   const busy = useRef(false);
 
@@ -51,7 +22,7 @@ export function useOnlineOrdersWatch() {
     const check = async () => {
       const menu = getDigitalMenu();
       if (!menu.enabled || !menu.slug || busy.current) {
-        if (alive) setWaiting(0);
+        if (alive) setWaiting({ count: 0, ids: "" });
         return;
       }
       busy.current = true;
@@ -70,12 +41,11 @@ export function useOnlineOrdersWatch() {
               // otro dispositivo lo tomó o falta algo: queda para aceptarlo a mano
             }
           }
-          setWaiting(0);
+          setWaiting({ count: 0, ids: "" });
         } else {
-          setWaiting(fresh.length);
+          setWaiting({ count: fresh.length, ids: fresh.map((o) => o.id).sort().join(",") });
         }
         if (arrived.length) {
-          announceNewOrder();
           window.dispatchEvent(new Event(ONLINE_ORDERS_EVENT));
         }
       } catch {
@@ -97,5 +67,6 @@ export function useOnlineOrdersWatch() {
     };
   }, []);
 
+  /** count: pedidos esperando; ids: cambia con cada pedido nuevo (para avisar otra vez) */
   return waiting;
 }

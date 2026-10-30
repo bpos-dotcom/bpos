@@ -29,6 +29,8 @@ import RequirePermission from "@/components/auth/RequirePermission";
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import { useTerminalCharge } from "@/components/payments/TerminalCharge";
 import { branchUsesTerminal } from "@/lib/mp/client";
+import { DispatchModal } from "@/components/delivery/DispatchModal";
+import type { DispatchInfo } from "@/lib/drivers";
 import {
   allocateShiftOrderNumber,
   formatOrderNumber,
@@ -77,6 +79,8 @@ function PosScreen() {
   const [, setShiftVersion] = useState(0);
   // Terminal Mercado Pago: con tarjeta, el monto se manda solo a la terminal
   const terminal = useTerminalCharge();
+  // Pedido a domicilio cobrado: elegir repartidor
+  const [dispatch, setDispatch] = useState<{ info: DispatchInfo; saleId: number } | null>(null);
 
   const [details, setDetails] = useState<OrderDetails>({
     orderType: "Mostrador",
@@ -335,6 +339,20 @@ function PosScreen() {
 
     alert(`Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);
 
+    if (nextDetails.orderType === "Domicilio") {
+      setDispatch({
+        saleId: newOrder.id,
+        info: {
+          title: `Pedido #${formatOrderNumber(newOrder)}`,
+          businessName: getBusinessSettings().businessName,
+          customer: { name: nextDetails.customerName, phone: nextDetails.customerPhone, address: nextDetails.customerAddress },
+          lines: cart.map((i) => ({ quantity: i.quantity, name: i.name, detail: [...(i.parts || []).map((p) => p.name), ...(i.modifiers || []).filter((m) => !m.extra).map((m) => m.name), i.comment].filter(Boolean).join(" · ") || undefined })),
+          total,
+          payment: { paid: true, method: data.paymentMethod },
+        },
+      });
+    }
+
     // printTicket(newOrder);
 
     setCheckoutOpen(false);
@@ -555,6 +573,7 @@ Gracias por pedir en ${businessName} 🚀`;
         onConfirm={confirmCheckout}
       />
       {terminal.modal}
+      {dispatch && <DispatchModal info={dispatch.info} saleId={dispatch.saleId} onClose={() => setDispatch(null)} />}
 
       {comboToChoose && (
         <ComboChoiceModal
