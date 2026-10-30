@@ -20,8 +20,8 @@ Si el archivo `.env.local` no existe, B-POS funciona igual que antes (solo local
    las ventas no se puedan borrar (solo cancelar con motivo).
 5. SQL Editor → New query → pega `supabase/migrations/0005_bpos_push.sql` → Run.
    Guarda qué celulares reciben avisos push y cuáles ya se mandaron.
-6. Authentication → URL Configuration: Site URL `https://bpos-alpha.vercel.app`
-   y en Redirect URLs `https://bpos-alpha.vercel.app/**` y `http://localhost:3000/**`.
+6. Authentication → URL Configuration: Site URL `https://www.bpos.com.mx`
+   y en Redirect URLs `https://www.bpos.com.mx/**`, `https://bpos.com.mx/**`, `https://bpos-alpha.vercel.app/**` y `http://localhost:3000/**`.
 7. Authentication → Sign In / Providers → Email: puedes apagar **Confirm email**
    para que la cuenta quede lista sin revisar el correo.
 
@@ -77,7 +77,7 @@ segundo plano, y también con la app **cerrada** (avisos push).
 
 ### B-POS en Vercel y avisos push
 
-- B-POS está publicado en **https://bpos-alpha.vercel.app** (proyecto `bpos`
+- B-POS está publicado en **https://www.bpos.com.mx** (dominio en Neubox con nameservers de Vercel; también responde bpos-alpha.vercel.app; proyecto `bpos`
   en Vercel, conectado a GitHub: cada cambio en `main` se publica solo).
 - Los avisos push salen de Vercel. Necesita la variable
   **VAPID_PRIVATE_KEY** en Vercel → Settings → Environment Variables (el valor

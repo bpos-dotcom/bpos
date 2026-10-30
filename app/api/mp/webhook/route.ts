@@ -3,7 +3,7 @@ import { applyPreapproval, billingConfigured, getAuthorizedPayment, getPreapprov
 
 /**
  * Avisos de Mercado Pago (Tus integraciones → Webhooks → evento "Planes y
- * suscripciones", URL https://bpos-alpha.vercel.app/api/mp/webhook).
+ * suscripciones", URL https://www.bpos.com.mx/api/mp/webhook).
  * No se confía en el contenido del aviso: con su id se vuelve a consultar la
  * suscripción en Mercado Pago y de ahí se actualiza el plan.
  */

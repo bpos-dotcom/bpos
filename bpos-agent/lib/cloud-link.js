@@ -16,7 +16,7 @@ const os = require("os");
 const SUPABASE_URL = "https://fhsqwbtkxpzvmqplwqul.supabase.co";
 const SUPABASE_KEY = "sb_publishable_noKOXLF2fFBR2TCbgkxGRg__GlHxzbS";
 /** B-POS en la web (botón "Abrir B-POS") */
-const WEB_URL = "https://bpos-alpha.vercel.app";
+const WEB_URL = "https://www.bpos.com.mx";
 
 const POLL_MS = 2000;
 const POLL_OFFLINE_MS = 6000;
