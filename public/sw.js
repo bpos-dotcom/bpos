@@ -16,8 +16,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || "B-POS", {
       body: data.body || "",
-      icon: "/app-icon?size=192",
-      badge: "/app-icon?size=192",
+      icon: "/icons/icon-192.png",
+      badge: "/icons/icon-192.png",
       tag: data.tag,
       data: { url: data.url || "/dueno" },
     })

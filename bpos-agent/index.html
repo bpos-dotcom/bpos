@@ -5,46 +5,50 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'" />
     <title>B-POS Agent</title>
     <style>
+      :root { --bg: #050505; --fg: #fff; --muted: #a1a1aa; --box: #09090b; --line: #27272a; --btn: #18181b; --btn-line: #3f3f46; --field: #000; --pair: #1c0f05; --pair-title: #fdba74; --soft: #d4d4d8; }
+      :root[data-theme="light"] { --bg: #f4f4f5; --fg: #18181b; --muted: #52525b; --box: #fff; --line: #e4e4e7; --btn: #fff; --btn-line: #d4d4d8; --field: #fff; --pair: #fff7ed; --pair-title: #c2410c; --soft: #3f3f46; }
       * { box-sizing: border-box; }
-      body { margin: 0; background: #050505; color: #fff; font-family: "Segoe UI", Arial, sans-serif; padding: 22px; }
+      body { margin: 0; background: var(--bg); color: var(--fg); font-family: "Segoe UI", Arial, sans-serif; padding: 22px; }
       header { display: flex; align-items: center; gap: 14px; }
-      .logo { width: 48px; height: 48px; border-radius: 14px; background: #f97316; color: #000; font-weight: 900; font-size: 20px; display: flex; align-items: center; justify-content: center; }
+      .logo { width: 52px; height: 52px; border-radius: 14px; }
+      header .theme { margin-left: auto; }
       h1 { margin: 0; font-size: 24px; }
-      .muted { color: #a1a1aa; font-size: 13px; }
+      .muted { color: var(--muted); font-size: 13px; }
       .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
-      .box { border: 1px solid #27272a; background: #09090b; border-radius: 18px; padding: 14px 16px; }
-      .box h2 { margin: 0 0 6px; font-size: 13px; color: #a1a1aa; font-weight: 600; }
+      .box { border: 1px solid var(--line); background: var(--box); border-radius: 18px; padding: 14px 16px; }
+      .box h2 { margin: 0 0 6px; font-size: 13px; color: var(--muted); font-weight: 600; }
       .wide { grid-column: 1 / -1; }
       .val { font-size: 15px; font-weight: 700; }
       .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; background: #71717a; }
       .ok { background: #22c55e; } .warn { background: #f59e0b; } .bad { background: #ef4444; }
       .row { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
-      button { border: 1px solid #3f3f46; background: #18181b; color: #fff; border-radius: 12px; padding: 9px 14px; font-weight: 700; cursor: pointer; font-size: 13px; }
+      button { border: 1px solid var(--btn-line); background: var(--btn); color: var(--fg); border-radius: 12px; padding: 9px 14px; font-weight: 700; cursor: pointer; font-size: 13px; }
       button.primary { background: #f97316; color: #000; border-color: #f97316; }
       button:disabled { opacity: .5; cursor: default; }
-      .bar { height: 6px; border-radius: 4px; background: #27272a; margin-top: 8px; overflow: hidden; }
+      .bar { height: 6px; border-radius: 4px; background: var(--line); margin-top: 8px; overflow: hidden; }
       .bar > div { height: 100%; background: #f97316; width: 0; }
       ul, ol { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
       li.fail { color: #fca5a5; }
-      pre { background: #000; border: 1px solid #27272a; border-radius: 12px; padding: 10px; max-height: 170px; overflow: auto; font-size: 11px; color: #a1a1aa; white-space: pre-wrap; margin: 8px 0 0; }
-      label { font-size: 13px; color: #d4d4d8; display: flex; gap: 8px; align-items: center; margin-top: 10px; }
-      .pair { border-color: #f97316; background: #1c0f05; }
-      .pair input { width: 220px; font: 900 24px Consolas, monospace; letter-spacing: 4px; text-transform: uppercase; background: #000; color: #fb923c; border: 1px solid #f97316; border-radius: 12px; padding: 8px 12px; }
+      pre { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 10px; max-height: 170px; overflow: auto; font-size: 11px; color: var(--muted); white-space: pre-wrap; margin: 8px 0 0; }
+      label { font-size: 13px; color: var(--soft); display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+      .pair { border-color: #f97316; background: var(--pair); }
+      .pair input { width: 220px; font: 900 24px Consolas, monospace; letter-spacing: 4px; text-transform: uppercase; background: var(--field); color: #ea580c; border: 1px solid #f97316; border-radius: 12px; padding: 8px 12px; }
       .err { color: #fca5a5; font-size: 13px; margin-top: 8px; }
     </style>
   </head>
   <body>
     <header>
-      <div class="logo">BP</div>
+      <img class="logo" src="build/icon.png" alt="B-POS Agent" />
       <div>
         <h1>B-POS Agent <span id="version" class="muted"></span></h1>
         <div class="muted">Lee los pedidos de Rappi, Uber Eats y DiDi Food e imprime lo que mandas desde B-POS en la web.</div>
       </div>
+      <button class="theme" id="themeBtn" title="Cambiar entre modo claro y oscuro">☀️ Claro</button>
     </header>
 
     <div class="grid">
       <div class="box pair wide" id="pairBox" hidden>
-        <h2 style="color: #fdba74">Vincular esta computadora con tu negocio</h2>
+        <h2 style="color: var(--pair-title)">Vincular esta computadora con tu negocio</h2>
         <ol>
           <li>Abre B-POS en la web e inicia sesión: <b id="webUrl"></b></li>
           <li>Ve a <b>Configuración → Sistema → Vincular una computadora</b>.</li>
@@ -100,6 +104,17 @@
 
     <script>
       const $ = (id) => document.getElementById(id);
+
+      // Modo claro u oscuro (se recuerda en esta computadora)
+      function applyTheme(theme) {
+        document.documentElement.dataset.theme = theme;
+        $("themeBtn").textContent = theme === "light" ? "🌙 Oscuro" : "☀️ Claro";
+        try { localStorage.setItem("bpos-agent-theme", theme); } catch {}
+      }
+      let savedTheme = "dark";
+      try { savedTheme = localStorage.getItem("bpos-agent-theme") || "dark"; } catch {}
+      applyTheme(savedTheme);
+      $("themeBtn").onclick = () => applyTheme(document.documentElement.dataset.theme === "light" ? "dark" : "light");
       const dotClass = { connected: "ok", connecting: "warn", offline: "bad", unlinked: "" };
 
       function render(s) {

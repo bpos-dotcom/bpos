@@ -27,9 +27,17 @@ function rotate() {
   }
 }
 
+/** El registro lo ve el cliente: sin direcciones de GitHub ni del repositorio. */
+function clean(text) {
+  return String(text)
+    .replace(/https?:\/\/[^\s"')]*github[^\s"')]*/gi, "[servidor de actualizaciones]")
+    .replace(/[\w.-]*github[\w.-]*/gi, "[servidor de actualizaciones]")
+    .replace(/bpos-dotcom\/bpos/gi, "B-POS");
+}
+
 function write(level, source, args) {
   if (!logFile) return;
-  const text = args.map((a) => (typeof a === "string" ? a : util.inspect(a, { depth: 4 }))).join(" ");
+  const text = clean(args.map((a) => (typeof a === "string" ? a : util.inspect(a, { depth: 4 }))).join(" "));
   const line = `${new Date().toISOString()} [${level}] [${source}] ${text}\n`;
   try {
     rotate();

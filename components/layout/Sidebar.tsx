@@ -64,10 +64,20 @@ export function Sidebar() {
   // cursor o tocar »; se vuelve a contraer al salir el cursor o tras 10 s sin
   // usarlo. "📌 Fijar abierto" lo deja abierto (se recuerda en este dispositivo).
   const [pinned, setPinned] = useState(false);
-  const [businessName, setBusinessName] = useState("");
+  // Marca del negocio (Configuración → Sistema): nombre, logo y color
+  const [brand, setBrand] = useState({ name: "", logo: "", color: "#f97316" });
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- dato del navegador: solo después de montar
-    setBusinessName(getBusinessSettings().businessName);
+    const sync = () => {
+      const s = getBusinessSettings();
+      setBrand({ name: s.businessName, logo: s.brandLogo, color: s.brandColor });
+    };
+    sync();
+    window.addEventListener("bpos:business-settings-updated", sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener("bpos:business-settings-updated", sync);
+      window.removeEventListener("storage", sync);
+    };
   }, []);
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -267,8 +277,8 @@ export function Sidebar() {
         title="Abrir Centro de Operaciones"
       >
         <div className={`flex items-start gap-3 ${slim ? "relative justify-center" : "justify-between"}`}>
-          {/* eslint-disable-next-line @next/next/no-img-element -- logo fijo */}
-          <img src="/bpos-logo.png" alt="B-POS" className={`shrink-0 object-contain ${slim ? "h-10 w-10" : "h-12 w-12"}`} />
+          {/* eslint-disable-next-line @next/next/no-img-element -- logo del negocio (data URL) o el de B-POS */}
+          <img src={brand.logo || "/bpos-logo.png"} alt={brand.name || "B-POS"} className={`shrink-0 rounded-lg object-contain ${slim ? "h-10 w-10" : "h-14 w-14"}`} />
           {badgeCount > 0 && (
             <span className={`flex min-w-7 items-center justify-center rounded-full px-2 py-1 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : ""} ${hasCritical ? "bg-red-400" : hasPending ? "bg-emerald-300" : "bg-yellow-300"}`}>
               {badgeCount}
@@ -278,12 +288,18 @@ export function Sidebar() {
         {!slim && (
         <>
 
-        <p className={`mt-3 text-sm font-bold ${hasCritical ? "text-red-200" : hasPending ? "text-emerald-200" : hasWarning ? "text-yellow-200" : "text-orange-500"}`}>{businessName}</p>
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-black text-white">BPOS</h1>
+        <div className="mt-3 flex items-center gap-2">
+          <h1
+            className={`break-words text-xl font-black leading-tight ${hasCritical ? "text-red-200" : hasPending ? "text-emerald-200" : hasWarning ? "text-yellow-200" : ""}`}
+            style={hasCritical || hasPending || hasWarning ? undefined : { color: brand.color }}
+          >
+            {brand.name}
+          </h1>
           {hasWarning && <span className="h-3 w-3 rounded-full bg-yellow-300 shadow-[0_0_12px_rgba(253,224,71,1)]" title={`${lowStockCount} alerta(s) de inventario`} />}
           {hasCritical && <span className="h-3 w-3 animate-pulse rounded-full bg-red-500 shadow-[0_0_14px_rgba(239,68,68,1)]" title={`${criticalCount} error(es) crítico(s)`} />}
         </div>
+
+        <p className="mt-1 text-[11px] font-semibold text-zinc-500">Operado por bpos.com.mx</p>
 
         {hasCritical && <p className="mt-2 text-xs font-bold text-red-100">Error crítico · abrir para revisar</p>}
         {!hasCritical && hasPending && <p className="mt-2 text-xs font-bold text-emerald-100">Equivalencias por enlazar · abrir ahora</p>}

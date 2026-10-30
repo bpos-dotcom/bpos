@@ -9,6 +9,8 @@ const listeners = new Set();
 let status = { state: "idle", message: "Sin revisar", available: null, progress: null, checkedAt: null };
 
 function setStatus(patch) {
+  // En el registro solo el mensaje en español (sin el detalle técnico del actualizador)
+  if (patch.message && patch.message !== status.message && patch.progress == null) console.log(`[actualizaciones] ${patch.message}`);
   status = { ...status, ...patch };
   listeners.forEach((l) => l(status));
 }
@@ -19,7 +21,8 @@ function onUpdateStatus(listener) {
 }
 
 function initUpdater({ isPackaged }) {
-  autoUpdater.logger = { info: console.log, warn: console.warn, error: console.error, debug: () => {} };
+  // El detalle técnico (direcciones de descarga) no va al registro que ve el cliente
+  autoUpdater.logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} };
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
 

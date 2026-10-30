@@ -1,6 +1,6 @@
 "use client";
 /**
- * Configuración → Sistema: apariencia, moneda e idioma, pantalla táctil,
+ * Configuración → Sistema: tu negocio en el menú, apariencia, moneda e idioma, pantalla táctil,
  * respaldos, B-POS Agent (vincular la PC de las impresoras) y versión.
  * Tema y pantalla táctil son de ESTE dispositivo (no se sincronizan).
  */
@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { AgentCard } from "@/components/agent/AgentCard";
+import { BrandCard } from "@/components/settings/BrandCard";
 import { setTouchKeypad, touchKeypadEnabled } from "@/lib/device-settings";
 import { getTheme, setTheme, THEME_EVENT, type Theme } from "@/lib/theme";
 
@@ -37,6 +38,7 @@ export default function SistemaPage() {
     <RequireRole allow={["Admin"]}>
       <AppShell title="Sistema" subtitle="Apariencia, región, pantalla táctil, respaldos y B-POS Agent.">
         <div className="grid max-w-5xl gap-5 lg:grid-cols-2">
+          <BrandCard className="lg:col-span-2" />
           <section className={card}>
             <h2 className="text-lg font-black">🎨 Apariencia (este dispositivo)</h2>
             <p className="mt-1 text-sm text-zinc-400">También puedes cambiarlo con el botón de arriba a la derecha.</p>
