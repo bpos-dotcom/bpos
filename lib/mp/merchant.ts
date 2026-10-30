@@ -68,7 +68,7 @@ async function oauthToken(params: Record<string, string>): Promise<TokenResponse
 /** Liga para que el dueño autorice a B-POS en Mercado Pago. */
 export function authorizationUrl(state: string) {
   const q = new URLSearchParams({ client_id: MP_CLIENT_ID, response_type: "code", platform_id: "mp", state, redirect_uri: MP_REDIRECT_URI });
-  return `https://auth.mercadopago.com/authorization?${q}`;
+  return `https://auth.mercadopago.com.mx/authorization?${q}`;
 }
 
 /** Código que regresa Mercado Pago → llaves del negocio guardadas en la nube. */
