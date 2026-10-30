@@ -14,10 +14,13 @@ import {
   ONLINE_ORDERS_EVENT,
   acceptOnlineOrder,
   buildOnlineCart,
+  customerWhatsappLink,
   listOnlineOrders,
   markOnlineOrder,
+  noticeFor,
   onlineDispatchInfo,
   rejectOnlineOrder,
+  type CustomerNotice,
   type OnlineOrder,
 } from "@/lib/online-orders";
 
@@ -43,27 +46,50 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
     try {
       await action();
       onChanged();
+      return true;
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "No se pudo.");
+      return false;
     } finally {
       setBusy(false);
     }
   }
 
+  /**
+   * Cambia el estado y abre WhatsApp con el aviso para el cliente. La ventana
+   * se abre en el mismo clic (si no, el navegador la bloquea) y se llena al
+   * terminar; si algo falla, se cierra.
+   */
+  async function step(notice: CustomerNotice, action: () => Promise<unknown>, opts: { eta?: number; reason?: string } = {}) {
+    const link = menu.whatsappNotify ? customerWhatsappLink(order, notice, opts) : "";
+    const w = link ? window.open("", "_blank") : null;
+    const ok = await run(action);
+    if (ok && w) w.location.href = link;
+    else w?.close();
+  }
+
   async function accept() {
-    await run(async () => {
-      const result = await acceptOnlineOrder(order, eta, getCurrentUser()?.name);
-      if (result.printFailed.length) setMessage(`Aceptado. No se imprimió en: ${result.printFailed.join(", ")}. Reimprime desde Impresiones.`);
-      // A domicilio: de una vez elegir quién lo lleva
-      if (order.data.type === "Domicilio") setDispatching(true);
-    });
+    await step(
+      "aceptado",
+      async () => {
+        const result = await acceptOnlineOrder(order, eta, getCurrentUser()?.name);
+        if (result.printFailed.length) setMessage(`Aceptado. No se imprimió en: ${result.printFailed.join(", ")}. Reimprime desde Impresiones.`);
+        // A domicilio: de una vez elegir quién lo lleva
+        if (order.data.type === "Domicilio") setDispatching(true);
+      },
+      { eta }
+    );
   }
 
   async function reject() {
     const reason = prompt("¿Por qué no puedes tomar el pedido? (se le muestra al cliente)", "Por ahora no podemos tomar tu pedido. ¡Disculpa!");
     if (reason === null) return;
-    await run(() => rejectOnlineOrder(order, reason, getCurrentUser()?.name));
+    await step("rechazado", () => rejectOnlineOrder(order, reason, getCurrentUser()?.name), { reason });
   }
+
+  // Para volver a mandar el aviso del estado actual
+  const notice = noticeFor(order.status);
+  const resend = notice ? customerWhatsappLink(order, notice) : "";
 
   const isNew = order.status === "nuevo" || order.status === "aceptando";
   return (
@@ -140,18 +166,23 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
               🛵 Mandar a repartidor
             </button>
           )}
-          <button disabled={busy} onClick={() => void run(() => markOnlineOrder(order, "listo"))} className="rounded-2xl bg-orange-500 px-4 py-2 font-black text-black">
+          <button disabled={busy} onClick={() => void step("listo", () => markOnlineOrder(order, "listo"))} className="rounded-2xl bg-orange-500 px-4 py-2 font-black text-black">
             {d.type === "Domicilio" ? "Salió a entregar" : "Ya está listo"}
           </button>
         </div>
       )}
       {order.status === "listo" && (
-        <button disabled={busy} onClick={() => void run(() => markOnlineOrder(order, "entregado"))} className="mt-4 rounded-2xl border border-zinc-700 px-4 py-2 font-black">
+        <button disabled={busy} onClick={() => void step("entregado", () => markOnlineOrder(order, "entregado"))} className="mt-4 rounded-2xl border border-zinc-700 px-4 py-2 font-black">
           Marcar entregado
         </button>
       )}
       {order.status === "rechazado" && <p className="mt-3 text-sm text-red-300">Rechazado: {order.reason}</p>}
       {order.status === "entregado" && <p className="mt-3 text-sm text-zinc-500">Entregado ✅</p>}
+      {resend && (
+        <a href={resend} target="_blank" rel="noreferrer" className="mt-3 inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300 hover:bg-emerald-500/10">
+          📲 Avisar al cliente por WhatsApp
+        </a>
+      )}
       {message && <p className="mt-3 text-sm font-bold text-yellow-200">{message}</p>}
       {dispatching && <DispatchModal info={onlineDispatchInfo(order)} saleId={order.sale_order_id || undefined} onClose={() => setDispatching(false)} />}
     </div>
