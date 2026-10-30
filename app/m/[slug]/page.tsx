@@ -165,6 +165,8 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
   const [cart, setCart] = useState<CartLine[]>([]);
   const [checkout, setCheckout] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  /** Recuadro deslizante del menú */
+  const boxRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLElement>(null);
   /** Alto del encabezado fijo: las categorías del menú se pegan justo debajo */
   const [headerH, setHeaderH] = useState(57);
@@ -193,6 +195,8 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
   const shown = visible.filter(
     (p) => (category === "Todos" || (p.category || "Otros") === category) && p.name.toLowerCase().includes(search.trim().toLowerCase())
   );
+  /** "Todos" sin búsqueda: el recuadro va por categorías, con su título */
+  const grouped = category === "Todos" && !search.trim();
   // Los más pedidos: ventas reales del mes; sin ventas todavía, los primeros del menú
   const top = useMemo(() => {
     const sold = data.top.map((t) => ({ product: byId.get(t.id), qty: t.qty })).filter((t): t is { product: Product; qty: number } => Boolean(t.product));
@@ -212,6 +216,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
 
   function goToMenu(cat = "Todos") {
     setCategory(cat);
+    boxRef.current?.scrollTo({ top: 0 });
     menuRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
@@ -262,6 +267,26 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
   /** Al agregar, la tarjeta se ilumina un momento en el color del negocio */
   const glow = (product: Product): React.CSSProperties =>
     flash === Number(product.id) ? { borderColor: color, background: `${color}26`, boxShadow: `0 0 0 3px ${color}80` } : {};
+  /** Tarjeta de producto en cuadro: foto, nombre, precio y "+" (o cuántos lleva) */
+  const card = (p: Product, opts: { rank?: number; className?: string } = {}) => (
+    <button
+      key={p.id}
+      disabled={!canOrder}
+      onClick={() => pick(p)}
+      style={glow(p)}
+      className={`relative flex flex-col overflow-hidden rounded-xl border border-orange-100 bg-white text-left shadow-sm transition-all duration-300 hover:shadow-md disabled:cursor-default ${opts.className || ""}`}
+    >
+      {opts.rank ? <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-black text-white">#{opts.rank}</span> : null}
+      <Photo product={p} emoji="text-4xl" className="h-16 w-full md:h-24" />
+      <span className="flex flex-1 flex-col p-2">
+        <span className="line-clamp-2 text-xs font-black leading-tight md:text-sm">{p.name}</span>
+        <span className="mt-auto flex items-center justify-between pt-1">
+          <span className="text-sm font-black" style={{ color }}>{price(Number(p.price))}</span>
+          {canOrder && plusBtn(p)}
+        </span>
+      </span>
+    </button>
+  );
 
   return (
     <Shell>
@@ -400,19 +425,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
           <section className="mt-5">
             <h2 className="text-xl font-black">🔥 {design.top.title}</h2>
             <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
-              {top.map(({ product, qty }, i) => (
-                <button key={product.id} onClick={() => pick(product)} style={glow(product)} className="relative flex w-32 shrink-0 flex-col overflow-hidden rounded-xl border border-orange-100 bg-white text-left shadow-sm transition-all duration-300 hover:shadow-md md:w-40">
-                  {qty > 0 && <span className="absolute left-1.5 top-1.5 z-10 rounded-full bg-zinc-900 px-1.5 py-0.5 text-[10px] font-black text-white">#{i + 1}</span>}
-                  <Photo product={product} emoji="text-4xl" className="h-20 w-full md:h-24" />
-                  <span className="flex flex-1 flex-col p-2">
-                    <span className="line-clamp-2 text-xs font-black leading-tight">{product.name}</span>
-                    <span className="mt-auto flex items-center justify-between pt-1">
-                      <span className="text-sm font-black" style={{ color }}>{price(Number(product.price))}</span>
-                      {canOrder && plusBtn(product)}
-                    </span>
-                  </span>
-                </button>
-              ))}
+              {top.map(({ product, qty }, i) => card(product, { rank: qty > 0 ? i + 1 : 0, className: "w-32 shrink-0 md:w-40" }))}
             </div>
           </section>
         )}
@@ -423,8 +436,7 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
             <h2 className="text-xl font-black">Menú</h2>
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Buscar un platillo..." className="w-full max-w-xs rounded-full border border-orange-100 bg-white px-4 py-2 text-sm outline-none focus:border-orange-300" />
           </div>
-          {/* Las categorías se quedan pegadas arriba mientras se baja por el menú */}
-          <div className="sticky z-10 -mx-4 flex gap-2 overflow-x-auto bg-[#fff8f1]/95 px-4 py-2 backdrop-blur" style={{ top: headerH }}>
+          <div className="-mx-4 mt-2 flex gap-2 overflow-x-auto px-4 pb-1">
             {["Todos", ...categories].map((c) => (
               <button
                 key={c}
@@ -436,20 +448,23 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
               </button>
             ))}
           </div>
-          <div className="mt-1 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {shown.map((p) => (
-              <button key={p.id} disabled={!canOrder} onClick={() => pick(p)} style={glow(p)} className="flex items-center gap-2.5 rounded-xl border border-orange-100 bg-white p-2 text-left shadow-sm transition-all duration-300 hover:shadow-md disabled:cursor-default">
-                <Photo product={p} emoji="text-3xl" className="h-14 w-14 shrink-0 rounded-lg" />
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-black leading-tight">{p.name}</span>
-                  {p.description && <span className="line-clamp-1 block text-xs text-zinc-500">{p.description}</span>}
-                  <span className="block text-sm font-black" style={{ color }}>{price(Number(p.price))}</span>
-                </span>
-                {canOrder && plusBtn(p)}
-              </button>
-            ))}
+          {/* Recuadro deslizante: unos 6 platillos a la vista; se desliza por dentro y la página sigue corta */}
+          <div ref={boxRef} className="mt-1 max-h-[470px] overflow-y-auto rounded-2xl border border-orange-100 bg-white p-2 shadow-inner md:max-h-[560px]">
+            {grouped ? (
+              categories.map((c) => (
+                <div key={c}>
+                  <h3 className="sticky top-0 z-[1] -mx-2 bg-white/95 px-2 py-1.5 text-sm font-black backdrop-blur">{c}</h3>
+                  <div className="grid grid-cols-2 gap-2 pb-2 sm:grid-cols-3 lg:grid-cols-4">
+                    {visible.filter((p) => (p.category || "Otros") === c).map((p) => card(p))}
+                  </div>
+                </div>
+              ))
+            ) : (
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">{shown.map((p) => card(p))}</div>
+            )}
+            {shown.length === 0 && <p className="py-12 text-center text-zinc-500">No hay platillos en esta sección.</p>}
           </div>
-          {shown.length === 0 && <p className="py-12 text-center text-zinc-500">No hay platillos en esta sección.</p>}
+          {shown.length > 6 && <p className="mt-1 text-center text-xs font-bold text-zinc-400">Desliza dentro del menú para ver más ↓</p>}
         </section>
 
         {/* Pide donde quieras: imagen horizontal a todo lo ancho con los botones encima; mascota cuadrada, de lado */}
