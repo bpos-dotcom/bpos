@@ -27,6 +27,8 @@ import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCorner } from "@/components/layout/TopCorner";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
+import { useTerminalCharge } from "@/components/payments/TerminalCharge";
+import { branchUsesTerminal } from "@/lib/mp/client";
 import {
   allocateShiftOrderNumber,
   formatOrderNumber,
@@ -73,6 +75,8 @@ function PosScreen() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [comboToChoose, setComboToChoose] = useState<Product | null>(null);
   const [, setShiftVersion] = useState(0);
+  // Terminal Mercado Pago: con tarjeta, el monto se manda solo a la terminal
+  const terminal = useTerminalCharge();
 
   const [details, setDetails] = useState<OrderDetails>({
     orderType: "Mostrador",
@@ -286,6 +290,13 @@ function PosScreen() {
     if (data.discount > 0 && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
 
     const total = Math.max(subtotal - data.discount, 0);
+
+    // Con terminal vinculada, la parte con tarjeta se cobra primero en la terminal
+    const cardPart = data.paymentMethod === "Tarjeta" ? total : data.paymentMethod === "Mixto" ? Math.min(total, data.cardAmount || 0) : 0;
+    if (cardPart > 0 && (await branchUsesTerminal())) {
+      const result = await terminal.charge(cardPart, `Pedido ${getNextShiftOrderNumberPreview()}`);
+      if (result === "cancelled") return;
+    }
 
     const nextDetails: OrderDetails = {
       ...details,
@@ -543,6 +554,7 @@ Gracias por pedir en ${businessName} 🚀`;
         onClose={() => setCheckoutOpen(false)}
         onConfirm={confirmCheckout}
       />
+      {terminal.modal}
 
       {comboToChoose && (
         <ComboChoiceModal
