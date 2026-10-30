@@ -162,7 +162,10 @@
       $("openBtn").onclick = () => window.bpos.open("/");
       $("openWebBtn").onclick = () => window.bpos.open("/configuracion/sistema");
       $("pairBtn").onclick = pair;
-      $("code").onkeydown = (e) => e.key === "Enter" && pair();
+      // Sin regresar valor: un "false" de onkeydown bloquearía todas las teclas
+      $("code").addEventListener("keydown", (e) => {
+        if (e.key === "Enter") pair();
+      });
       $("unlinkBtn").onclick = () => window.bpos.unlink();
       $("updateBtn").onclick = async () => {
         const s = await window.bpos.getState();
