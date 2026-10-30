@@ -23,6 +23,7 @@ import { getCurrentUser, CurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
 import { discountInventoryByOrder } from "@/lib/inventory";
+import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCorner } from "@/components/layout/TopCorner";
 import RequirePermission from "@/components/auth/RequirePermission";
@@ -290,8 +291,16 @@ function PosScreen() {
     cardAmount: number;
     transferAmount: number;
     discount: number;
+    couponCode?: string;
   }) {
-    if (data.discount > 0 && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
+    // El descuento de un cupón vigente no pide autorización (se revisa otra vez aquí)
+    const coupon = data.couponCode ? checkCoupon(data.couponCode, subtotal, "pos") : null;
+    if (coupon && !coupon.ok) {
+      alert(coupon.error);
+      return;
+    }
+    const byCoupon = Boolean(coupon?.ok && Math.abs(coupon.discount - data.discount) < 0.01);
+    if (data.discount > 0 && !byCoupon && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
 
     const total = Math.max(subtotal - data.discount, 0);
 
@@ -306,6 +315,7 @@ function PosScreen() {
       ...details,
       paymentMethod: data.paymentMethod,
       discount: data.discount,
+      ...(byCoupon && data.couponCode ? { couponCode: data.couponCode } : {}),
     };
 
     let sequence;
@@ -328,6 +338,7 @@ function PosScreen() {
     } as SavedOrder & { localOrderNumber: number; shiftSessionId: string };
 
     saveOrders([...orders, newOrder]);
+    if (nextDetails.couponCode) countCouponUse(nextDetails.couponCode);
     discountInventoryByOrder(newOrder.id, cart);
     // Comandas por estación y ticket del cliente en Caja, directo a las térmicas
     void printSale(newOrder, { stations: saleStations(newOrder), customer: true }, false)

@@ -134,6 +134,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
           </li>
         ))}
         {d.deliveryFee > 0 && <li className="text-zinc-400">Envío {money(d.deliveryFee)}</li>}
+        {d.coupon && <li className="text-emerald-400">🎟️ Cupón {d.coupon.code} -{money(d.coupon.discount)}</li>}
       </ul>
 
       {problems.length > 0 && (
