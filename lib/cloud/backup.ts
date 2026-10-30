@@ -4,12 +4,11 @@
  *
  * Todo lo de B-POS vive en la nube como registros de sync_records. Un
  * respaldo es una copia completa de esos registros en un archivo JSON:
- * - Automático: una vez al día la caja guarda una copia en la computadora
- *   (carpeta de datos de B-POS, se conservan 30 días).
+ * - Automático: una vez al día se guarda una copia en la nube (tabla
+ *   bpos_backups, se conservan 7 días).
  * - Manual: "Descargar respaldo" y "Restaurar" en Configuración → Respaldos.
  */
 import { loadCloudAccount } from "@/lib/cloud/account";
-import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
 
 export type BackupRecord = { scope: string; collection: string; record_id: string; data: unknown };
@@ -24,12 +23,52 @@ export type BackupFile = {
 
 const LAST_AUTO_KEY = "bpos_last_backup"; // solo de este dispositivo (ver DEVICE_LOCAL_KEYS)
 const PAGE = 1000;
+const KEEP_DAYS = 7;
 
-/** Copia completa del negocio desde la nube. */
-export async function createBackup(): Promise<BackupFile> {
+async function readyAccount() {
   if (!isCloudConfigured) throw new Error("B-POS no está conectado a la nube.");
   const account = await loadCloudAccount();
   if (account.status !== "ready") throw new Error("Inicia sesión con la cuenta del negocio para respaldar.");
+  return account;
+}
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** Guarda el respaldo como el del día en la nube y borra los de hace más de 7 días. */
+export async function saveDailyBackup(backup: BackupFile) {
+  const day = today();
+  const { error } = await getSupabase()
+    .from("bpos_backups")
+    .upsert({ business_id: backup.businessId, day, data: backup, size: JSON.stringify(backup).length }, { onConflict: "business_id,day" });
+  if (error) throw new Error(error.message);
+  const oldest = new Date(Date.now() - KEEP_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  await getSupabase().from("bpos_backups").delete().eq("business_id", backup.businessId).lt("day", oldest);
+}
+
+/** Respaldos diarios guardados en la nube, el más nuevo primero. */
+export async function listSavedBackups(): Promise<{ day: string; size: number }[]> {
+  const account = await readyAccount();
+  const { data, error } = await getSupabase()
+    .from("bpos_backups")
+    .select("day, size")
+    .eq("business_id", account.businessId)
+    .order("day", { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []) as { day: string; size: number }[];
+}
+
+/** Descarga en este dispositivo el respaldo guardado de ese día. */
+export async function downloadSavedBackup(day: string) {
+  const account = await readyAccount();
+  const { data, error } = await getSupabase().from("bpos_backups").select("data").eq("business_id", account.businessId).eq("day", day).maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("Respaldo no encontrado.");
+  downloadBackup(data.data as BackupFile);
+}
+
+/** Copia completa del negocio desde la nube. */
+export async function createBackup(): Promise<BackupFile> {
+  const account = await readyAccount();
 
   const records: BackupRecord[] = [];
   for (let page = 0; page < 500; page += 1) {
@@ -85,21 +124,17 @@ export async function restoreBackup(backup: BackupFile, onProgress?: (done: numb
 }
 
 /**
- * Respaldo automático diario: si este dispositivo es la caja (tiene B-POS
- * instalado), guarda la copia en la computadora una vez al día.
+ * Respaldo automático diario: el primer dispositivo del negocio que abre
+ * B-POS en el día guarda la copia en la nube.
  */
 export async function runDailyBackup() {
   try {
-    const today = new Date().toISOString().slice(0, 10);
-    if (localStorage.getItem(LAST_AUTO_KEY) === today) return;
-    const backup = await createBackup();
-    const response = await bridgeFetch("/api/backup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(backup),
-    });
-    if (response.ok) localStorage.setItem(LAST_AUTO_KEY, today);
+    const day = today();
+    if (localStorage.getItem(LAST_AUTO_KEY) === day) return;
+    const saved = await listSavedBackups();
+    if (!saved.some((b) => b.day === day)) await saveDailyBackup(await createBackup());
+    localStorage.setItem(LAST_AUTO_KEY, day);
   } catch {
-    // sin nube o sin B-POS instalado en este dispositivo: se intenta otro día
+    // sin nube o sin sesión: se intenta más tarde
   }
 }

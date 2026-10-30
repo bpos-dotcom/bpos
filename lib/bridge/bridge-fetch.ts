@@ -5,6 +5,8 @@ import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
 export async function bridgeFetch(url: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   if (isCloudConfigured) {
+    const branch = localStorage.getItem("bpos_branch_id");
+    if (branch) headers.set("x-bpos-branch", branch);
     try {
       const { data } = await getSupabase().auth.getSession();
       if (data.session?.access_token) headers.set("Authorization", `Bearer ${data.session.access_token}`);

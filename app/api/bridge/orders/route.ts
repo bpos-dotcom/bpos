@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardBridgeRequest } from "@/lib/bridge/api-guard";
-import { bridgeOrders, saveBridgeOrders } from "@/lib/bridge/orders-store";
+import { bridgeAuth } from "@/lib/bridge/api-guard";
+import { bridgeStore } from "@/lib/bridge/store";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
@@ -50,9 +50,6 @@ type BridgeOrder = {
   [key: string]: unknown;
 };
 
-// Guardados en disco: un pedido sin equivalencia sobrevive a reinicios
-const orders = bridgeOrders<BridgeOrder>();
-
 function normalizePlatform(value: unknown) {
   return String(value ?? "").trim().toLowerCase();
 }
@@ -62,8 +59,9 @@ function normalizeOrderId(value: unknown) {
 }
 
 export async function GET(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
+  const orders = (await bridgeStore(auth.ctx).orders()) as BridgeOrder[];
 
   return NextResponse.json(
     {
@@ -79,9 +77,11 @@ export async function GET(request: NextRequest) {
   );
 }
 
+// Pedido capturado a mano desde una pantalla (el Agent sube los suyos directo a la nube)
 export async function POST(request: NextRequest) {
-  const denied = await guardBridgeRequest(request, { agent: true });
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
+  const store = bridgeStore(auth.ctx);
 
   try {
     const order = (await request.json()) as BridgeOrder;
@@ -103,20 +103,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const duplicate = orders.some(
-      (existingOrder) =>
-        normalizePlatform(existingOrder.platform) === platform &&
-        normalizeOrderId(existingOrder.orderId) === orderId
-    );
-
-    if (duplicate) {
-      return NextResponse.json({
-        success: true,
-        duplicate: true,
-        message: "El pedido ya había sido recibido.",
-      });
-    }
-
     const savedOrder: BridgeOrder = {
       ...order,
       id: order.id ?? Date.now(),
@@ -126,10 +112,15 @@ export async function POST(request: NextRequest) {
       status: "Recibido",
     };
 
-    orders.unshift(savedOrder);
-    saveBridgeOrders();
+    if (!(await store.addOrder(savedOrder))) {
+      return NextResponse.json({
+        success: true,
+        duplicate: true,
+        message: "El pedido ya había sido recibido.",
+      });
+    }
 
-    console.log("Pedido recibido desde B-POS Agent:", {
+    console.log("Pedido recibido en el Bridge:", {
       platform: savedOrder.platform,
       orderId: savedOrder.orderId,
     });
@@ -143,7 +134,7 @@ export async function POST(request: NextRequest) {
       { status: 201 }
     );
   } catch (error) {
-    console.error("Error recibiendo pedido del Agent:", error);
+    console.error("Error recibiendo pedido:", error);
 
     return NextResponse.json(
       {
@@ -159,10 +150,12 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
+  const store = bridgeStore(auth.ctx);
 
   try {
+    const orders = (await store.orders()) as BridgeOrder[];
     const body = (await request.json()) as {
       platform?: string;
       orderId?: string;
@@ -253,7 +246,7 @@ export async function PATCH(request: NextRequest) {
       ...(body.stationPrint ? { stationPrint: body.stationPrint } : {}),
       bridgeUpdatedAt: now,
     };
-    saveBridgeOrders();
+    await store.saveOrder(orders[index]);
 
     return NextResponse.json({ success: true, order: orders[index] });
   } catch (error) {
@@ -271,10 +264,9 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
 
-  orders.splice(0, orders.length);
-  saveBridgeOrders();
+  await bridgeStore(auth.ctx).clearOrders();
   return NextResponse.json({ success: true, count: 0, orders: [] });
 }

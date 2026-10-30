@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { guardBridgeRequest } from "@/lib/bridge/api-guard";
+import { bridgeAuth } from "@/lib/bridge/api-guard";
 import type {
   CatalogIngredient,
   CatalogProduct,
@@ -24,8 +24,8 @@ type ValidateRequestBody = {
 };
 
 export async function POST(request: NextRequest) {
-  const denied = await guardBridgeRequest(request);
-  if (denied) return denied;
+  const auth = await bridgeAuth(request);
+  if ("denied" in auth) return auth.denied;
 
   try {
     const body = (await request.json()) as ValidateRequestBody;

@@ -19,20 +19,21 @@ const FEATURES = [
   ["📦", "Inventario y recetas", "Cada venta descuenta sus ingredientes. Avisos de faltantes y lista de compras."],
   ["💵", "Caja y cortes", "Apertura, cortes por método de pago y canal, y bitácora de todo lo sensible."],
   ["📱", "App del dueño", "Ventas en vivo de todas tus sucursales y avisos al celular, estés donde estés."],
-  ["☁️", "Nube y sin internet", "Todo se respalda en la nube; la caja instalada sigue vendiendo aunque se vaya el internet."],
+  ["☁️", "En la nube, en cualquier equipo", "Entra desde la web en la computadora, tablet o celular. Nada que instalar para vender; todo se respalda solo."],
   ["🤖", "Inteligencia artificial", "Sube la foto de tu menú y B-POS registra tus productos (plan Max)."],
 ] as const;
 
 const STEPS = [
   ["1", "Crea tu cuenta", `Da de alta tu negocio. ${TRIAL_DAYS} días gratis, sin tarjeta.`],
-  ["2", "Instala la caja", "Descarga B-POS para Windows en la computadora de la caja. Se actualiza solo."],
-  ["3", "Conecta tus equipos", "Abre B-POS en tablets y celulares con la misma cuenta: cocina, meseros y tú."],
+  ["2", "Instala B-POS Agent", "Solo en la computadora de las impresoras: lee los pedidos de delivery e imprime las comandas. Se actualiza solo."],
+  ["3", "Entra desde donde sea", "Abre B-POS en el navegador de tus tablets y celulares con la misma cuenta: cocina, meseros y tú."],
 ] as const;
 
 const FAQ = [
   ["¿Necesito tarjeta para la prueba?", `No. Tienes ${TRIAL_DAYS} días gratis y eliges tu plan cuando quieras.`],
   ["¿Cómo se paga?", "Cada mes con Mercado Pago, por sucursal. Cancelas cuando quieras desde Mi plan."],
-  ["¿Funciona sin internet?", "Sí. La computadora de la caja con B-POS instalado sigue vendiendo e imprimiendo; se sincroniza al volver el internet."],
+  ["¿Tengo que instalar algo?", "Para vender no: B-POS funciona en el navegador. Solo instala B-POS Agent en la computadora que tiene las impresoras y donde llegan los pedidos de Rappi, Uber Eats y DiDi Food."],
+  ["¿Necesita internet?", "Sí, B-POS trabaja en la nube (igual que las plataformas de delivery). Así ves tus ventas en vivo desde cualquier lugar."],
   ["¿Qué impresoras usa?", "Impresoras térmicas de tickets (USB o red). Puedes tener una por estación de cocina."],
 ] as const;
 
@@ -69,7 +70,7 @@ export default function BposLanding() {
               Prueba {TRIAL_DAYS} días gratis
             </Link>
             <a href="/api/descargar" className={`${button} border border-orange-500 text-orange-300 hover:bg-orange-500/10`}>
-              ⬇️ Descargar para Windows
+              ⬇️ Descargar B-POS Agent
             </a>
           </div>
           <p className="mt-3 text-sm text-zinc-500">Sin tarjeta. Desde ${PLANS.basic.price} MXN al mes por sucursal.</p>
@@ -156,7 +157,7 @@ export default function BposLanding() {
               Crear mi cuenta gratis
             </Link>
             <a href="/api/descargar" className={`${button} border border-orange-500 text-orange-300 hover:bg-orange-500/10`}>
-              ⬇️ Descargar para Windows
+              ⬇️ Descargar B-POS Agent
             </a>
           </div>
         </div>

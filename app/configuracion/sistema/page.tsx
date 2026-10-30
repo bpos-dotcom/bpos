@@ -1,14 +1,14 @@
 "use client";
 /**
  * Configuración → Sistema: apariencia, moneda e idioma, pantalla táctil,
- * respaldos, descargar B-POS para Windows y versión.
+ * respaldos, B-POS Agent (vincular la PC de las impresoras) y versión.
  * Tema y pantalla táctil son de ESTE dispositivo (no se sincronizan).
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
-import { DOWNLOAD_URL, useInstalledApp } from "@/components/layout/TopCorner";
+import { AgentCard } from "@/components/agent/AgentCard";
 import { setTouchKeypad, touchKeypadEnabled } from "@/lib/device-settings";
 import { getTheme, setTheme, THEME_EVENT, type Theme } from "@/lib/theme";
 
@@ -19,7 +19,6 @@ export default function SistemaPage() {
   const [theme, setThemeState] = useState<Theme>("dark");
   const [touch, setTouch] = useState(false);
   const [version, setVersion] = useState("");
-  const installed = useInstalledApp();
 
   useEffect(() => {
     const sync = () => setThemeState(getTheme());
@@ -36,7 +35,7 @@ export default function SistemaPage() {
 
   return (
     <RequireRole allow={["Admin"]}>
-      <AppShell title="Sistema" subtitle="Apariencia, región, pantalla táctil, respaldos e instalador de B-POS.">
+      <AppShell title="Sistema" subtitle="Apariencia, región, pantalla táctil, respaldos y B-POS Agent.">
         <div className="grid max-w-5xl gap-5 lg:grid-cols-2">
           <section className={card}>
             <h2 className="text-lg font-black">🎨 Apariencia (este dispositivo)</h2>
@@ -101,28 +100,14 @@ export default function SistemaPage() {
 
           <section className={card}>
             <h2 className="text-lg font-black">💾 Respaldos</h2>
-            <p className="mt-1 text-sm text-zinc-400">Copia diaria automática en la caja. Desde aquí descargas una copia o restauras una anterior.</p>
+            <p className="mt-1 text-sm text-zinc-400">Copia diaria automática en la nube. Desde aquí descargas una copia o restauras una anterior.</p>
             <Link href="/configuracion/respaldos" className="mt-4 inline-block rounded-2xl bg-orange-500 px-5 py-3 font-black text-black hover:bg-orange-400">
               Abrir respaldos
             </Link>
           </section>
 
-          <section className={`${card} lg:col-span-2`}>
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div>
-                <h2 className="text-lg font-black">🪟 B-POS para Windows</h2>
-                <p className="mt-1 text-sm text-zinc-400">
-                  {installed
-                    ? `Esta computadora tiene B-POS instalado${version ? ` (versión ${version})` : ""}. Se actualiza solo al cerrar B-POS.`
-                    : "Instálalo en la computadora de la caja para imprimir tickets, trabajar sin internet y recibir pedidos de delivery."}
-                </p>
-              </div>
-              <a href={DOWNLOAD_URL} className="rounded-2xl border border-orange-500 px-5 py-3 font-black text-orange-300 hover:bg-orange-500/10">
-                ⬇️ Descargar instalador
-              </a>
-            </div>
-            {installed && version && <p className="mt-4 text-xs text-zinc-500">Versión de B-POS en esta computadora: {version}</p>}
-          </section>
+          <AgentCard className="lg:col-span-2" />
+          {version && <p className="text-xs text-zinc-500 lg:col-span-2">B-POS versión {version}</p>}
         </div>
       </AppShell>
     </RequireRole>

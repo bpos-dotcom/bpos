@@ -1,10 +1,9 @@
-// Bloque 13 · Reparar instalación.
-// Revisa las piezas de B-POS en esta computadora y arregla lo que pueda:
-// archivos del sistema, impresora virtual, inicio automático, llave del
-// Agent y servidor. Regresa una lista de lo que hizo.
+// Reparar instalación de B-POS Agent.
+// Revisa las piezas en esta computadora y arregla lo que pueda: impresora
+// virtual, inicio automático y conexión con la nube. Regresa una lista de lo
+// que hizo.
 const { execFile } = require("child_process");
 const fs = require("fs");
-const os = require("os");
 const path = require("path");
 
 function run(file, args) {
@@ -41,7 +40,7 @@ async function printerOk() {
 }
 
 /**
- * @param {{ resourcesDir: string, webDir: string, setAutoStart: () => void, restartServer: () => Promise<{state:string,message:string}> }} ctx
+ * @param {{ resourcesDir: string, setAutoStart: () => void, cloudStatus: () => { linked: boolean, state: string, message: string } }} ctx
  */
 async function repairInstallation(ctx) {
   const steps = [];
@@ -49,9 +48,6 @@ async function repairInstallation(ctx) {
     steps.push({ ok, text });
     console.log(`[reparar] ${ok ? "OK" : "FALLA"} ${text}`);
   };
-
-  const serverOk = fs.existsSync(path.join(ctx.webDir, "server.js")) && fs.existsSync(path.join(ctx.webDir, ".next"));
-  add(serverOk, serverOk ? "Archivos del sistema completos." : "Faltan archivos del sistema: descarga e instala de nuevo B-POS (no se borran tus datos).");
 
   if (await printerOk()) add(true, "Impresora virtual instalada (controlador PDF).");
   else {
@@ -66,12 +62,9 @@ async function repairInstallation(ctx) {
     add(false, `No se pudo activar el inicio automático: ${error.message}`);
   }
 
-  const keyFile = path.join(os.homedir(), ".bpos", "agent-key");
-  if (fs.existsSync(keyFile)) add(true, "Llave del Agent presente.");
-  else add(true, "La llave del Agent se volverá a crear al arrancar el servidor.");
-
-  const s = await ctx.restartServer();
-  add(s.state === "running", s.state === "running" ? "Servidor de B-POS reiniciado y respondiendo." : `Servidor: ${s.message}`);
+  const c = ctx.cloudStatus();
+  if (!c.linked) add(false, "Esta computadora no está vinculada: escribe el código de B-POS → Configuración → Sistema.");
+  else add(c.state === "connected", c.state === "connected" ? "Conectado a B-POS en la nube." : `Nube: ${c.message}`);
 
   return steps;
 }

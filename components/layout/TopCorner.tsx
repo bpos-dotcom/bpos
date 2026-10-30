@@ -1,30 +1,16 @@
 "use client";
 /**
  * Esquina superior derecha de todas las pantallas: modo oscuro/claro, hora,
- * descargar B-POS para Windows (solo si se abrió en el navegador sin
- * instalar) y el logo de B-POS.
+ * aviso de B-POS Agent (descargarlo si la sucursal no tiene, o "desconectado")
+ * y el logo de B-POS.
  */
+import Link from "next/link";
 import { useEffect, useState } from "react";
-import { PUSH_SERVER as CLOUD_SERVER } from "@/lib/push/rules";
+import { useAgents } from "@/lib/agent/client";
 import { getTheme, setTheme, THEME_EVENT, type Theme } from "@/lib/theme";
 
-/** ¿Esta pantalla corre en la app instalada de Windows? (null = revisando) */
-export function useInstalledApp() {
-  const [installed, setInstalled] = useState<boolean | null>(null);
-  useEffect(() => {
-    let alive = true;
-    fetch("/api/version", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((b) => alive && setInstalled(Boolean(b?.desktop)))
-      .catch(() => alive && setInstalled(false));
-    return () => {
-      alive = false;
-    };
-  }, []);
-  return installed;
-}
-
-export const DOWNLOAD_URL = `${CLOUD_SERVER}/api/descargar`;
+/** Instalador de B-POS Agent más reciente (GitHub Releases) */
+export const DOWNLOAD_URL = "/api/descargar";
 
 export function ThemeToggle({ className = "" }: { className?: string }) {
   const [theme, setThemeState] = useState<Theme>("dark");
@@ -64,7 +50,7 @@ function Clock() {
 }
 
 export function TopCorner() {
-  const installed = useInstalledApp();
+  const { agents, online } = useAgents(60_000);
   const [windows, setWindows] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- dato del navegador: solo después de montar
   useEffect(() => setWindows(/Windows/i.test(navigator.userAgent)), []);
@@ -75,16 +61,27 @@ export function TopCorner() {
         <ThemeToggle />
         <Clock />
       </div>
-      {installed === false && windows && (
+      {agents?.length === 0 && windows && (
         <a
           href={DOWNLOAD_URL}
-          title="Descargar B-POS para Windows"
+          title="Descargar B-POS Agent: impresoras y pedidos de delivery"
           className="hidden rounded-xl border border-orange-500/50 bg-orange-500/10 px-3 py-2 text-center text-xs font-black leading-tight text-orange-300 hover:bg-orange-500/20 sm:block"
         >
           ⬇️ Descargar
           <br />
-          para Windows
+          B-POS Agent
         </a>
+      )}
+      {Boolean(agents?.length) && !online && (
+        <Link
+          href="/configuracion/sistema"
+          title="La computadora de las impresoras no está conectada: no se imprime ni llegan pedidos de delivery"
+          className="rounded-xl border border-red-500/50 bg-red-500/10 px-3 py-2 text-center text-xs font-black leading-tight text-red-300 hover:bg-red-500/20"
+        >
+          🔴 Agent
+          <br />
+          desconectado
+        </Link>
       )}
       {/* eslint-disable-next-line @next/next/no-img-element -- logo fijo, sin optimizar */}
       <img src="/bpos-logo.png" alt="B-POS" className="h-12 w-12 object-contain sm:h-[68px] sm:w-[68px]" />

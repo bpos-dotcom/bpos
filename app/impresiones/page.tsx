@@ -146,7 +146,7 @@ function ReprintDialog({ sale, onClose }: { sale: SaleForTickets; onClose: () =>
       if (failed.length) alert(`No salió en: ${failed.join(" · ")}`);
       else onClose();
     } catch {
-      alert("No se pudo imprimir. Revisa que B-POS esté abierto en esta computadora.");
+      alert("No se pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras.");
     } finally {
       setBusy(false);
     }
