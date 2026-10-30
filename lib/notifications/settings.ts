@@ -6,6 +6,11 @@
  * Se guarda para todo el negocio ("bpos_notification_settings"), así todas
  * las cajas avisan igual.
  */
+import { SUPABASE_URL } from "@/lib/supabase/client";
+
+/** Audios subidos por el administrador de B-POS (nube de B-POS) */
+const MEDIA_PREFIX = `${SUPABASE_URL}/storage/v1/object/public/bpos-media/`;
+
 export type AlertKind = "online-order" | "delivery-equivalences" | "inventory-warning" | "critical-error";
 
 export type AlertPref = {
@@ -50,7 +55,8 @@ const KINDS = Object.keys(DEFAULT_ALERTS) as AlertKind[];
 
 function normalizePref(raw: Partial<AlertPref> | undefined, fallback: AlertPref): AlertPref {
   const r = raw || {};
-  const sound = typeof r.sound === "string" && (r.sound.startsWith("/sounds/") || /^https:\/\/\S+$/.test(r.sound)) ? r.sound : fallback.sound;
+  // Solo audios de B-POS o los que subió el administrador de B-POS a su nube
+  const sound = typeof r.sound === "string" && (/^\/sounds\/[\w.-]+$/.test(r.sound) || (r.sound.startsWith(MEDIA_PREFIX) && !/\s/.test(r.sound))) ? r.sound : fallback.sound;
   return {
     sound,
     times: Number.isFinite(Number(r.times)) ? Math.min(5, Math.max(0, Math.round(Number(r.times)))) : fallback.times,

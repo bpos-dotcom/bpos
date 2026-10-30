@@ -11,10 +11,11 @@ import { AppShell } from "@/components/layout/AppShell";
 import { uploadBusinessAudio } from "@/lib/media";
 import { ALERT_LABELS, BUILTIN_SOUNDS, DEFAULT_ALERTS, playAlert, saveAlertPref, type AlertKind, type AlertPref } from "@/lib/notifications/settings";
 import { useAlertSettings } from "@/lib/notifications/useAlert";
+import { useIsPlatformAdmin } from "@/components/admin/PlatformAdminCard";
 
 const KINDS = Object.keys(ALERT_LABELS) as AlertKind[];
 
-function AlertEditor({ kind, pref }: { kind: AlertKind; pref: AlertPref }) {
+function AlertEditor({ kind, pref, canUpload }: { kind: AlertKind; pref: AlertPref; canUpload: boolean }) {
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState("");
   const custom = !BUILTIN_SOUNDS.some((s) => s.src === pref.sound);
@@ -62,17 +63,20 @@ function AlertEditor({ kind, pref }: { kind: AlertKind; pref: AlertPref }) {
                 {s.name}
               </option>
             ))}
-            {custom && <option value="__custom">Mi audio</option>}
+            {custom && <option value="__custom">Audio especial</option>}
           </select>
         </label>
         <div className="flex flex-wrap items-end gap-2">
           <button onClick={() => playAlert(pref)} className="rounded-2xl border border-zinc-700 px-4 py-3 text-sm font-black hover:border-orange-500">
             ▶ Probar
           </button>
-          <label className="cursor-pointer rounded-2xl border border-orange-500 px-4 py-3 text-sm font-black text-orange-300 hover:bg-orange-500/10">
-            {uploading ? "Subiendo..." : "Subir mi audio"}
-            <input type="file" accept="audio/*" className="hidden" disabled={uploading} onChange={(e) => void upload(e.target.files?.[0])} />
-          </label>
+          {/* Solo el administrador de B-POS sube audios nuevos */}
+          {canUpload && (
+            <label className="cursor-pointer rounded-2xl border border-orange-500 px-4 py-3 text-sm font-black text-orange-300 hover:bg-orange-500/10">
+              {uploading ? "Subiendo..." : "Subir audio (admin B-POS)"}
+              <input type="file" accept="audio/*" className="hidden" disabled={uploading} onChange={(e) => void upload(e.target.files?.[0])} />
+            </label>
+          )}
         </div>
 
         <label className="block text-sm font-bold text-zinc-300">
@@ -127,6 +131,7 @@ function AlertEditor({ kind, pref }: { kind: AlertKind; pref: AlertPref }) {
 
 export default function NotificacionesPage() {
   const settings = useAlertSettings();
+  const platformAdmin = useIsPlatformAdmin() === true;
   return (
     <RequireRole allow={["Admin"]}>
       <AppShell title="Notificaciones" subtitle="Sonido, color y repetición de cada aviso. Aplica a todas las cajas del negocio.">
@@ -135,7 +140,7 @@ export default function NotificacionesPage() {
             El navegador solo deja sonar a B-POS después de que alguien toca la pantalla una vez. Deja B-POS abierto en la caja.
           </p>
           {KINDS.map((kind) => (
-            <AlertEditor key={kind} kind={kind} pref={settings[kind]} />
+            <AlertEditor key={kind} kind={kind} pref={settings[kind]} canUpload={platformAdmin} />
           ))}
         </div>
       </AppShell>

@@ -619,6 +619,10 @@ function Checkout({
   const [address, setAddress] = useState("");
   const [reference, setReference] = useState("");
   const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  /** El pin está en la casa (GPS, movido o confirmado); no solo en la calle del buscador */
+  const [pinOk, setPinOk] = useState(false);
+  /** La dirección la llenó el mapa (se puede reemplazar); si la escribió el cliente, se respeta */
+  const [addressAuto, setAddressAuto] = useState(false);
   const [chosenPayment, setPayment] = useState<OnlineOrderData["payment"]>(payments[0] || "Efectivo");
   // Si cambia el tipo de pedido y esa forma de pago no aplica, se toma la primera permitida
   const payment = payments.includes(chosenPayment) ? chosenPayment : payments[0];
@@ -651,6 +655,7 @@ function Checkout({
     if (!name.trim()) return setError("Escribe tu nombre.");
     if (type !== "Mesa" && phone.replace(/\D/g, "").length < 10) return setError("Escribe tu teléfono a 10 dígitos para avisarte.");
     if (type === "Domicilio" && !address.trim()) return setError("Escribe la dirección de entrega.");
+    if (type === "Domicilio" && location && !pinOk) return setError("Pon el pin del mapa justo en tu casa (o toca \"Ya está en mi casa\").");
     if (belowMin) return setError(`El pedido mínimo es de ${money(menu.minOrder)}.`);
     if (!offered[type]) return setError(type === "Domicilio" ? "Por ahora no tenemos servicio a domicilio. Elige para recoger." : "Por ahora no tenemos pedidos para recoger.");
     if (!payment) return setError("El negocio no tiene formas de pago para este tipo de pedido.");
@@ -752,14 +757,18 @@ function Checkout({
             <AddressMap
               location={location}
               color={color}
-              onChange={(place, found) => {
+              onChange={(place, found, precise) => {
                 setLocation(place);
-                if (found) setAddress(found);
+                setPinOk(precise);
+                if (found && (addressAuto || !address.trim())) {
+                  setAddress(found);
+                  setAddressAuto(true);
+                }
               }}
             />
             <label className="mt-3 block text-sm font-bold">
               Dirección de entrega (revisa calle y número)
-              <input value={address} onChange={(e) => setAddress(e.target.value)} maxLength={200} name="street-address" autoComplete="street-address" className={field} />
+              <input value={address} onChange={(e) => { setAddress(e.target.value); setAddressAuto(false); }} maxLength={200} name="street-address" autoComplete="street-address" className={field} />
             </label>
             <label className="mt-3 block text-sm font-bold">
               Referencias (opcional)
