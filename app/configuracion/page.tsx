@@ -29,6 +29,12 @@ const adminModules = [
     description: "Alta, edición, precios, categorías y estaciones.",
   },
   {
+    title: "Menú digital",
+    href: "/configuracion/menu-digital",
+    icon: "🌐",
+    description: "Tu menú en internet y pedidos sin comisión: liga, QR de mesas, horario, agotados y ocultos.",
+  },
+  {
     title: "Sistema",
     href: "/configuracion/sistema",
     icon: "⚙️",

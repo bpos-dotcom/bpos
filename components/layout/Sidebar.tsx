@@ -19,10 +19,12 @@ import { getBusinessSettings } from "@/lib/business-settings";
 import { runDailyBackup } from "@/lib/cloud/backup";
 import { flushCloudAudit } from "@/lib/cloud/audit-outbox";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
+import { useOnlineOrdersWatch } from "@/lib/online-orders-watch";
 
 const navItems = [
   { label: "Dashboard", href: "/", icon: "📊" },
   { label: "POS", href: "/pos", icon: "🛒" },
+  { label: "Pedidos en línea", href: "/pedidos-en-linea", icon: "🌐" },
   { label: "B-POS Bridge", href: "/bridge", icon: "🌉" },
   { label: "Centro de Operaciones", href: "/centro-operaciones", icon: "🚨" },
   { label: "Caja", href: "/caja", icon: "💵" },
@@ -64,6 +66,9 @@ export function Sidebar() {
   // cursor o tocar »; se vuelve a contraer al salir el cursor o tras 10 s sin
   // usarlo. "📌 Fijar abierto" lo deja abierto (se recuerda en este dispositivo).
   const [pinned, setPinned] = useState(false);
+  // Pedidos del menú digital esperando que alguien los acepte
+  const onlineWaiting = useOnlineOrdersWatch();
+
   // Marca del negocio (Configuración → Sistema): nombre, logo y color
   const [brand, setBrand] = useState({ name: "", logo: "", color: "#f97316" });
   useEffect(() => {
@@ -315,13 +320,16 @@ export function Sidebar() {
             href={item.href}
             onClick={() => setMobileOpen(false)}
             title={item.label}
-            className={`block rounded-2xl border border-zinc-800 bg-zinc-900 py-3 text-sm font-bold text-zinc-200 hover:border-orange-500 hover:text-orange-500 ${slim ? "text-center text-lg" : "px-4"}`}
+            className={`relative block rounded-2xl border py-3 text-sm font-bold hover:border-orange-500 hover:text-orange-500 ${slim ? "text-center text-lg" : "px-4"} ${item.href === "/pedidos-en-linea" && onlineWaiting > 0 ? "animate-pulse border-emerald-400 bg-emerald-500/20 text-emerald-100" : "border-zinc-800 bg-zinc-900 text-zinc-200"}`}
           >
             {slim ? item.icon : (
               <>
                 <span className="mr-2">{item.icon}</span>
                 {item.label}
               </>
+            )}
+            {item.href === "/pedidos-en-linea" && onlineWaiting > 0 && (
+              <span className={`flex min-w-6 items-center justify-center rounded-full bg-emerald-400 px-1.5 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : "float-right"}`}>{onlineWaiting}</span>
             )}
           </Link>
         ))}
