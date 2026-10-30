@@ -142,7 +142,11 @@ export default function PublicMenuPage({ params }: { params: Promise<{ slug: str
 }
 
 function Shell({ children }: { children: React.ReactNode }) {
-  return <div className="min-h-screen w-full bg-[#fff8f1] text-zinc-900">{children}</div>;
+  // Siempre claro: el modo claro/oscuro de B-POS (mismo sitio) no aplica al menú de los clientes
+  useEffect(() => {
+    document.documentElement.classList.remove("theme-light");
+  }, []);
+  return <div className="min-h-screen w-full bg-[#fff8f1] text-zinc-900 [color-scheme:light]">{children}</div>;
 }
 
 /** Textos y botones encima de la imagen: a la izquierda, al centro o a la derecha (con el difuminado de ese lado) */
