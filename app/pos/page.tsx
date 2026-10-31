@@ -34,7 +34,7 @@ import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import { useTerminalCharge } from "@/components/payments/TerminalCharge";
 import { branchUsesTerminal } from "@/lib/mp/client";
 import { DispatchModal } from "@/components/delivery/DispatchModal";
-import type { DispatchInfo } from "@/lib/drivers";
+import { assignDriverToSale, driverWhatsappLink, type DispatchInfo, type Driver } from "@/lib/drivers";
 import {
   allocateShiftOrderNumber,
   formatOrderNumber,
@@ -163,13 +163,12 @@ function PosScreen() {
   const requiresDeliveryData =
     details.orderType === "Domicilio" || details.orderType === "WhatsApp";
 
+  // La dirección se pide al cobrar (solo a domicilio)
   const hasRequiredDetails =
     cart.length > 0 &&
     details.customerName.trim() !== "" &&
     details.orderType.trim() !== "" &&
-    (!requiresDeliveryData ||
-      (details.customerPhone.trim() !== "" &&
-        details.customerAddress.trim() !== ""));
+    (!requiresDeliveryData || details.customerPhone.trim() !== "");
 
   const validationMessage =
     cart.length === 0
@@ -177,7 +176,7 @@ function PosScreen() {
       : details.customerName.trim() === ""
       ? "Captura el nombre del cliente."
       : requiresDeliveryData
-      ? "Completa teléfono y dirección para WhatsApp/Domicilio."
+      ? "Captura el WhatsApp del cliente."
       : "Completa los detalles del pedido.";
 
   function saveOrders(nextOrders: SavedOrder[]) {
@@ -298,6 +297,9 @@ function PosScreen() {
     discount: number;
     couponCode?: string;
     clubCashback?: number;
+    /** A domicilio: dirección y repartidor elegidos al cobrar */
+    address?: string;
+    driver?: Driver;
   }) {
     // El descuento de un cupón vigente no pide autorización (se revisa otra vez aquí)
     const coupon = data.couponCode ? checkCoupon(data.couponCode, subtotal, "pos") : null;
@@ -324,6 +326,7 @@ function PosScreen() {
       ...details,
       paymentMethod: data.paymentMethod,
       discount: data.discount,
+      ...(data.address !== undefined ? { customerAddress: data.address } : {}),
       ...(byCoupon && data.couponCode ? { couponCode: data.couponCode } : {}),
       // Con socio del club: sus datos quedan en la venta (Clientes)
       ...(clubMember && !details.customerName ? { customerName: clubMember.name } : {}),
@@ -376,17 +379,22 @@ function PosScreen() {
     alert(`Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);
 
     if (nextDetails.orderType === "Domicilio") {
-      setDispatch({
-        saleId: newOrder.id,
-        info: {
+      const info: DispatchInfo = {
           title: `Pedido #${formatOrderNumber(newOrder)}`,
           businessName: getBusinessSettings().businessName,
           customer: { name: nextDetails.customerName, phone: nextDetails.customerPhone, address: nextDetails.customerAddress },
           lines: cart.map((i) => ({ quantity: i.quantity, name: i.name, detail: [...(i.parts || []).map((p) => p.name), ...(i.modifiers || []).filter((m) => !m.extra).map((m) => m.name), i.comment].filter(Boolean).join(" · ") || undefined })),
           total,
           payment: { paid: true, method: data.paymentMethod },
-        },
-      });
+      };
+      if (data.driver) {
+        // Repartidor elegido al cobrar: se le manda el pedido por WhatsApp de una vez
+        assignDriverToSale(newOrder.id, data.driver);
+        const link = driverWhatsappLink(data.driver, info);
+        if (link) window.open(link, "_blank");
+      } else {
+        setDispatch({ saleId: newOrder.id, info });
+      }
     }
 
     // printTicket(newOrder);
@@ -609,6 +617,7 @@ Gracias por pedir en ${businessName} 🚀`;
         clubCashback={clubMember?.member && getLoyalty().kind === "cashback" ? clubMember.cashback : 0}
         onClose={() => setCheckoutOpen(false)}
         onConfirm={confirmCheckout}
+        delivery={details.orderType === "Domicilio" ? { address: details.customerAddress } : undefined}
       />
       {terminal.modal}
       {dispatch && <DispatchModal info={dispatch.info} saleId={dispatch.saleId} onClose={() => setDispatch(null)} />}
@@ -699,8 +708,10 @@ Gracias por pedir en ${businessName} 🚀`;
           </section>
 
           <section className="flex min-h-0 flex-col gap-3 md:overflow-y-auto bpos-scroll md:pr-1 sm:gap-4 md:gap-3">
-            {/* En celular los detalles van antes del pedido (se llena y luego se cobra abajo) */}
-            <div id="pedido-actual" className="order-2 scroll-mt-3 md:order-1">
+            {/* Primero el Club (lo más importante para el cliente), luego los datos y al final el pedido */}
+            <ClubPanel member={clubMember} onChange={setClubMember} />
+            <OrderDetailsPanel details={details} onChange={setDetails} />
+            <div id="pedido-actual" className="scroll-mt-3">
             <CartPanel
               items={cart}
               discount={details.discount}
@@ -712,12 +723,6 @@ Gracias por pedir en ${businessName} 🚀`;
               onClear={clearCart}
               onCheckout={openCheckout}
             />
-            </div>
-            <div className="order-1 md:order-2">
-              <OrderDetailsPanel details={details} onChange={setDetails} />
-            </div>
-            <div className="order-3">
-              <ClubPanel member={clubMember} onChange={setClubMember} />
             </div>
           </section>
         </div>
