@@ -49,7 +49,8 @@ function Clock() {
   );
 }
 
-export function TopCorner() {
+/** compact: una sola línea delgada (barra del POS) */
+export function TopCorner({ compact = false }: { compact?: boolean }) {
   const { agents, online } = useAgents(60_000);
   const [windows, setWindows] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- dato del navegador: solo después de montar
@@ -57,7 +58,7 @@ export function TopCorner() {
 
   return (
     <div className="flex shrink-0 items-center gap-3">
-      <div className="flex flex-col items-stretch gap-1.5">
+      <div className={compact ? "flex items-center gap-2" : "flex flex-col items-stretch gap-1.5"}>
         <ThemeToggle />
         <Clock />
       </div>
@@ -84,7 +85,7 @@ export function TopCorner() {
         </Link>
       )}
       {/* eslint-disable-next-line @next/next/no-img-element -- logo fijo, sin optimizar */}
-      <img src="/bpos-logo.png" alt="B-POS" className="h-12 w-12 object-contain sm:h-[68px] sm:w-[68px]" />
+      <img src="/bpos-logo.png" alt="B-POS" className={compact ? "h-9 w-9 object-contain" : "h-12 w-12 object-contain sm:h-[68px] sm:w-[68px]"} />
     </div>
   );
 }
