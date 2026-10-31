@@ -31,6 +31,8 @@ import { couponDiscount } from "@/lib/coupons";
 import { scheduleLabel } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
 import { AddressMap } from "@/components/menu/AddressMap";
+import { AccountSheet, useCustomer, type Customer, type CustomerOrder } from "@/components/menu/CustomerAccount";
+import { InstallApp } from "@/components/menu/InstallApp";
 
 type PublicMenu = {
   slug: string;
@@ -68,6 +70,7 @@ export default function PublicMenuPage({ params }: { params: Promise<{ slug: str
   const [error, setError] = useState("");
   const [table, setTable] = useState("");
   const [placed, setPlaced] = useState<Placed | null>(null);
+  const customer = useCustomer(slug);
 
   const load = useCallback(async () => {
     try {
@@ -108,6 +111,7 @@ export default function PublicMenuPage({ params }: { params: Promise<{ slug: str
         slug={slug}
         placed={placed}
         data={data || null}
+        customer={customer}
         onBack={() => {
           setPlaced(null);
           window.history.replaceState(null, "", `/m/${slug}${table ? `?mesa=${table}` : ""}`);
@@ -133,6 +137,7 @@ export default function PublicMenuPage({ params }: { params: Promise<{ slug: str
     <Menu
       data={data}
       table={table}
+      customer={customer}
       onPlaced={(p) => {
         setPlaced(p);
         window.history.replaceState(null, "", `/m/${slug}?pedido=${p.id}&t=${p.token}`);
@@ -169,7 +174,7 @@ function Photo({ product, className = "", emoji = "text-5xl" }: { product: Pick<
 
 type CartLine = OnlineOrderLine & { key: string };
 
-function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPlaced: (p: Placed) => void }) {
+function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: string; customer: Customer; onPlaced: (p: Placed) => void }) {
   const { business, menu } = data;
   const design = menu.design;
   const color = business.color || "#f97316";
@@ -179,6 +184,8 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
   const [choosing, setChoosing] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [checkout, setCheckout] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [reorderNote, setReorderNote] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   /** Recuadro deslizante del menú */
   const boxRef = useRef<HTMLDivElement>(null);
@@ -262,6 +269,36 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
     });
   }
 
+  /** "Pedir otra vez": lo de un pedido anterior, con los precios de hoy; lo que ya no hay se avisa */
+  function reorder(order: CustomerOrder) {
+    const missing: string[] = [];
+    const lines: CartLine[] = [];
+    for (const l of order.data.lines) {
+      const product = byId.get(Number(l.productId));
+      if (!product) {
+        missing.push(l.name);
+        continue;
+      }
+      const picks = (l.picks?.[OWN_OPTIONS] || {}) as Picks;
+      const selection = buildSelection(product, data.products, { [OWN_OPTIONS]: picks });
+      const unitPrice = Number(product.price) + extrasPrice(selection.modifiers, selection.parts);
+      const comment = l.comment || "";
+      lines.push({ key: `${product.id}|${JSON.stringify(picks)}|${comment}`, productId: product.id, name: product.name, quantity: l.quantity, unitPrice, picks: { [OWN_OPTIONS]: picks }, summary: l.summary, ...(comment ? { comment } : {}) });
+    }
+    setCart((c) => {
+      const next = [...c];
+      for (const line of lines) {
+        const i = next.findIndex((x) => x.key === line.key);
+        if (i >= 0) next[i] = { ...next[i], quantity: next[i].quantity + line.quantity };
+        else next.push(line);
+      }
+      return next;
+    });
+    setAccountOpen(false);
+    setReorderNote(missing.length ? `Hoy no hay: ${missing.join(", ")}` : "");
+    if (lines.length) setCheckout(true);
+  }
+
   const hoursText = menu.hours ? scheduleLabel(menu.hours) : "";
   /** Cuántos de cada producto lleva el cliente (todas sus variantes) */
   const inCart = new Map<number, number>();
@@ -331,6 +368,13 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
           <span className={`hidden rounded-full px-3 py-1 text-xs font-black sm:inline ${canOrder ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-600"}`}>
             {canOrder ? "Abierto" : menu.acceptOrders ? "Cerrado" : "Solo menú"}
           </span>
+          <button
+            onClick={() => setAccountOpen(true)}
+            aria-label="Mi cuenta"
+            className="flex h-10 shrink-0 items-center gap-1 rounded-full border border-orange-100 bg-white px-3 text-sm font-black shadow-sm"
+          >
+            👤<span className="hidden sm:inline">{customer.account ? customer.account.name.split(" ")[0] : "Mi cuenta"}</span>
+          </button>
           {count > 0 && (
             <button onClick={() => setCheckout(true)} className="rounded-full px-4 py-2 text-sm font-black text-white" style={{ background: color }}>
               🛒 {count} · {money(total)}
@@ -537,6 +581,8 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
           </section>
         )}
 
+        <InstallApp slug={data.slug} name={business.name} color={color} />
+
         <p className="mt-8 text-center text-xs text-zinc-400">Menú digital por bpos.com.mx · pedidos sin comisión</p>
       </main>
 
@@ -570,8 +616,25 @@ function Menu({ data, table, onPlaced }: { data: PublicMenu; table: string; onPl
           table={table}
           cart={cart}
           setCart={setCart}
-          onClose={() => setCheckout(false)}
+          customer={customer}
+          notice={reorderNote}
+          onClose={() => {
+            setCheckout(false);
+            setReorderNote("");
+          }}
           onPlaced={onPlaced}
+        />
+      )}
+
+      {accountOpen && (
+        <AccountSheet
+          slug={data.slug}
+          color={color}
+          businessName={business.name}
+          customer={customer}
+          onClose={() => setAccountOpen(false)}
+          onReorder={canOrder ? reorder : undefined}
+          onOpenOrder={(o) => onPlaced({ id: o.id, token: o.token, folio: o.folio })}
         />
       )}
     </Shell>
@@ -689,6 +752,8 @@ function Checkout({
   table,
   cart,
   setCart,
+  customer,
+  notice,
   onClose,
   onPlaced,
 }: {
@@ -697,6 +762,9 @@ function Checkout({
   table: string;
   cart: CartLine[];
   setCart: React.Dispatch<React.SetStateAction<CartLine[]>>;
+  customer: Customer;
+  /** Aviso de "Pedir otra vez" (lo que ya no hay) */
+  notice: string;
   onClose: () => void;
   onPlaced: (p: Placed) => void;
 }) {
@@ -737,6 +805,15 @@ function Checkout({
       if (saved.phone) setPhone(saved.phone);
       if (saved.address) setAddress(saved.address);
     } catch {}
+    // Con cuenta: sus datos y su última dirección
+    const a = customer.account;
+    if (a) {
+      setName(a.name);
+      setPhone(a.phone);
+      if (a.address?.address) setAddress(a.address.address);
+      if (a.address?.reference) setReference(a.address.reference);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al abrir
   }, []);
 
   const subtotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
@@ -803,6 +880,7 @@ function Checkout({
       } catch {}
       setCart([]);
       const p = placed as Placed;
+      if (customer.token) void customer.linkOrder(p.id, p.token);
       // Transferencia: se abre WhatsApp con el desglose (si el navegador lo bloquea, queda el botón en el seguimiento)
       if (payment === "Transferencia" && wa) window.open(waLink(wa, orderWhatsappText(data.business.name, p.folio, order)), "_blank");
       onPlaced(p);
@@ -821,6 +899,7 @@ function Checkout({
           <h2 className="text-xl font-black">Tu pedido</h2>
           <button onClick={onClose} className="rounded-full bg-zinc-100 px-3 py-1 text-lg" aria-label="Cerrar">✕</button>
         </div>
+        {notice && <p className="mt-2 rounded-xl bg-amber-50 p-3 text-sm font-bold text-amber-800">⚠️ {notice}</p>}
         <div className="mt-3 divide-y divide-zinc-100">
           {cart.map((l) => (
             <div key={l.key} className="flex items-center gap-3 py-3">
@@ -1060,8 +1139,10 @@ const STEPS = [
   { key: "entregado", label: "Entregado", icon: "🎉" },
 ] as const;
 
-function OrderTracking({ slug, placed, data, onBack }: { slug: string; placed: Placed; data: PublicMenu | null; onBack: () => void }) {
+function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string; placed: Placed; data: PublicMenu | null; customer: Customer; onBack: () => void }) {
   const [status, setStatus] = useState<OrderStatus | null | undefined>(undefined);
+  const [signup, setSignup] = useState(false);
+  const [linked, setLinked] = useState(false);
   const [copied, setCopied] = useState(false);
   const color = data?.business.color || "#f97316";
   const name = data?.business.name || "";
@@ -1190,8 +1271,34 @@ function OrderTracking({ slug, placed, data, onBack }: { slug: string; placed: P
           <p className="mt-3 text-center text-xs text-zinc-500">Ticket digital · bpos.com.mx</p>
         </div>
 
+        {!customer.account && !linked && status.status !== "rechazado" && (
+          <div className="mt-6 rounded-2xl border border-orange-100 bg-white p-5 text-center shadow-sm">
+            <p className="font-black">Guarda tus pedidos 🧾</p>
+            <p className="mt-1 text-sm text-zinc-500">Crea tu cuenta para ver tu historial y pedir otra vez con un toque.</p>
+            <button onClick={() => setSignup(true)} className="mt-3 w-full rounded-xl py-3 font-black text-white" style={{ background: color }}>
+              Crear mi cuenta
+            </button>
+          </div>
+        )}
+        {linked && <p className="mt-6 rounded-2xl bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-800">✅ Listo: este pedido ya está en tu cuenta, en “Mis pedidos”.</p>}
+
         <button onClick={onBack} className="mt-6 w-full rounded-2xl border border-zinc-300 py-3 font-black">Hacer otro pedido</button>
       </div>
+      {signup && (
+        <AccountSheet
+          slug={slug}
+          color={color}
+          businessName={name || slug}
+          customer={customer}
+          start="registro"
+          prefill={{ name: d.customer.name, phone: d.customer.phone }}
+          onClose={() => setSignup(false)}
+          onSignedIn={(token) => {
+            void customer.linkOrder(placed.id, placed.token, token).then(() => setLinked(true));
+            setSignup(false);
+          }}
+        />
+      )}
     </Shell>
   );
 }
