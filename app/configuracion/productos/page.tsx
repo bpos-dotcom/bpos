@@ -14,6 +14,8 @@ import { stationLabel } from "@/lib/kds-config";
 import { SaleScheduleEditor, saveSchedule } from "@/components/products/SaleScheduleEditor";
 import { scheduleLabel } from "@/lib/sale-schedule";
 import { uploadBusinessImage } from "@/lib/media";
+import { DeleteProductModal, type DeliveryAlias } from "@/components/products/DeleteProductModal";
+import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 
 type DraftProduct = Product;
 
@@ -28,6 +30,7 @@ export default function ProductosAdminPage() {
   const [recipeDraft, setRecipeDraft] = useState<RecipeLine[]>([]);
   const [listQuery, setListQuery] = useState("");
   const [uploading, setUploading] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   async function uploadPhoto(file: File | undefined) {
     if (!file || !draft) return;
@@ -137,6 +140,68 @@ export default function ProductosAdminPage() {
     const original = products.find((product) => product.id === selectedId);
     if (original) setDraft({ ...original, station: original.station || "Cocina" });
     setRecipeDraft(recipeOf(recipes, selectedId ?? undefined));
+  }
+
+  /**
+   * Borra el producto seleccionado. Si se eligió reemplazo, las opciones de
+   * otros productos y las equivalencias de delivery que lo usaban pasan al
+   * reemplazo; si no, se quitan.
+   */
+  async function deleteProduct(replacement: Product | null, aliases: DeliveryAlias[]) {
+    if (!draft) return;
+    const id = draft.id;
+
+    // Opciones enlazadas en otros productos
+    const nextProducts = products
+      .filter((p) => p.id !== id)
+      .map((p) => {
+        if (!p.modifierGroups?.some((g) => g.options.some((o) => o.productId === id))) return p;
+        const groups = p.modifierGroups
+          .map((g) => ({
+            ...g,
+            options: replacement
+              ? g.options.map((o) => (o.productId === id ? { ...o, productId: replacement.id, name: replacement.name } : o))
+              : g.options.filter((o) => o.productId !== id),
+          }))
+          .filter((g) => g.options.length);
+        const next: Product = { ...p, modifierGroups: groups };
+        if (!groups.length) delete next.modifierGroups;
+        return next;
+      });
+
+    // Equivalencias de delivery (en la nube)
+    for (const alias of aliases) {
+      try {
+        if (replacement) {
+          await bridgeFetch("/api/bridge/aliases", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              externalName: alias.externalName,
+              platform: alias.platform || undefined,
+              actionType: alias.actionType,
+              targets: alias.targets.map((t) => (String(t.id) === String(id) ? { ...t, id: String(replacement.id), name: replacement.name } : t)),
+            }),
+          });
+        } else {
+          await bridgeFetch("/api/bridge/aliases", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: alias.id }) });
+        }
+      } catch {
+        // sin conexión: la equivalencia queda apuntando a un producto borrado; se avisa abajo
+      }
+    }
+
+    const nextRecipes = recipes.filter((r) => Number(r.productId) !== id);
+    setProducts(nextProducts);
+    saveAdminProducts(nextProducts);
+    setRecipes(nextRecipes);
+    saveAdminRecipes(nextRecipes);
+    setDeleting(false);
+    const first = nextProducts[0] ?? null;
+    setSelectedId(first?.id ?? null);
+    setDraft(first);
+    setRecipeDraft(recipeOf(nextRecipes, first?.id));
+    alert(replacement ? `Producto eliminado. Se reemplazó por ${replacement.name}.` : "Producto eliminado.");
   }
 
   function addProduct() {
@@ -297,6 +362,13 @@ export default function ProductosAdminPage() {
                   </div>
 
                   <div className="flex gap-3">
+                    <button
+                      onClick={() => setDeleting(true)}
+                      className="rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-3 font-black text-red-400 hover:bg-red-500/20"
+                    >
+                      Eliminar
+                    </button>
+
                     <button
                       onClick={cancelChanges}
                       className="rounded-2xl border border-zinc-800 bg-black px-5 py-3 font-black text-white"
@@ -480,6 +552,15 @@ export default function ProductosAdminPage() {
                 />
 
                 <p className="mt-4 text-sm text-zinc-500">Los cambios de opciones y receta se guardan con el botón Guardar cambios.</p>
+
+                {deleting && (
+                  <DeleteProductModal
+                    product={draft}
+                    products={products}
+                    onClose={() => setDeleting(false)}
+                    onConfirm={deleteProduct}
+                  />
+                )}
               </>
             )}
           </section>
