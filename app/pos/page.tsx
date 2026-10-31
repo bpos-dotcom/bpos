@@ -628,42 +628,27 @@ Gracias por pedir en ${businessName} 🚀`;
       <Sidebar />
 
       <section className="bpos-main">
-        <header className="z-20 border-b border-zinc-800 bg-black/90 px-3 py-3 backdrop-blur sm:px-6 sm:py-4 lg:sticky lg:top-0">
-          {/* Celular y tableta: logo, hora y tema arriba (dejando lugar al botón Menú) y los datos en 2-3 columnas */}
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-stretch">
-          <div className="flex pr-28 lg:justify-end lg:pr-0 xl:order-last">
-            <TopCorner />
-          </div>
-          <div className="grid flex-1 grid-cols-2 gap-2 sm:grid-cols-3 sm:gap-3 xl:grid-cols-5">
-            <TopStatus title="Caja" value="Abierta" detail="Fondo: $1,500.00" />
-            <TopStatus
-              title="Usuario"
-              value={currentUser?.name || "Sin usuario"}
-              detail={`Rol: ${currentUser?.role || "No definido"}`}
-            />
-            <TopStatus
-              title="Turno"
-              value="Caja abierta"
-              detail="El folio reinicia en cada apertura"
-            />
-            <TopStatus
-              title="Siguiente pedido"
-              value={`#${getNextShiftOrderNumberPreview()
-                .toString()
-                .padStart(6, "0")}`}
-              detail="Consecutivo del turno actual"
-            />
-
-            <button
-              onClick={logout}
-              className="col-span-2 rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-left font-black text-red-400 sm:col-span-1 sm:p-4"
-            >
-              Cerrar sesión
-              <p className="mt-1 text-sm font-normal text-red-300/70">
-                Volver al login
-              </p>
-            </button>
-          </div>
+        {/* Barra delgada: datos del turno a la izquierda, tema/hora/logo a la derecha. No se queda fija: se va al bajar. */}
+        <header className="border-b border-zinc-800 bg-black px-3 py-1.5 sm:px-6">
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
+            <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <TopStatus title="Caja" value="Abierta" detail="Fondo $1,500.00" />
+              <TopStatus title="Usuario" value={currentUser?.name || "Sin usuario"} detail={currentUser?.role || "Sin rol"} />
+              <TopStatus
+                title="Siguiente pedido"
+                value={`#${getNextShiftOrderNumberPreview().toString().padStart(6, "0")}`}
+                detail="Folio del turno"
+              />
+              <button
+                onClick={logout}
+                className="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-sm font-black text-red-400 hover:bg-red-500/20"
+              >
+                Cerrar sesión
+              </button>
+            </div>
+            <div className="flex pr-28 sm:justify-end lg:pr-0">
+              <TopCorner compact />
+            </div>
           </div>
         </header>
 
@@ -796,20 +781,12 @@ Gracias por pedir en ${businessName} 🚀`;
   );
 }
 
-function TopStatus({
-  title,
-  value,
-  detail,
-}: {
-  title: string;
-  value: string;
-  detail: string;
-}) {
+function TopStatus({ title, value, detail }: { title: string; value: string; detail: string }) {
   return (
-    <div className="min-w-0 rounded-2xl border border-zinc-800 bg-zinc-950 p-3 sm:p-4">
-      <p className="text-xs font-bold text-zinc-500">{title}</p>
-      <p className="mt-1 truncate text-base font-black text-white sm:text-lg">{value}</p>
-      <p className="text-xs text-zinc-400 sm:text-sm">{detail}</p>
+    <div title={`${title}: ${value} · ${detail}`} className="flex min-w-0 items-baseline gap-1.5 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-1.5">
+      <span className="text-[11px] font-bold text-zinc-500">{title}</span>
+      <span className="truncate text-sm font-black text-white">{value}</span>
+      <span className="hidden text-[11px] text-zinc-400 2xl:inline">{detail}</span>
     </div>
   );
 }
