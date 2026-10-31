@@ -1,9 +1,7 @@
 import type { NextRequest } from "next/server";
-import type Anthropic from "@anthropic-ai/sdk";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import { AI_MODEL, anthropicClient, friendlyAiError } from "@/lib/ai/key-store";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
+import { AiFailure, generateJson, type AiPart } from "@/lib/ai/engine";
 
 /**
  * Configuración → Subir menú con IA.
@@ -80,16 +78,13 @@ export async function POST(request: NextRequest) {
     return aiReply(request, { success: false, error: "Esta página pesa demasiado. Sube una foto en lugar del PDF." }, 413);
   }
 
-  const content: Anthropic.Beta.BetaContentBlockParam[] = [];
+  const content: AiPart[] = [];
   for (const file of files) {
     const data = String(file.data || "");
     if (file.mediaType === "application/pdf") {
-      content.push({ type: "document", source: { type: "base64", media_type: "application/pdf", data } });
+      content.push({ type: "pdf", data });
     } else if (IMAGE_TYPES.has(file.mediaType)) {
-      content.push({
-        type: "image",
-        source: { type: "base64", media_type: file.mediaType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data },
-      });
+      content.push({ type: "image", mediaType: file.mediaType, data });
     } else {
       return aiReply(request, { success: false, error: `${file.name}: solo se aceptan fotos (JPG, PNG, WEBP) o PDF.` }, 400);
     }
@@ -100,24 +95,16 @@ export async function POST(request: NextRequest) {
   });
 
   try {
-    const response = await anthropicClient(session.key).beta.messages.parse({
-      model: AI_MODEL,
-      max_tokens: 32000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: { effort: "medium", format: betaZodOutputFormat(MenuSchema) },
-      system: SYSTEM,
-      messages: [{ role: "user", content }],
-    });
+    const response = await generateJson(session.ai!, { system: SYSTEM, parts: content, schema: MenuSchema, maxTokens: 32000, effort: "medium" });
     await chargeAi(session, response.usage);
 
-    if (response.stop_reason === "refusal") {
+    if (response.refusal) {
       return aiReply(request, { success: false, error: "Claude no pudo procesar estos archivos. Prueba con otras fotos." }, 422);
     }
-    if (response.stop_reason === "max_tokens") {
+    if (response.truncated) {
       return aiReply(request, { success: false, error: "El menú es muy largo para una sola vez. Súbelo en dos tandas." }, 422);
     }
-    const parsed = response.parsed_output;
+    const parsed = response.data;
     if (!parsed) return aiReply(request, { success: false, error: "Claude no regresó la lista de productos. Intenta de nuevo." }, 502);
 
     const items = parsed.items
@@ -125,6 +112,6 @@ export async function POST(request: NextRequest) {
       .filter((item) => item.name && item.price > 0);
     return aiReply(request, { success: true, items, warnings: parsed.warnings });
   } catch (error) {
-    return aiReply(request, { success: false, error: friendlyAiError(error) }, 502);
+    return aiReply(request, { success: false, error: error instanceof AiFailure ? error.message : "Error con la IA." }, error instanceof AiFailure ? error.status : 502);
   }
 }

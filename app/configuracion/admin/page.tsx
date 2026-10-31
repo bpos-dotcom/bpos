@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { useIsPlatformAdmin } from "@/components/admin/PlatformAdminCard";
+import { AiKeysCard } from "@/components/admin/AiKeysCard";
 import { getSupabase } from "@/lib/supabase/client";
 import { PLANS, planAccess, type PlanId } from "@/lib/plans";
 
@@ -130,6 +131,7 @@ export default function AdminPage() {
           <p className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6 text-orange-200">Esta pantalla es solo para el administrador de la plataforma B-POS.</p>
         ) : (
           <div className="space-y-5">
+            <AiKeysCard />
             <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
               {[
                 ["Negocios", String(summary.total)],
