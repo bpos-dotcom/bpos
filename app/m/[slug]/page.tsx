@@ -20,6 +20,7 @@ import {
   normalizeDigitalMenu,
   onlineGroups,
   orderWhatsappText,
+  scheduledLabel,
   whatsappNumber,
   type Align,
   type DigitalMenuSettings,
@@ -28,7 +29,7 @@ import {
   type OnlineOrderType,
 } from "@/lib/digital-menu";
 import { couponDiscount } from "@/lib/coupons";
-import { scheduleLabel } from "@/lib/sale-schedule";
+import { isOnSale, scheduleLabel } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
 import { AddressMap } from "@/components/menu/AddressMap";
 import { AccountSheet, useCustomer, type Customer, type CustomerOrder } from "@/components/menu/CustomerAccount";
@@ -185,6 +186,7 @@ function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: st
   const [cart, setCart] = useState<CartLine[]>([]);
   const [checkout, setCheckout] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [accountStart, setAccountStart] = useState<"entrar" | "registro">("entrar");
   const [reorderNote, setReorderNote] = useState("");
   const menuRef = useRef<HTMLDivElement>(null);
   /** Recuadro deslizante del menú */
@@ -618,6 +620,10 @@ function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: st
           setCart={setCart}
           customer={customer}
           notice={reorderNote}
+          onNeedAccount={(start) => {
+            setAccountStart(start);
+            setAccountOpen(true);
+          }}
           onClose={() => {
             setCheckout(false);
             setReorderNote("");
@@ -632,7 +638,11 @@ function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: st
           color={color}
           businessName={business.name}
           customer={customer}
-          onClose={() => setAccountOpen(false)}
+          start={accountStart}
+          onClose={() => {
+            setAccountOpen(false);
+            setAccountStart("entrar");
+          }}
           onReorder={canOrder ? reorder : undefined}
           onOpenOrder={(o) => onPlaced({ id: o.id, token: o.token, folio: o.folio })}
         />
@@ -754,6 +764,7 @@ function Checkout({
   setCart,
   customer,
   notice,
+  onNeedAccount,
   onClose,
   onPlaced,
 }: {
@@ -765,6 +776,8 @@ function Checkout({
   customer: Customer;
   /** Aviso de "Pedir otra vez" (lo que ya no hay) */
   notice: string;
+  /** Programar pide cuenta: abre registro o entrar */
+  onNeedAccount: (start: "entrar" | "registro") => void;
   onClose: () => void;
   onPlaced: (p: Placed) => void;
 }) {
@@ -796,6 +809,30 @@ function Checkout({
   const [checkingCoupon, setCheckingCoupon] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  /** ¿Para cuándo? Programar solo con cuenta (así se sabe que es un cliente real) */
+  const [when, setWhen] = useState<"ahora" | "programar">("ahora");
+  const [day, setDay] = useState(0);
+  const [slot, setSlot] = useState("");
+  const sched = menu.scheduling;
+  const [openedAt] = useState(() => Date.now());
+  const slots = useMemo(() => {
+    if (!sched.enabled) return [] as { day: number; label: string; times: { value: string; label: string }[] }[];
+    const earliest = openedAt + sched.minMinutes * 60000;
+    return Array.from({ length: sched.maxDays + 1 }, (_, i) => {
+      const base = new Date(openedAt);
+      base.setHours(0, 0, 0, 0);
+      base.setDate(base.getDate() + i);
+      const times: { value: string; label: string }[] = [];
+      for (let m = 0; m < 24 * 60; m += 15) {
+        const t = new Date(base.getTime() + m * 60000);
+        if (t.getTime() >= earliest && isOnSale(menu.hours, t)) times.push({ value: t.toISOString(), label: t.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" }) });
+      }
+      const label = i === 0 ? "Hoy" : i === 1 ? "Mañana" : base.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
+      return { day: i, label, times };
+    }).filter((d) => d.times.length > 0);
+  }, [sched.enabled, sched.minMinutes, sched.maxDays, menu.hours, openedAt]);
+  const dayTimes = slots.find((d) => d.day === day)?.times || slots[0]?.times || [];
+  const scheduledFor = when === "programar" && customer.account ? (dayTimes.some((t) => t.value === slot) ? slot : "") : "";
 
   useEffect(() => {
     try {
@@ -852,6 +889,8 @@ function Checkout({
     if (belowMin) return setError(`El pedido mínimo es de ${money(menu.minOrder)}.`);
     if (!offered[type]) return setError(type === "Domicilio" ? "Por ahora no tenemos servicio a domicilio. Elige para recoger." : "Por ahora no tenemos pedidos para recoger.");
     if (!payment) return setError("El negocio no tiene formas de pago para este tipo de pedido.");
+    if (when === "programar" && !customer.account) return setError("Para programar tu pedido entra a tu cuenta, o elige pedir ahora.");
+    if (when === "programar" && !scheduledFor) return setError("Elige el día y la hora de tu pedido.");
     const order: OnlineOrderData = {
       type,
       ...(type === "Mesa" ? { table } : {}),
@@ -865,6 +904,7 @@ function Checkout({
       payment,
       ...(payment === "Efectivo" && Number(cashWith) > 0 ? { cashWith: Number(cashWith) } : {}),
       note: note.trim().slice(0, 200),
+      ...(scheduledFor ? { scheduledFor } : {}),
       lines: cart.map(({ productId, name: n, quantity, unitPrice, picks, summary, comment }) => ({ productId, name: n, quantity, unitPrice, picks, summary, ...(comment ? { comment } : {}) })),
       subtotal,
       deliveryFee: fee,
@@ -936,6 +976,64 @@ function Checkout({
           </div>
         )}
         {type === "Mesa" && <p className="mt-4 rounded-xl bg-zinc-100 px-4 py-3 font-bold">🍽️ Pedido para la mesa {table}</p>}
+
+        {sched.enabled && type !== "Mesa" && slots.length > 0 && (
+          <div className="mt-4">
+            <p className="text-sm font-bold">¿Para cuándo?</p>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["ahora", "⚡ Lo antes posible"],
+                  ["programar", "📅 Programar"],
+                ] as const
+              ).map(([k, text]) => (
+                <button
+                  key={k}
+                  onClick={() => setWhen(k)}
+                  className="rounded-xl border py-3 font-black"
+                  style={when === k ? { background: color, borderColor: color, color: "#fff" } : { borderColor: "#e4e4e7" }}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+            {when === "programar" &&
+              (customer.account ? (
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <select value={slots.some((d) => d.day === day) ? day : slots[0].day} onChange={(e) => { setDay(Number(e.target.value)); setSlot(""); }} className={field}>
+                    {slots.map((d) => (
+                      <option key={d.day} value={d.day}>
+                        {d.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select value={scheduledFor} onChange={(e) => setSlot(e.target.value)} className={field}>
+                    <option value="">Hora</option>
+                    {dayTimes.map((t) => (
+                      <option key={t.value} value={t.value}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                  {scheduledFor && <p className="col-span-2 text-sm font-bold text-emerald-700">📅 Tu pedido quedará para {scheduledLabel(scheduledFor)}</p>}
+                </div>
+              ) : (
+                <div className="mt-2 rounded-2xl border-2 border-dashed p-4 text-center" style={{ borderColor: color }}>
+                  <p className="font-black">Para programar pedidos necesitas tu cuenta</p>
+                  <p className="mt-1 text-sm text-zinc-500">Es gratis y te toma un minuto. Así el restaurante sabe que tu pedido es real.</p>
+                  <button onClick={() => onNeedAccount("registro")} className="mt-3 w-full rounded-xl py-3 font-black text-white" style={{ background: color }}>
+                    Crear mi cuenta
+                  </button>
+                  <button onClick={() => onNeedAccount("entrar")} className="mt-2 w-full rounded-xl border border-zinc-200 py-2.5 font-black">
+                    Ya tengo cuenta: entrar
+                  </button>
+                  <button onClick={() => setWhen("ahora")} className="mt-2 text-sm font-bold underline" style={{ color }}>
+                    Mejor pedir ahora sin cuenta
+                  </button>
+                </div>
+              ))}
+          </div>
+        )}
 
         <label className="mt-4 block text-sm font-bold">
           Tu nombre
@@ -1032,7 +1130,7 @@ function Checkout({
 
         {error && <p className="mt-3 text-sm font-bold text-red-600">{error}</p>}
         <button disabled={sending || cart.length === 0} onClick={() => void send()} className="mt-4 w-full rounded-2xl py-4 text-lg font-black text-white disabled:opacity-40" style={{ background: color }}>
-          {sending ? "Enviando..." : `Enviar pedido · ${money(total)}`}
+          {sending ? "Enviando..." : `${scheduledFor ? "Programar pedido" : "Enviar pedido"} · ${money(total)}`}
         </button>
         <p className="mt-2 text-center text-xs text-zinc-400">Sin comisiones. El negocio confirma tu pedido en unos minutos.</p>
       </div>
@@ -1212,6 +1310,9 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
                     ? d.type === "Domicilio" ? "¡Tu pedido va en camino!" : "¡Tu pedido está listo!"
                     : "¡Gracias por tu compra!"}
             </p>
+            {d.scheduledFor && (status.status === "nuevo" || status.status === "aceptando") && (
+              <p className="mt-1 text-center text-base font-black" style={{ color }}>📅 Programado para {scheduledLabel(d.scheduledFor)}</p>
+            )}
             {readyAt && status.status === "aceptado" && (
               <p className="text-center text-sm text-zinc-500">Estará listo aprox. a las {readyAt.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" })}</p>
             )}

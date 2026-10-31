@@ -99,6 +99,8 @@ export type DigitalMenuSettings = {
   autoAccept: boolean;
   /** Al cambiar un pedido de estado, abrir WhatsApp con el aviso para el cliente (gratis, wa.me) */
   whatsappNotify: boolean;
+  /** Pedidos programados (solo clientes con cuenta): anticipación mínima, días máximos y minutos antes para mandarlos a cocina */
+  scheduling: { enabled: boolean; minMinutes: number; maxDays: number; leadMinutes: number };
   /** Liga para dejar reseña en Google (se ofrece a quien califica con 4 o 5 estrellas) */
   googleReviewUrl: string;
   /** Productos que no se muestran en el menú digital (ids) */
@@ -126,6 +128,7 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   paymentsByType: { Recoger: ["Efectivo", "Tarjeta"], Domicilio: ["Efectivo"], Mesa: ["Efectivo", "Tarjeta"] },
   autoAccept: false,
   whatsappNotify: true,
+  scheduling: { enabled: true, minMinutes: 60, maxDays: 3, leadMinutes: 30 },
   googleReviewUrl: "",
   hidden: [],
   soldOut: {},
@@ -256,6 +259,12 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
     paymentsByType: normalizePaymentsByType(r.paymentsByType, r.payments),
     autoAccept: r.autoAccept === true,
     whatsappNotify: r.whatsappNotify !== false,
+    scheduling: {
+      enabled: r.scheduling?.enabled !== false,
+      minMinutes: Math.round(num(r.scheduling?.minMinutes, 60, 15, 24 * 60)),
+      maxDays: Math.round(num(r.scheduling?.maxDays, 3, 0, 14)),
+      leadMinutes: Math.round(num(r.scheduling?.leadMinutes, 30, 5, 180)),
+    },
     googleReviewUrl: /^https:\/\/\S+$/i.test(String(r.googleReviewUrl || "").trim()) ? String(r.googleReviewUrl).trim().slice(0, 300) : "",
     hidden: Array.isArray(r.hidden) ? r.hidden.map(Number).filter(Number.isFinite) : [],
     soldOut,
@@ -369,10 +378,23 @@ export type OnlineOrderData = {
   lines: OnlineOrderLine[];
   subtotal: number;
   deliveryFee: number;
+  /** Pedido programado: cuándo lo quiere (ISO). Sin esto, lo antes posible */
+  scheduledFor?: string;
   /** Cupón que escribió el cliente y el descuento que vio */
   coupon?: { code: string; discount: number };
   total: number;
 };
+
+/** "vie 31 oct, 8:00 p.m." */
+export function scheduledLabel(iso: string) {
+  const d = new Date(iso);
+  return `${d.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })}, ${d.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" })}`;
+}
+
+/** Pedido programado que todavía no toca mandar a cocina */
+export function scheduledLater(d: Pick<OnlineOrderData, "scheduledFor">, leadMinutes: number, now = Date.now()) {
+  return Boolean(d.scheduledFor && Date.parse(d.scheduledFor) - leadMinutes * 60000 > now);
+}
 
 /** Liga de Google Maps de la ubicación que compartió el cliente */
 export function mapsLink(location?: { lat: number; lng: number }) {
@@ -403,6 +425,7 @@ export function orderWhatsappText(businessName: string, folio: string, d: Online
     `*Total ${money(d.total)}*`,
     "",
     ...where,
+    d.scheduledFor ? `📅 Programado para ${scheduledLabel(d.scheduledFor)}` : "",
     `💳 Pago: ${d.payment}${d.payment === "Transferencia" ? " · te envío el comprobante" : ""}`,
     d.note ? `📝 ${d.note}` : "",
   ]

@@ -6,7 +6,7 @@
  * Solo revisa si el menú digital está publicado.
  */
 import { useEffect, useRef, useState } from "react";
-import { DIGITAL_MENU_EVENT, getDigitalMenu } from "@/lib/digital-menu";
+import { DIGITAL_MENU_EVENT, getDigitalMenu, scheduledLater } from "@/lib/digital-menu";
 import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, listOnlineOrders } from "@/lib/online-orders";
 
 const CHECK_MS = 10_000;
@@ -26,23 +26,37 @@ export function useOnlineOrdersWatch() {
       }
       busy.current = true;
       try {
-        const fresh = (await listOnlineOrders()).filter((o) => o.status === "nuevo");
+        // Los programados esperan sin sonar hasta que toca mandarlos a cocina
+        const fresh = (await listOnlineOrders()).filter((o) => o.status === "nuevo" && !scheduledLater(o.data, menu.scheduling.leadMinutes));
         if (!alive) return;
         const known = seen.current;
         const arrived = known ? fresh.filter((o) => !known.has(o.id)) : [];
         seen.current = new Set(fresh.map((o) => o.id));
 
-        if (menu.autoAccept && localStorage.getItem("bpos_active_shift")) {
+        // Programados que ya toca: se mandan solos a cocina si hay caja abierta
+        const open = Boolean(localStorage.getItem("bpos_active_shift"));
+        if (open && !menu.autoAccept) {
+          for (const order of fresh.filter((o) => o.data.scheduledFor)) {
+            try {
+              await acceptOnlineOrder(order, Math.max(5, Math.round((Date.parse(order.data.scheduledFor!) - Date.now()) / 60000)), "Programado");
+            } catch {
+              // otro dispositivo lo tomó o falta algo: queda para aceptarlo a mano
+            }
+          }
+        }
+        if (menu.autoAccept && open) {
           for (const order of fresh) {
             try {
-              await acceptOnlineOrder(order, menu.prepMinutes, "Automático");
+              const eta = order.data.scheduledFor ? Math.max(5, Math.round((Date.parse(order.data.scheduledFor) - Date.now()) / 60000)) : menu.prepMinutes;
+              await acceptOnlineOrder(order, eta, "Automático");
             } catch {
               // otro dispositivo lo tomó o falta algo: queda para aceptarlo a mano
             }
           }
           setWaiting({ count: 0, ids: "" });
         } else {
-          setWaiting({ count: fresh.length, ids: fresh.map((o) => o.id).sort().join(",") });
+          const left = open ? fresh.filter((o) => !o.data.scheduledFor) : fresh;
+          setWaiting({ count: left.length, ids: left.map((o) => o.id).sort().join(",") });
         }
         if (arrived.length) {
           window.dispatchEvent(new Event(ONLINE_ORDERS_EVENT));
