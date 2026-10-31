@@ -9,7 +9,8 @@
 import { addAuditEvent } from "@/lib/audit";
 import { getAdminProducts } from "@/lib/admin";
 import { buildSelection, extrasPrice, lineIdFor } from "@/lib/compound";
-import { getDigitalMenu, isAvailableOnline, mapsLink, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
+import { aiFetch } from "@/lib/ai/client";
+import { awaitingOnlinePayment, getDigitalMenu, isAvailableOnline, mapsLink, paidOnline, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { earnLoyalty } from "@/lib/loyalty-pos";
@@ -138,8 +139,12 @@ const TYPE_LABEL: Record<OnlineOrderData["type"], string> = {
  */
 export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, userName = "") {
   if (!localStorage.getItem("bpos_active_shift")) throw new Error("Abre la caja para aceptar pedidos en línea.");
+  if (awaitingOnlinePayment(order.data)) throw new Error("El cliente todavía no termina de pagar con Mercado Pago.");
+  if (order.data.mp?.status === "refunded") throw new Error("Ya se le devolvió el pago de este pedido.");
   const { cart, subtotal, coupon } = buildOnlineCart(order.data);
   if (!cart.length) throw new Error("Ningún producto del pedido existe ya en B-POS. Recházalo.");
+  const short = onlinePaymentShort(order.data);
+  if (short) throw new Error(short);
 
   const { data: claimed, error } = await getSupabase().rpc("bpos_online_claim", { p_id: order.id });
   if (error) throw new Error(error.message);
@@ -166,6 +171,7 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
         customerName: [c.name, tableNote].filter(Boolean).join(" · "),
         customerPhone: c.phone || "",
         customerAddress: [c.address, c.reference, deliveryFee ? `Envío $${deliveryFee.toFixed(2)}` : ""].filter(Boolean).join(" · "),
+        // Pagado en línea: entra a la caja como "Mercado Pago" (no es efectivo del cajón)
         paymentMethod: order.data.payment || "Efectivo",
         discount,
         ...(coupon ? { couponCode: coupon.code } : {}),
@@ -207,14 +213,47 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
   }
 }
 
+/**
+ * Pagado en línea por menos de lo que vale con los precios de B-POS (alguien
+ * cambió el total): no se acepta. "" si está bien o no es pago en línea.
+ */
+export function onlinePaymentShort(data: OnlineOrderData) {
+  if (!paidOnline(data) || !data.mp) return "";
+  const { subtotal, coupon } = buildOnlineCart(data);
+  const fee = data.type === "Domicilio" ? Math.max(0, Number(getDigitalMenu().deliveryFee) || 0) : 0;
+  const total = Math.max(0, subtotal + fee - (coupon?.discount || 0));
+  return data.mp.amount + 0.5 < total
+    ? `El cliente pagó ${data.mp.amount.toFixed(2)} pero con tus precios el pedido es de ${total.toFixed(2)}. Recházalo (se le devuelve su pago) o pídele la diferencia.`
+    : "";
+}
+
+/** Rechaza el pedido; si ya pagó con Mercado Pago, se le devuelve. Regresa el aviso si no se pudo devolver. */
 export async function rejectOnlineOrder(order: OnlineOrder, reason: string, userName = "") {
+  let refundError = "";
+  if (paidOnline(order.data)) {
+    try {
+      const r = await aiFetch("/api/mp/menu-refund", { method: "POST", body: JSON.stringify({ id: order.id }) });
+      const b = await r.json().catch(() => null);
+      if (!r.ok || !b?.success) throw new Error(b?.error || "Mercado Pago no respondió.");
+    } catch (e) {
+      refundError = `No se pudo devolver el pago (${e instanceof Error ? e.message : "error"}). Devuélvelo desde tu cuenta de Mercado Pago.`;
+    }
+  }
   await setStatus(order.id, { status: "rechazado", reason: reason.trim().slice(0, 200) || "El negocio no pudo tomar tu pedido." });
   addAuditEvent({
     category: "Venta",
     action: "online.rejected",
-    description: `${userName || "B-POS"} rechazó el pedido en línea ${order.folio}: ${reason || "sin motivo"}`,
+    description: `${userName || "B-POS"} rechazó el pedido en línea ${order.folio}: ${reason || "sin motivo"}${paidOnline(order.data) ? (refundError ? " (el pago no se pudo devolver)" : " (se devolvió el pago)") : ""}`,
     metadata: { folio: order.folio },
   });
+  return { refundError };
+}
+
+/** Pedido que eligió Mercado Pago y no se pagó en 2 horas: se cierra solo. */
+export async function expireUnpaidOrder(order: OnlineOrder) {
+  if (!awaitingOnlinePayment(order.data) || Date.now() - Date.parse(order.created_at) < 2 * 60 * 60 * 1000) return false;
+  await setStatus(order.id, { status: "rechazado", reason: "No se completó el pago en línea." });
+  return true;
 }
 
 /** Avisa al cliente que su pedido está listo o entregado. */
@@ -282,8 +321,8 @@ export function onlineDispatchInfo(order: OnlineOrder): DispatchInfo {
     total: d.total,
     // Transferencia: el negocio ya revisó el comprobante; efectivo o tarjeta se cobran al entregar
     payment:
-      d.payment === "Transferencia"
-        ? { paid: true, method: "Transferencia" }
+      d.payment === "Transferencia" || paidOnline(d)
+        ? { paid: true, method: d.payment }
         : { paid: false, method: d.payment === "Tarjeta" ? "Tarjeta (lleva la terminal)" : "Efectivo", amount: d.total, ...(d.cashWith ? { cashWith: d.cashWith } : {}) },
     note: d.note || undefined,
   };

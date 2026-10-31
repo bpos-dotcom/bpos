@@ -124,6 +124,11 @@ export default function CajaPage() {
     .filter((order) => order.details.paymentMethod === "Transferencia")
     .reduce((sum, order) => sum + order.total, 0);
 
+  // Pedidos del menú digital pagados en línea (el dinero ya está en Mercado Pago)
+  const mpSales = shiftOrders
+    .filter((order) => order.details.paymentMethod === "Mercado Pago")
+    .reduce((sum, order) => sum + order.total, 0);
+
   const cashOut = (shift?.movements || [])
     .filter((movement) => movement.type === "Gasto" || movement.type === "Retiro")
     .reduce((sum, movement) => sum + movement.amount, 0);
@@ -351,7 +356,7 @@ export default function CajaPage() {
 
 💵 Efectivo: $${cashSales.toFixed(2)}
 💳 Tarjeta: $${cardSales.toFixed(2)}
-🏦 Transferencia: $${transferSales.toFixed(2)}
+🏦 Transferencia: ${transferSales.toFixed(2)}${mpSales ? `\n📲 Mercado Pago en línea: ${mpSales.toFixed(2)}` : ""}
 
 📈 Total ventas: $${totalSales.toFixed(2)}
 
@@ -420,7 +425,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
     differenceReason: cutDifference !== 0 ? differenceReason.trim() : undefined,
     totalSales,
     orderCount: shiftOrders.length,
-    salesByPayment: { cash: cashSales, card: cardSales, transfer: transferSales },
+    salesByPayment: { cash: cashSales, card: cardSales, transfer: transferSales, ...(mpSales ? { mercadopago: mpSales } : {}) },
     salesByChannel: { counter: counterSales, whatsapp: whatsappSales, uber: uberSales, didi: didiSales, other: otherSales },
     cashIn,
     cashOut,
@@ -515,8 +520,9 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
             <Metric title="Tarjeta" value={`$${cardSales.toFixed(2)}`} />
             <Metric
               title="Transferencia"
-              value={`$${transferSales.toFixed(2)}`}
+              value={`${transferSales.toFixed(2)}`}
             />
+            {mpSales > 0 && <Metric title="Mercado Pago en línea" value={`${mpSales.toFixed(2)}`} />}
           </div>
 
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
