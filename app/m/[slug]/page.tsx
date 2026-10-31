@@ -731,7 +731,10 @@ function ChoiceSheet({
                         className="flex items-center justify-between rounded-xl border px-4 py-3 text-left"
                         style={on ? { borderColor: color, background: `${color}14` } : { borderColor: "#e4e4e7" }}
                       >
-                        <span className="font-bold">{optionName(o, catalog)}</span>
+                        <span className="font-bold">
+                          {optionName(o, catalog)}
+                          {Number(o.extraPrice) > 0 && <span className="ml-1 text-xs text-zinc-500">+{money(Number(o.extraPrice))}</span>}
+                        </span>
                         <span className="text-lg" style={{ color: on ? color : "#a1a1aa" }}>{on ? "●" : "○"}</span>
                       </button>
                     );

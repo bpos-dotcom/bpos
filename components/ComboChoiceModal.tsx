@@ -118,6 +118,7 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
                               <button onClick={() => add(owner.key, owner.groups, group, option.key)} className="flex-1 p-3 text-left">
                                 {option.productId ? "🔗 " : ""}
                                 {optionName(option, products)}
+                                {Number(option.extraPrice) > 0 && <span className="ml-1 text-orange-400">+${Number(option.extraPrice)}</span>}
                                 {count > 1 && <span className="ml-1 text-orange-400">×{count}</span>}
                               </button>
                               {count > 0 && !single(group) && (

@@ -124,7 +124,9 @@ export function soldModifiers(groups: ModifierGroup[] | undefined, chosen: Picks
       const option = group.options.find((o) => o.key === optionKey);
       if (!option) return [];
       const linked = option.productId ? byId.get(Number(option.productId)) : undefined;
-      if (linked) return [{ group: group.name, name: linked.name, price: 0, productId: linked.id, station: linked.station || "Cocina" }];
+      // Opción con precio propio: renglón de cobro aparte (no sale en la comanda, sí en el ticket)
+      const surcharge = Number(option.extraPrice) > 0 ? [{ group: group.name, name: `${linked ? linked.name : option.name} +${Number(option.extraPrice)}`, price: Number(option.extraPrice), extra: 1 }] : [];
+      if (linked) return [{ group: group.name, name: linked.name, price: 0, productId: linked.id, station: linked.station || "Cocina" }, ...surcharge];
       return [
         {
           group: group.name,
@@ -133,9 +135,12 @@ export function soldModifiers(groups: ModifierGroup[] | undefined, chosen: Picks
           ...(option.ingredientId && option.quantity ? { ingredientId: option.ingredientId, quantity: option.quantity } : {}),
           ...(group.stations?.length ? { alsoAt: group.stations } : {}),
         },
+        ...surcharge,
       ];
     });
-    const extras = extraCount(group, picked.length);
+    // Los renglones de cobro por opción no cuentan como opciones elegidas
+    const pickedCount = picked.filter((m) => !m.extra).length;
+    const extras = extraCount(group, pickedCount);
     const charge = extras && Number(group.extraPrice) > 0 ? [{ group: group.name, name: `${group.name} extra (${extras})`, price: extras * Number(group.extraPrice), extra: extras, ...(group.stations?.length ? { alsoAt: group.stations } : {}) }] : [];
     return [...picked, ...charge];
   });
