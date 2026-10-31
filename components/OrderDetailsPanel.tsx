@@ -2,8 +2,11 @@ export type OrderDetails = {
   orderType: string;
   customerName: string;
   customerPhone: string;
+  /** Se captura al cobrar cuando el pedido es a domicilio */
   customerAddress: string;
+  /** Se elige al cobrar */
   paymentMethod: string;
+  /** Se captura al cobrar (cupón, club o autorizado) */
   discount: number;
   /** Cupón con el que se hizo el descuento */
   couponCode?: string;
@@ -16,7 +19,7 @@ type OrderDetailsPanelProps = {
 
 const input = "w-full rounded-xl border border-zinc-800 bg-black px-3 py-2 text-sm text-white placeholder:text-zinc-600";
 
-/** Datos del pedido, compactos: van debajo del pedido actual (dos campos por renglón). */
+/** Una barra con tipo, cliente y WhatsApp. El pago, el descuento y la dirección se piden al cobrar. */
 export function OrderDetailsPanel({
   details,
   onChange,
@@ -28,14 +31,9 @@ export function OrderDetailsPanel({
     });
   }
 
-  // La dirección solo estorba si no es a domicilio
-  const showAddress = details.orderType === "Domicilio" || Boolean(details.customerAddress);
-
   return (
     <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4">
-      <h2 className="text-base font-black">Detalles del pedido</h2>
-
-      <div className="mt-3 grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-2">
         <Field label="Tipo de pedido">
           <select
             value={details.orderType}
@@ -48,21 +46,6 @@ export function OrderDetailsPanel({
             <option>WhatsApp</option>
             <option>Didi Food</option>
             <option>Uber Eats</option>
-          </select>
-        </Field>
-
-        <Field label="Método de pago">
-          <select
-            value={details.paymentMethod}
-            onChange={(event) =>
-              updateField("paymentMethod", event.target.value)
-            }
-            className={input}
-          >
-            <option>Efectivo</option>
-            <option>Tarjeta</option>
-            <option>Transferencia</option>
-            <option>Mixto</option>
           </select>
         </Field>
 
@@ -83,33 +66,7 @@ export function OrderDetailsPanel({
             onChange={(event) =>
               updateField("customerPhone", event.target.value)
             }
-            placeholder="Ej. 5631820373"
-            className={input}
-          />
-        </Field>
-
-        {showAddress && (
-          <Field label="Dirección / referencia" wide>
-            <textarea
-              value={details.customerAddress}
-              onChange={(event) =>
-                updateField("customerAddress", event.target.value)
-              }
-              placeholder="Calle, número y referencia"
-              rows={2}
-              className={input}
-            />
-          </Field>
-        )}
-
-        <Field label="Descuento">
-          <input
-            type="number"
-            min={0}
-            value={details.discount}
-            onChange={(event) =>
-              updateField("discount", Number(event.target.value))
-            }
+            placeholder="10 dígitos"
             className={input}
           />
         </Field>
@@ -120,15 +77,13 @@ export function OrderDetailsPanel({
 
 function Field({
   label,
-  wide,
   children,
 }: {
   label: string;
-  wide?: boolean;
   children: React.ReactNode;
 }) {
   return (
-    <label className={`block ${wide ? "col-span-2" : ""}`}>
+    <label className="block min-w-0">
       <span className="mb-1 block text-xs font-bold text-zinc-400">
         {label}
       </span>

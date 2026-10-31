@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { getEnabledPaymentMethods } from "@/lib/payment-methods";
 import { AmountInput, cashQuickAmounts } from "@/components/AmountInput";
 import { checkCoupon, normalizeCode } from "@/lib/coupons";
+import { DRIVERS_EVENT, getDrivers, type Driver } from "@/lib/drivers";
 
 export type PaymentMethod = string;
 
@@ -21,7 +22,11 @@ type CheckoutModalProps = {
     discount: number;
     couponCode?: string;
     clubCashback?: number;
+    address?: string;
+    driver?: Driver;
   }) => void;
+  /** Pedido a domicilio: se pide la dirección y el repartidor aquí */
+  delivery?: { address: string };
 };
 
 export function CheckoutModal({
@@ -30,6 +35,7 @@ export function CheckoutModal({
   isOpen,
   onClose,
   onConfirm,
+  delivery,
 }: CheckoutModalProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [cashReceived, setCashReceived] = useState("");
@@ -42,6 +48,28 @@ export function CheckoutModal({
   const [couponError, setCouponError] = useState("");
   const [useClub, setUseClub] = useState(false);
   const [availableMethods, setAvailableMethods] = useState<string[]>(["Efectivo","Tarjeta","Transferencia","Mixto"]);
+  const [address, setAddress] = useState("");
+  const [driverId, setDriverId] = useState("");
+  const [drivers, setDrivers] = useState<Driver[]>([]);
+  const isDelivery = Boolean(delivery);
+  const deliveryAddress = delivery ? delivery.address : "";
+
+  // Al abrir un cobro a domicilio: la dirección que ya tenga el pedido y los repartidores activos
+  useEffect(() => {
+    if (!isOpen || !isDelivery) return;
+    const sync = () => setDrivers(getDrivers().filter((d) => d.active));
+    const t = window.setTimeout(() => {
+      setAddress(deliveryAddress);
+      setDriverId("");
+      sync();
+    }, 0);
+    window.addEventListener(DRIVERS_EVENT, sync);
+    return () => {
+      window.clearTimeout(t);
+      window.removeEventListener(DRIVERS_EVENT, sync);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo al abrir
+  }, [isOpen, isDelivery]);
 
   useEffect(() => {
     const load = () => setAvailableMethods(getEnabledPaymentMethods().filter((item) => item.channel !== "platform").map((item) => item.name));
@@ -93,15 +121,23 @@ export function CheckoutModal({
       ? Math.max(paidTotal - finalTotal, 0)
       : 0;
 
-  const canConfirm = paidTotal >= finalTotal;
+  const missingAddress = isDelivery && address.trim() === "";
+  const canConfirm = paidTotal >= finalTotal && !missingAddress;
 
   function confirmCheckout() {
+    if (missingAddress) {
+      alert("Escribe la dirección a donde se lleva el pedido.");
+      return;
+    }
     if (!canConfirm) {
       alert("El pago no cubre el total.");
       return;
     }
 
+    const driver = drivers.find((d) => d.id === driverId);
     onConfirm({
+      ...(isDelivery ? { address: address.trim() } : {}),
+      ...(driver ? { driver } : {}),
       paymentMethod,
       cashReceived: cashNumber,
       cardAmount: cardNumber,
@@ -200,6 +236,34 @@ export function CheckoutModal({
             </span>
           </div>
         </div>
+
+        {isDelivery && (
+          <div className="mt-6 rounded-2xl border border-orange-500/40 bg-orange-500/5 p-4">
+            <p className="text-sm font-black text-orange-400">🛵 A domicilio</p>
+            <div className="mt-2 grid gap-3 md:grid-cols-[1fr_200px]">
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-zinc-400">Dirección</span>
+                <textarea
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  rows={2}
+                  placeholder="Calle, número y referencia"
+                  className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2 text-sm text-white placeholder:text-zinc-600"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-zinc-400">Repartidor</span>
+                <select value={driverId} onChange={(e) => setDriverId(e.target.value)} className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2 text-sm text-white">
+                  <option value="">Elegir después</option>
+                  {drivers.map((d) => (
+                    <option key={d.id} value={d.id}>{d.name}</option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-[11px] text-zinc-500">{drivers.length ? "Se le manda el pedido por WhatsApp al cobrar." : "Agrega repartidores en Configuración → Reparto."}</span>
+              </label>
+            </div>
+          </div>
+        )}
 
         <div className="mt-6">
           <label className="mb-2 block text-sm font-bold text-zinc-400">
