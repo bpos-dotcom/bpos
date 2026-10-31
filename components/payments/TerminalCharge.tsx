@@ -29,6 +29,15 @@ export function useTerminalCharge() {
   const [job, setJob] = useState<{ amount: number; description: string } | null>(null);
   const [state, setState] = useState<State>({ step: "sending" });
   const resolver = useRef<((r: TerminalResult) => void) | null>(null);
+  // Si la terminal no muestra el monto en un rato, se le dice a la cajera qué revisar
+  const [slowId, setSlowId] = useState<string | null>(null);
+  const waitingId = state.step === "waiting" && state.status !== "at_terminal" ? state.id : null;
+  useEffect(() => {
+    if (!waitingId) return;
+    const t = window.setTimeout(() => setSlowId(waitingId), 15000);
+    return () => window.clearTimeout(t);
+  }, [waitingId]);
+  const slow = !!waitingId && slowId === waitingId;
 
   const finish = useCallback((result: TerminalResult) => {
     resolver.current?.(result);
@@ -106,6 +115,11 @@ export function useTerminalCharge() {
           <>
             <p className="mt-4 font-bold">{state.status === "at_terminal" ? "La terminal ya muestra el monto: el cliente puede pagar." : "Esperando a la terminal..."}</p>
             <p className="mt-1 animate-pulse text-sm text-zinc-500">La venta se guarda sola al aprobarse el pago.</p>
+            {slow && (
+              <p className="mt-3 rounded-2xl bg-amber-500/10 px-3 py-2 text-left text-xs text-amber-200">
+                ¿No aparece el monto en la terminal? Revisa que tenga internet y toca <b>Actualizar</b> en su pantalla. Si es la primera vez que la usas con B-POS, apágala y vuélvela a prender: Mercado Pago pide reiniciarla para activar el modo conectado al POS.
+              </p>
+            )}
           </>
         )}
         {state.step === "cancelling" && <p className="mt-4 font-bold">Cancelando el cobro en la terminal...</p>}
