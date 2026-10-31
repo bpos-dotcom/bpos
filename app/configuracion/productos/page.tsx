@@ -48,6 +48,7 @@ export default function ProductosAdminPage() {
   const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const [category, setCategory] = useState(""); // "" = todas
   const [pickingCategory, setPickingCategory] = useState(false);
+  const [newCategory, setNewCategory] = useState("");
   const categories = [...products.reduce((map, p) => map.set(p.category, (map.get(p.category) || 0) + 1), new Map<string, number>())].sort((a, b) =>
     a[0].localeCompare(b[0], "es")
   );
@@ -231,11 +232,12 @@ export default function ProductosAdminPage() {
     setListQuery("");
   }
 
-  function addProduct() {
+  /** Producto nuevo; en la categoría filtrada (o la que se pida), si no en la primera */
+  function addProduct(categoryName?: string) {
     const newProduct: Product = {
       id: Date.now(),
       name: "Nuevo producto",
-      category: "Burgers",
+      category: categoryName || category || categories[0]?.[0] || "General",
       price: 0,
       emoji: "🍔",
       station: "Cocina",
@@ -247,6 +249,25 @@ export default function ProductosAdminPage() {
     setSelectedId(newProduct.id);
     setDraft(newProduct);
     setRecipeDraft([]);
+    setListQuery("");
+  }
+
+  /**
+   * Una categoría existe por sus productos: crearla es crear su primer
+   * producto, que queda abierto para ponerle nombre y precio.
+   */
+  function createCategory() {
+    const name = newCategory.trim().replace(/\s+/g, " ");
+    if (!name) return;
+    const existing = categories.find(([c]) => plain(c) === plain(name));
+    if (existing) {
+      alert(`La categoría "${existing[0]}" ya existe. Elígela de la lista.`);
+      return;
+    }
+    addProduct(name);
+    setCategory(name);
+    setNewCategory("");
+    setPickingCategory(false);
   }
 
   return (
@@ -267,7 +288,7 @@ export default function ProductosAdminPage() {
               </div>
 
               <button
-                onClick={addProduct}
+                onClick={() => addProduct()}
                 className="rounded-2xl bg-orange-500 px-4 py-3 font-black text-black"
               >
                 +
@@ -318,7 +339,29 @@ export default function ProductosAdminPage() {
                       </button>
                     ))}
                   </div>
-                  <button onClick={() => setPickingCategory(false)} className="mt-4 rounded-2xl border border-zinc-800 py-3 font-black">
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      createCategory();
+                    }}
+                    className="mt-4 rounded-2xl border border-dashed border-orange-500/50 bg-orange-500/5 p-3"
+                  >
+                    <p className="text-xs font-black text-orange-300">➕ Nueva categoría</p>
+                    <div className="mt-2 flex gap-2">
+                      <input
+                        value={newCategory}
+                        onChange={(e) => setNewCategory(e.target.value)}
+                        maxLength={40}
+                        placeholder="Ej. Postres"
+                        className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-4 py-2 text-white"
+                      />
+                      <button type="submit" disabled={!newCategory.trim()} className="rounded-2xl bg-orange-500 px-4 py-2 font-black text-black disabled:opacity-40">
+                        Crear
+                      </button>
+                    </div>
+                    <p className="mt-2 text-xs text-zinc-500">Se crea con su primer producto, listo para ponerle nombre y precio. Sin productos, la categoría no aparece.</p>
+                  </form>
+                  <button onClick={() => setPickingCategory(false)} className="mt-3 rounded-2xl border border-zinc-800 py-3 font-black">
                     Cerrar
                   </button>
                 </div>
@@ -448,11 +491,19 @@ export default function ProductosAdminPage() {
                   <Field label="Categoría">
                     <input
                       value={draft.category}
+                      list="bpos-categorias"
+                      maxLength={40}
                       onChange={(event) =>
                         setDraft({ ...draft, category: event.target.value })
                       }
                       className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
                     />
+                    <datalist id="bpos-categorias">
+                      {categories.map(([c]) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
+                    <span className="mt-1 block text-xs text-zinc-500">Elige una de la lista o escribe una nueva para crearla.</span>
                   </Field>
 
                   <Field label="Estación de preparación">
