@@ -102,6 +102,7 @@ export default function CajaPage() {
 
     return orders.filter((order) => {
       if (isCancelled(order)) return false; // canceladas no cuentan en el corte
+      if ((order as { pendingPayment?: boolean }).pendingPayment) return false; // en espera: hasta que pague
       if (order.shiftSessionId) {
         return order.shiftSessionId === shift.sessionId;
       }

@@ -11,6 +11,11 @@ export type SavedOrder = {
   total: number;
   cancelled?: boolean;
   cancelReason?: string;
+  /** A domicilio en espera: ya se prepara, se cobra cuando regrese el repartidor */
+  pendingPayment?: boolean;
+  paidAt?: string;
+  /** Socio del club al que se le suma la venta cuando se cobre */
+  clubAccountId?: string;
 };
 
 type OrderHistoryPanelProps = {
@@ -19,6 +24,8 @@ type OrderHistoryPanelProps = {
   onDelete: (id: number) => void;
   onPrint: (order: SavedOrder) => void;
   onWhatsapp: (order: SavedOrder) => void;
+  /** Pedido en espera: ya pagó (con qué) */
+  onMarkPaid?: (order: SavedOrder, method: string) => void;
 };
 
 export function OrderHistoryPanel({
@@ -27,6 +34,7 @@ export function OrderHistoryPanel({
   onDelete,
   onPrint,
   onWhatsapp,
+  onMarkPaid,
 }: OrderHistoryPanelProps) {
   return (
     <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
@@ -87,6 +95,17 @@ export function OrderHistoryPanel({
                   <p className="text-2xl font-black text-orange-500">
                     ${order.total.toFixed(2)}
                   </p>
+                  {order.pendingPayment && !order.cancelled && (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-yellow-500/40 bg-yellow-500/10 p-2">
+                      <span className="text-sm font-black text-yellow-200">⏳ Por cobrar al regreso</span>
+                      {onMarkPaid &&
+                        ["Efectivo", "Transferencia", "Tarjeta"].map((m) => (
+                          <button key={m} onClick={() => onMarkPaid(order, m)} className="rounded-lg bg-yellow-400 px-3 py-1 text-xs font-black text-black">
+                            Ya pagó · {m}
+                          </button>
+                        ))}
+                    </div>
+                  )}
 
                   <div className="flex flex-wrap gap-2">
                     <button

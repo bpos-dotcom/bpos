@@ -10,6 +10,8 @@ export type OrderDetails = {
   discount: number;
   /** Cupón con el que se hizo el descuento */
   couponCode?: string;
+  /** Costo de envío a domicilio (se suma al total) */
+  deliveryFee?: number;
 };
 
 type OrderDetailsPanelProps = {

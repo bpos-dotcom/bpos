@@ -24,6 +24,9 @@ type CheckoutModalProps = {
     clubCashback?: number;
     address?: string;
     driver?: Driver;
+    deliveryFee?: number;
+    /** A domicilio en espera: se manda a preparar y se cobra cuando regrese el repartidor */
+    pending?: boolean;
   }) => void;
   /** Pedido a domicilio: se pide la dirección y el repartidor aquí */
   delivery?: { address: string };
@@ -50,6 +53,7 @@ export function CheckoutModal({
   const [availableMethods, setAvailableMethods] = useState<string[]>(["Efectivo","Tarjeta","Transferencia","Mixto"]);
   const [address, setAddress] = useState("");
   const [driverId, setDriverId] = useState("");
+  const [deliveryFee, setDeliveryFee] = useState("");
   const [drivers, setDrivers] = useState<Driver[]>([]);
   const isDelivery = Boolean(delivery);
   const deliveryAddress = delivery ? delivery.address : "";
@@ -61,6 +65,7 @@ export function CheckoutModal({
     const t = window.setTimeout(() => {
       setAddress(deliveryAddress);
       setDriverId("");
+      setDeliveryFee("");
       sync();
     }, 0);
     window.addEventListener(DRIVERS_EVENT, sync);
@@ -102,7 +107,8 @@ export function CheckoutModal({
     setUseClub(false);
     onClose();
   }
-  const finalTotal = Math.max(total - discountNumber, 0);
+  const feeNumber = isDelivery ? Math.max(0, Number(deliveryFee) || 0) : 0;
+  const finalTotal = Math.max(total - discountNumber, 0) + feeNumber;
   const cashNumber = Number(cashReceived) || 0;
   const cardNumber = Number(cardAmount) || 0;
   const transferNumber = Number(transferAmount) || 0;
@@ -136,12 +142,37 @@ export function CheckoutModal({
 
     const driver = drivers.find((d) => d.id === driverId);
     onConfirm({
-      ...(isDelivery ? { address: address.trim() } : {}),
+      ...(isDelivery ? { address: address.trim(), deliveryFee: feeNumber } : {}),
       ...(driver ? { driver } : {}),
       paymentMethod,
       cashReceived: cashNumber,
       cardAmount: cardNumber,
       transferAmount: transferNumber,
+      discount: discountNumber,
+      ...(coupon ? { couponCode: coupon.code } : {}),
+      ...(clubUsed > 0 ? { clubCashback: clubUsed } : {}),
+    });
+    setCoupon(null);
+    setCouponInput("");
+    setUseClub(false);
+  }
+
+  /** A domicilio: se prepara ya y el repartidor trae el dinero */
+  function confirmPending() {
+    if (missingAddress) {
+      alert("Escribe la dirección a donde se lleva el pedido.");
+      return;
+    }
+    const driver = drivers.find((d) => d.id === driverId);
+    onConfirm({
+      address: address.trim(),
+      deliveryFee: feeNumber,
+      pending: true,
+      ...(driver ? { driver } : {}),
+      paymentMethod,
+      cashReceived: 0,
+      cardAmount: 0,
+      transferAmount: 0,
       discount: discountNumber,
       ...(coupon ? { couponCode: coupon.code } : {}),
       ...(clubUsed > 0 ? { clubCashback: clubUsed } : {}),
@@ -229,6 +260,13 @@ export function CheckoutModal({
             </div>
           )}
 
+          {feeNumber > 0 && (
+            <div className="mt-3 flex justify-between">
+              <span className="text-zinc-400">Envío</span>
+              <span className="font-black">+${feeNumber.toFixed(2)}</span>
+            </div>
+          )}
+
           <div className="mt-4 flex justify-between border-t border-zinc-800 pt-4">
             <span className="text-zinc-400">Total a pagar</span>
             <span className="text-3xl font-black text-orange-500">
@@ -240,7 +278,7 @@ export function CheckoutModal({
         {isDelivery && (
           <div className="mt-6 rounded-2xl border border-orange-500/40 bg-orange-500/5 p-4">
             <p className="text-sm font-black text-orange-400">🛵 A domicilio</p>
-            <div className="mt-2 grid gap-3 md:grid-cols-[1fr_200px]">
+            <div className="mt-2 grid gap-3 md:grid-cols-[1fr_120px_200px]">
               <label className="block">
                 <span className="mb-1 block text-xs font-bold text-zinc-400">Dirección</span>
                 <textarea
@@ -248,6 +286,18 @@ export function CheckoutModal({
                   onChange={(e) => setAddress(e.target.value)}
                   rows={2}
                   placeholder="Calle, número y referencia"
+                  className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2 text-sm text-white placeholder:text-zinc-600"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold text-zinc-400">Costo de envío</span>
+                <input
+                  type="number"
+                  min={0}
+                  inputMode="decimal"
+                  value={deliveryFee}
+                  onChange={(e) => setDeliveryFee(e.target.value)}
+                  placeholder="0"
                   className="w-full rounded-xl border border-zinc-800 bg-black px-3 py-2 text-sm text-white placeholder:text-zinc-600"
                 />
               </label>
@@ -262,6 +312,14 @@ export function CheckoutModal({
                 <span className="mt-1 block text-[11px] text-zinc-500">{drivers.length ? "Se le manda el pedido por WhatsApp al cobrar." : "Agrega repartidores en Configuración → Reparto."}</span>
               </label>
             </div>
+            <button
+              onClick={confirmPending}
+              disabled={missingAddress}
+              className="mt-3 w-full rounded-2xl border border-yellow-500/50 bg-yellow-500/10 py-3 font-black text-yellow-200 hover:bg-yellow-500/20 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ⏳ Mandar a preparar y cobrar cuando regrese el repartidor
+            </button>
+            <p className="mt-1 text-center text-[11px] text-zinc-500">El pedido queda &quot;por cobrar&quot; en el historial hasta que marques que ya pagó.</p>
           </div>
         )}
 
