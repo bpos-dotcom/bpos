@@ -36,7 +36,7 @@ export function aiPreflight(request: NextRequest) {
 
 export type AiAllowance = { plan: string; status: string; active: boolean; budget: number; spent: number };
 
-type AiSession = { supabase: SupabaseClient; businessId: string; userId: string; ai: AiConfig | null; allowance: AiAllowance };
+type AiSession = { supabase: SupabaseClient; businessId: string; userId: string; email: string; ai: AiConfig | null; allowance: AiAllowance };
 
 /**
  * Sesión para usar IA, o la respuesta de error. `check`: false solo consulta
@@ -71,7 +71,7 @@ export async function aiSession(request: NextRequest, check = true, feature: AiF
 
   const ai = check ? await getAiConfig(feature) : null;
   if (check && !ai) return { error: aiReply(request, { success: false, error: "La IA no está disponible por ahora. Intenta más tarde." }, 503) };
-  return { supabase, businessId, userId: user.user.id, ai, allowance: a };
+  return { supabase, businessId, userId: user.user.id, email: user.user.email || "", ai, allowance: a };
 }
 
 /** Suma lo que costó una consulta al gasto del mes del negocio. */

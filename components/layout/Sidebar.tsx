@@ -21,6 +21,7 @@ import { flushCloudAudit } from "@/lib/cloud/audit-outbox";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
 import { useOnlineOrdersWatch } from "@/lib/online-orders-watch";
 import { usePendingReviews } from "@/lib/reviews";
+import { syncAdvisorSnapshot } from "@/lib/advisor-sync";
 import { UpdateNotice } from "@/components/layout/UpdateNotice";
 
 const navItems = [
@@ -165,6 +166,8 @@ export function Sidebar() {
     void refreshOperations();
     // Respaldo automático del día (una vez; lo guarda la computadora de la caja)
     const backupTimer = window.setTimeout(() => void runDailyBackup(), 60_000);
+    // Números del día para el resumen del Asesor por correo (una vez al día)
+    const advisorTimer = window.setTimeout(() => void syncAdvisorSnapshot(), 120_000);
     // Bitácora pendiente de subir (ej. se hizo algo sin internet)
     const auditTimer = window.setInterval(() => void flushCloudAudit(), 60_000);
     void flushCloudAudit();
@@ -175,6 +178,7 @@ export function Sidebar() {
     window.addEventListener("bpos:critical-errors-updated", refresh);
     return () => {
       window.clearTimeout(backupTimer);
+      window.clearTimeout(advisorTimer);
       window.clearInterval(auditTimer);
       window.clearInterval(timer);
       window.removeEventListener(OPERATIONS_ALERT_EVENT, refresh);

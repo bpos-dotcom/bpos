@@ -1,13 +1,17 @@
 import type { NextRequest } from "next/server";
-import { z } from "zod";
+import { ANALYZE, AnalysisSchema, SYSTEM } from "@/lib/ai/advisor";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 import { AiFailure, generateJson, generateText, type AiTurn } from "@/lib/ai/engine";
+import { adminDb } from "@/lib/ai/settings";
 
 /**
  * App del dueño → Asesor con IA (solo plan Max, con la clave y el modelo que
  * el administrador eligió para "asesor").
  *   POST { action: "analizar", metrics }          → resumen, alertas y consejos de la semana
  *   POST { action: "preguntar", metrics, turns }  → respuesta del chat
+ *   POST { action: "estado" }                      → ¿resumen por correo cada lunes?
+ *   POST { action: "correo", enabled }             → lo activa (al correo de quien entra) o lo apaga
+ *   POST { action: "datos", metrics }              → números del día para el correo del lunes
  * `metrics` son los números que arma la App del dueño (ventas, platillos,
  * horas, gastos...). El asesor solo usa esos números.
  */
@@ -15,38 +19,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const AnalysisSchema = z.object({
-  resumen: z.string(),
-  alertas: z.array(z.object({ titulo: z.string(), texto: z.string() })),
-  consejos: z.array(z.object({ titulo: z.string(), texto: z.string() })),
-});
-export type AdvisorAnalysis = z.infer<typeof AnalysisSchema>;
-
-const SYSTEM = `Eres el asesor de negocios de un restaurante en México, dentro de B-POS (su punto de venta).
-Hablas con el dueño en español de México, claro y directo, como un consultor que conoce restaurantes.
-Usa SOLO los números que vienen en los datos; no inventes cifras. Si falta un dato (por ejemplo gastos fijos o recetas con costo), dilo y explica cómo afecta la conclusión.
-Da recomendaciones concretas y accionables para esta semana: promociones para días u horas flojas, precios a revisar según margen y food cost, platillos a impulsar o quitar, personal en horas pico, ahorro en gastos.
-Cantidades en pesos con formato $12,345. No des asesoría fiscal ni legal: para eso, que consulte a su contador.`;
-
-const ANALYZE = `Con estos datos, escribe:
-- resumen: un párrafo (3 a 5 frases) de cómo va la semana contra la anterior: ventas, pedidos, ticket promedio, utilidad y punto de equilibrio si hay datos.
-- alertas: de 2 a 4 problemas o riesgos que veas en los números (título corto y explicación de 1 a 2 frases con cifras).
-- consejos: de 2 a 4 acciones para esta semana (título corto y qué hacer, con cifras).`;
-
 export function OPTIONS(request: NextRequest) {
   return aiPreflight(request);
 }
 
 export async function POST(request: NextRequest) {
-  const session = await aiSession(request, true, "asesor");
-  if ("error" in session) return session.error;
-
   let action = "";
+  let enabled = false;
   let metrics = "";
   let turns: AiTurn[] = [];
   try {
     const body = await request.json();
     action = String(body?.action || "");
+    enabled = body?.enabled === true;
     metrics = JSON.stringify(body?.metrics ?? {}).slice(0, 30_000);
     turns = (Array.isArray(body?.turns) ? body.turns : [])
       .slice(-12)
@@ -54,6 +39,32 @@ export async function POST(request: NextRequest) {
       .filter((t: AiTurn) => t.text.trim());
   } catch {
     return aiReply(request, { success: false, error: "Petición inválida." }, 400);
+  }
+
+  // Ajustes del correo y números del día: sin gastar IA (no exigen clave)
+  const settings = action === "estado" || action === "correo" || action === "datos";
+  const session = await aiSession(request, !settings, "asesor");
+  if ("error" in session) return session.error;
+
+  if (settings) {
+    try {
+      const db = adminDb();
+      if (action === "correo") {
+        if (enabled && session.allowance.plan !== "max") return aiReply(request, { success: false, error: "El Asesor con IA viene en el plan Max." }, 402);
+        const { error } = await db
+          .from("bpos_advisor_weekly")
+          .upsert({ business_id: session.businessId, enabled, ...(enabled ? { email: session.email } : {}), updated_at: new Date().toISOString() });
+        if (error) throw new Error(error.message);
+      }
+      if (action === "datos") {
+        const { data: row } = await db.from("bpos_advisor_weekly").select("enabled").eq("business_id", session.businessId).maybeSingle();
+        if (row?.enabled) await db.from("bpos_advisor_weekly").update({ metrics: JSON.parse(metrics), metrics_at: new Date().toISOString() }).eq("business_id", session.businessId);
+      }
+      const { data } = await db.from("bpos_advisor_weekly").select("enabled, email, last_week").eq("business_id", session.businessId).maybeSingle();
+      return aiReply(request, { success: true, enabled: Boolean(data?.enabled), email: data?.email || session.email, lastWeek: data?.last_week || "" });
+    } catch (e) {
+      return aiReply(request, { success: false, error: e instanceof Error ? e.message : "No se pudo." }, 500);
+    }
   }
 
   try {
