@@ -29,6 +29,8 @@ export type ModifierOption = {
   productId?: number;
   ingredientId?: number;
   quantity?: number; // del insumo, por cada vez que se elige
+  /** Se cobra al elegirla aunque esté dentro de las incluidas (ej. "New York doble +$10" en el combo) */
+  extraPrice?: number;
 };
 
 export type ModifierGroup = {

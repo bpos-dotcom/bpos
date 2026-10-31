@@ -204,6 +204,32 @@ export default function ProductosAdminPage() {
     alert(replacement ? `Producto eliminado. Se reemplazó por ${replacement.name}.` : "Producto eliminado.");
   }
 
+  /** Copia del producto guardado (opciones, estaciones, horario y receta) con id nuevo; el nombre queda "(copia)" para cambiarlo */
+  function duplicateProduct() {
+    const original = products.find((p) => p.id === selectedId);
+    if (!original) return;
+    const clone: Product = JSON.parse(JSON.stringify(original));
+    clone.id = Date.now();
+    clone.name = `${original.name} (copia)`;
+    // Llaves nuevas para que las opciones no choquen con las del original
+    clone.modifierGroups?.forEach((g, gi) => {
+      g.key = `m${clone.id.toString(36)}g${gi}`;
+      g.options.forEach((o, oi) => {
+        o.key = `${g.key}o${oi}`;
+      });
+    });
+    const nextProducts = [...products, clone];
+    const nextRecipes = [...recipes, ...recipeOf(recipes, original.id).map((l) => ({ productId: clone.id, ingredientId: l.ingredientId, quantity: l.quantity }))];
+    setProducts(nextProducts);
+    saveAdminProducts(nextProducts);
+    setRecipes(nextRecipes);
+    saveAdminRecipes(nextRecipes);
+    setSelectedId(clone.id);
+    setDraft(clone);
+    setRecipeDraft(recipeOf(nextRecipes, clone.id));
+    setListQuery("");
+  }
+
   function addProduct() {
     const newProduct: Product = {
       id: Date.now(),
@@ -362,6 +388,14 @@ export default function ProductosAdminPage() {
                   </div>
 
                   <div className="flex gap-3">
+                    <button
+                      onClick={duplicateProduct}
+                      title="Crea una copia con todo (opciones, estaciones, receta) para solo cambiarle el nombre"
+                      className="rounded-2xl border border-zinc-800 bg-black px-5 py-3 font-black text-white"
+                    >
+                      Duplicar
+                    </button>
+
                     <button
                       onClick={() => setDeleting(true)}
                       className="rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-3 font-black text-red-400 hover:bg-red-500/20"

@@ -205,6 +205,20 @@ export function ModifierEditor({ groups, ingredients, products, productId, produ
                         )}
                       </>
                     )}
+                    <label className="flex items-center gap-1 text-xs text-zinc-400" title="Se cobra al elegir esta opción, aunque esté dentro de las incluidas">
+                      +$
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.5"
+                        value={option.extraPrice || 0}
+                        onChange={(e) => {
+                          const n = Math.max(0, Number(e.target.value) || 0);
+                          updateOption(group, option.key, { extraPrice: n || undefined });
+                        }}
+                        className={`w-16 rounded-lg border bg-zinc-950 px-2 py-1 text-right ${option.extraPrice ? "border-orange-500 text-orange-300" : "border-zinc-800 text-white"}`}
+                      />
+                    </label>
                     <button onClick={() => updateGroup(group.key, { options: group.options.filter((o) => o.key !== option.key) })} className="px-2 font-black text-zinc-500" aria-label="Quitar opción">
                       ×
                     </button>
