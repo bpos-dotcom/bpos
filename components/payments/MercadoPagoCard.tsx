@@ -119,7 +119,7 @@ export function MercadoPagoCard() {
                   <button
                     key={t.id}
                     disabled={busy || !status.canLink}
-                    onClick={() => void run(() => selectMpTerminal(t.id), "✅ Listo: al cobrar con tarjeta, esta terminal recibe el monto.")}
+                    onClick={() => void run(() => selectMpTerminal(t.id), "✅ Listo: al cobrar con tarjeta, esta terminal recibe el monto. Si es la primera vez, apágala y vuélvela a prender para activar el modo conectado al POS.")}
                     className={`rounded-2xl border p-4 text-left ${selected ? "border-emerald-400 bg-emerald-500/10" : "border-zinc-700 bg-black hover:border-sky-400"}`}
                   >
                     <p className="font-black">📟 {terminalLabel(t.id)}</p>
