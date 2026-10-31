@@ -1,4 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { randomInt } from "node:crypto";
+import { balanceLabel, clubName, howItWorks, normalizeLoyalty, welcomeLabel, type LoyaltyConfig } from "@/lib/loyalty";
+import { walletReady, walletSaveUrl } from "@/lib/customer-accounts/wallet";
 import {
   Friendly,
   admin,
@@ -30,11 +33,34 @@ import {
  *   POST /api/cuenta/yo           { slug }  (Bearer)                     → { account, orders }
  *   POST /api/cuenta/vincular     { slug, orderId, orderToken } (Bearer) → guarda el pedido en su historial
  *   POST /api/cuenta/salir        { slug }  (Bearer)
+ *   POST /api/cuenta/club         { slug }  (Bearer opcional)            → club, socio y movimientos
+ *   POST /api/cuenta/unirme       { slug }  (Bearer)                     → entra al club (con su regalo)
+ *   POST /api/cuenta/wallet       { slug }  (Bearer)                     → liga "Agregar a Google Wallet"
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type Body = Record<string, unknown>;
+type Member = { account_id: string; code: string; points: number; stamps: number; cashback: number; joined_at: string };
+
+const CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const newMemberCode = () => Array.from({ length: 8 }, () => CODE_ALPHABET[randomInt(0, CODE_ALPHABET.length)]).join("");
+
+/** Lo que el cliente ve del club (sin datos internos) */
+function publicClub(c: LoyaltyConfig, business: string) {
+  return {
+    enabled: c.enabled,
+    name: clubName(c, business),
+    kind: c.kind,
+    how: howItWorks(c),
+    welcome: welcomeLabel(c),
+    rewards: c.kind === "puntos" ? c.rewards.map((r) => ({ name: r.name, points: r.points })) : [],
+    stampsGoal: c.stampsGoal,
+    stampReward: c.stampReward,
+    links: Object.fromEntries(Object.entries(c.links).filter(([, l]) => l.on && l.url).map(([k, l]) => [k, l.url])),
+    terms: c.terms,
+  };
+}
 const str = (v: unknown, max = 200) => String(v ?? "").trim().slice(0, max);
 
 export async function POST(request: NextRequest, ctx: { params: Promise<{ accion: string }> }) {
@@ -197,6 +223,77 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ accion
         const { tokenHash } = await sessionAccount(db, request.headers.get("authorization"), shop.businessId);
         await db.from("bpos_customer_sessions").delete().eq("token_hash", tokenHash);
         return NextResponse.json({ ok: true });
+      }
+
+      case "club":
+      case "unirme":
+      case "wallet": {
+        const { data: cfgRow } = await db
+          .from("sync_records")
+          .select("data")
+          .eq("business_id", shop.businessId)
+          .eq("scope", "business")
+          .eq("collection", "bpos_loyalty")
+          .eq("record_id", "__doc__")
+          .maybeSingle();
+        const config = normalizeLoyalty(cfgRow?.data);
+        const business = { name: shop.name, color: shop.color, logo: shop.logo, slug: shop.slug };
+        const club = publicClub(config, shop.name);
+        const auth = request.headers.get("authorization");
+
+        if (accion === "club" && !auth) return NextResponse.json({ business, club, account: null, member: null, movements: [], wallet: walletReady() });
+        const { account } = await sessionAccount(db, auth, shop.businessId);
+        const memberQuery = () => db.from("bpos_loyalty_members").select("account_id, code, points, stamps, cashback, joined_at").eq("account_id", account.id).maybeSingle();
+        let { data: member } = await memberQuery();
+
+        if (accion === "unirme" && !member) {
+          if (!config.enabled) throw new Friendly("Por ahora el club no está activo.");
+          const welcome = config.welcomeAmount;
+          const gift = {
+            points: config.kind === "puntos" ? Math.round(welcome) : 0,
+            stamps: config.kind === "sellos" ? Math.round(welcome) : 0,
+            cashback: config.kind === "cashback" ? Math.round(welcome * 100) / 100 : 0,
+          };
+          for (let i = 0; i < 5 && !member; i += 1) {
+            const { error } = await db.from("bpos_loyalty_members").insert({ account_id: account.id, business_id: shop.businessId, code: newMemberCode(), ...gift });
+            if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
+            ({ data: member } = await memberQuery());
+          }
+          if (!member) throw new Error("No se pudo crear la tarjeta.");
+          if (gift.points || gift.stamps || gift.cashback || config.welcomeText) {
+            await db.from("bpos_loyalty_movements").insert({ business_id: shop.businessId, account_id: account.id, kind: "bienvenida", ...gift, ref: "bienvenida", note: config.welcomeText });
+          }
+        }
+
+        if (accion === "wallet") {
+          if (!member) throw new Friendly("Primero únete al club.");
+          if (!walletReady()) throw new Friendly("Google Wallet estará disponible muy pronto.", 503);
+          const m = member as Member;
+          const url = walletSaveUrl({
+            businessId: shop.businessId,
+            businessName: shop.name,
+            clubName: club.name,
+            color: shop.color,
+            logoUrl: `https://www.bpos.com.mx/m/${shop.slug}/icono?size=192`,
+            accountId: account.id,
+            customerName: account.name,
+            code: m.code,
+            balanceLabel: config.kind === "sellos" ? "Sellos" : config.kind === "cashback" ? "Saldo" : "Puntos",
+            balanceText: balanceLabel(config, m),
+          });
+          await db.from("bpos_loyalty_members").update({ wallet_saved: true }).eq("account_id", account.id);
+          return NextResponse.json({ url });
+        }
+
+        const { data: movements } = member
+          ? await db
+              .from("bpos_loyalty_movements")
+              .select("kind, points, stamps, cashback, amount, note, created_at")
+              .eq("account_id", account.id)
+              .order("created_at", { ascending: false })
+              .limit(20)
+          : { data: [] };
+        return NextResponse.json({ business, club, account: publicAccount(account), member: member || null, movements: movements || [], wallet: walletReady() });
       }
 
       default:

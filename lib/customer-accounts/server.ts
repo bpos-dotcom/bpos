@@ -84,8 +84,14 @@ export async function restaurant(db: SupabaseClient, slug: string) {
     .eq("collection", "bpos_business_settings")
     .eq("record_id", "__doc__")
     .maybeSingle();
-  const s = (settings?.data || {}) as { businessName?: string; brandColor?: string };
-  return { businessId: link.business_id as string, name: s.businessName || "tu restaurante", color: /^#[0-9a-f]{6}$/i.test(s.brandColor || "") ? s.brandColor! : "#f97316" };
+  const s = (settings?.data || {}) as { businessName?: string; brandColor?: string; brandLogo?: string };
+  return {
+    businessId: link.business_id as string,
+    slug: String(slug || "").toLowerCase().trim(),
+    name: s.businessName || "tu restaurante",
+    color: /^#[0-9a-f]{6}$/i.test(s.brandColor || "") ? s.brandColor! : "#f97316",
+    logo: typeof s.brandLogo === "string" && s.brandLogo.startsWith("data:image/") ? s.brandLogo : "",
+  };
 }
 
 export async function findAccount(db: SupabaseClient, businessId: string, phone: string) {

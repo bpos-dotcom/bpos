@@ -150,6 +150,14 @@ export function AccountSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  /** Recién creó su cuenta: se le invita al club del restaurante */
+  const [justJoined, setJustJoined] = useState(false);
+  const [club, setClub] = useState<{ enabled: boolean; name: string; welcome: string } | null>(null);
+  useEffect(() => {
+    callAccount<{ club: { enabled: boolean; name: string; welcome: string } }>("club", slug)
+      .then((r) => setClub(r.club))
+      .catch(() => undefined);
+  }, [slug]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -178,7 +186,11 @@ export function AccountSheet({
       setSentTo(r.email);
       setView("codigo");
     });
-  const verify = () => run(async () => done(await callAccount("verificar", slug, { phone, code })));
+  const verify = () =>
+    run(async () => {
+      done(await callAccount("verificar", slug, { phone, code }));
+      setJustJoined(true);
+    });
   const resend = () =>
     run(async () => {
       await callAccount("reenviar", slug, { phone });
@@ -316,6 +328,25 @@ export function AccountSheet({
             <p className="text-sm text-zinc-500">
               {customer.account.phone} · {customer.account.email}
             </p>
+            {club?.enabled &&
+              (justJoined ? (
+                <div className="mt-4 rounded-2xl border-2 p-4 text-center" style={{ borderColor: color }}>
+                  <p className="text-2xl">⭐</p>
+                  <p className="font-black">¿Quieres unirte al {club.name}?</p>
+                  {club.welcome && <p className="mt-1 text-sm text-zinc-600">🎁 {club.welcome}</p>}
+                  <a href={`/fidelidad/${slug}`} className="mt-3 block rounded-2xl py-3 font-black text-white" style={{ background: color }}>
+                    Unirme
+                  </a>
+                  <button onClick={() => setJustJoined(false)} className="mt-2 text-xs font-bold text-zinc-400 underline">
+                    Ahora no
+                  </button>
+                </div>
+              ) : (
+                <a href={`/fidelidad/${slug}`} className="mt-4 flex items-center justify-between rounded-2xl border border-zinc-200 p-3 font-black">
+                  <span>⭐ Mi tarjeta del {club.name}</span>
+                  <span style={{ color }}>Ver →</span>
+                </a>
+              ))}
             <h3 className="mt-4 font-black">🧾 Mis pedidos</h3>
             <div className="mt-2 space-y-2">
               {customer.orders.map((o) => {
