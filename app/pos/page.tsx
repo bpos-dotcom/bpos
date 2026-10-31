@@ -19,6 +19,7 @@ import { ProductCard } from "@/components/ProductCard";
 import { isOnSale, scheduleLabel } from "@/lib/sale-schedule";
 import { Product } from "@/data/products";
 import { getAdminProducts } from "@/lib/admin";
+import { DIGITAL_MENU_EVENT, getDigitalMenu, sortCategories } from "@/lib/digital-menu";
 import { getCurrentUser, CurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
@@ -140,9 +141,21 @@ function PosScreen() {
   // Lo que no se vende por separado no aparece en el menú (sí sirve dentro de combos)
   const sellable = useMemo(() => products.filter((product) => !product.notSoldAlone), [products]);
 
+  // Orden de categorías que acomodó el negocio (Configuración → Menú digital)
+  const [categoryOrder, setCategoryOrder] = useState<string[]>(() => getDigitalMenu().categoryOrder);
+  useEffect(() => {
+    const sync = () => setCategoryOrder(getDigitalMenu().categoryOrder);
+    window.addEventListener(DIGITAL_MENU_EVENT, sync);
+    window.addEventListener("storage", sync);
+    return () => {
+      window.removeEventListener(DIGITAL_MENU_EVENT, sync);
+      window.removeEventListener("storage", sync);
+    };
+  }, []);
+
   const categories = useMemo(() => {
-    return ["Todos", ...Array.from(new Set(sellable.map((p) => p.category)))];
-  }, [sellable]);
+    return ["Todos", ...sortCategories(Array.from(new Set(sellable.map((p) => p.category))), categoryOrder)];
+  }, [sellable, categoryOrder]);
 
   const filteredProducts = useMemo(() => {
     return sellable.filter((product) => {
