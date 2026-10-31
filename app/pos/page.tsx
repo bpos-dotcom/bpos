@@ -652,11 +652,11 @@ Gracias por pedir en ${businessName} 🚀`;
           </div>
         </header>
 
-        {/* Computadora: tres columnas que caben en la pantalla sin bajar (cada una con su propio scroll).
-            Tableta: productos a la izquierda (con su propio scroll) y datos + pedido a la derecha.
+        {/* Computadora y tableta: dos columnas que caben en la pantalla sin bajar. Izquierda productos (3 por fila,
+            con su propio scroll); derecha el pedido actual, abajo los detalles y al final el Club, con su propio scroll.
             Celular: productos compactos en una caja con scroll y una barra para ir a cobrar. */}
-        <div className="grid grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_minmax(290px,370px)] lg:h-[calc(100dvh-3.5rem)] lg:grid-cols-[minmax(0,1fr)_minmax(270px,320px)_minmax(300px,360px)] lg:gap-3 lg:p-3">
-          <section className="flex flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 md:row-span-2 md:sticky md:top-3 md:max-h-[calc(100dvh-1.5rem)] md:self-start md:overflow-y-auto bpos-scroll lg:static lg:row-span-1 lg:max-h-full lg:min-h-0 lg:overflow-hidden">
+        <div className="grid grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-6 md:h-[calc(100dvh-3.5rem)] md:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] md:gap-3 md:p-3">
+          <section className="flex min-h-0 flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 md:overflow-hidden">
             <h2 className="text-xl font-black">PRODUCTOS</h2>
             <p className="mt-1 hidden text-sm text-zinc-400 sm:block">
               Busca por nombre o filtra por categoría.
@@ -685,7 +685,7 @@ Gracias por pedir en ${businessName} 🚀`;
               ))}
             </div>
 
-            <div className="mt-1 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto bpos-scroll px-1 pt-2 sm:mt-3 sm:gap-3 md:max-h-none md:overflow-visible md:pr-0 lg:min-h-0 lg:flex-1 lg:grid-cols-2 xl:grid-cols-3 lg:content-start lg:overflow-y-auto lg:pr-2">
+            <div className="mt-1 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto bpos-scroll px-1 pt-2 sm:mt-3 sm:gap-3 md:max-h-none md:min-h-0 md:flex-1 md:grid-cols-2 md:content-start md:overflow-y-auto md:pr-2 lg:grid-cols-3">
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}
@@ -698,12 +698,9 @@ Gracias por pedir en ${businessName} 🚀`;
             </div>
           </section>
 
-          <section className="space-y-4 md:order-3 lg:order-none lg:min-h-0 lg:overflow-y-auto bpos-scroll lg:pr-1">
-            <OrderDetailsPanel details={details} onChange={setDetails} />
-            <ClubPanel member={clubMember} onChange={setClubMember} />
-          </section>
-
-          <section id="pedido-actual" className="scroll-mt-3 space-y-4 md:order-2 lg:order-none lg:min-h-0 lg:overflow-y-auto bpos-scroll lg:pr-1">
+          <section className="flex min-h-0 flex-col gap-3 md:overflow-y-auto bpos-scroll md:pr-1 sm:gap-4 md:gap-3">
+            {/* En celular los detalles van antes del pedido (se llena y luego se cobra abajo) */}
+            <div id="pedido-actual" className="order-2 scroll-mt-3 md:order-1">
             <CartPanel
               items={cart}
               discount={details.discount}
@@ -715,6 +712,13 @@ Gracias por pedir en ${businessName} 🚀`;
               onClear={clearCart}
               onCheckout={openCheckout}
             />
+            </div>
+            <div className="order-1 md:order-2">
+              <OrderDetailsPanel details={details} onChange={setDetails} />
+            </div>
+            <div className="order-3">
+              <ClubPanel member={clubMember} onChange={setClubMember} />
+            </div>
           </section>
         </div>
 
