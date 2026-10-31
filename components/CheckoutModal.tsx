@@ -9,6 +9,8 @@ export type PaymentMethod = string;
 
 type CheckoutModalProps = {
   total: number;
+  /** Saldo de cashback del socio del club (0 = no hay) */
+  clubCashback?: number;
   isOpen: boolean;
   onClose: () => void;
   onConfirm: (data: {
@@ -18,11 +20,13 @@ type CheckoutModalProps = {
     transferAmount: number;
     discount: number;
     couponCode?: string;
+    clubCashback?: number;
   }) => void;
 };
 
 export function CheckoutModal({
   total,
+  clubCashback = 0,
   isOpen,
   onClose,
   onConfirm,
@@ -36,6 +40,7 @@ export function CheckoutModal({
   const [coupon, setCoupon] = useState<{ code: string; discount: number } | null>(null);
   const [couponInput, setCouponInput] = useState("");
   const [couponError, setCouponError] = useState("");
+  const [useClub, setUseClub] = useState(false);
   const [availableMethods, setAvailableMethods] = useState<string[]>(["Efectivo","Tarjeta","Transferencia","Mixto"]);
 
   useEffect(() => {
@@ -47,7 +52,10 @@ export function CheckoutModal({
 
   if (!isOpen) return null;
 
-  const discountNumber = coupon ? coupon.discount : Number(discount) || 0;
+  const baseDiscount = coupon ? coupon.discount : Number(discount) || 0;
+  /** Saldo del club que se usa (lo que alcance a cubrir) */
+  const clubUsed = useClub && clubCashback > 0 ? Math.round(Math.min(clubCashback, Math.max(0, total - baseDiscount)) * 100) / 100 : 0;
+  const discountNumber = baseDiscount + clubUsed;
 
   function applyCoupon() {
     const check = checkCoupon(couponInput, total, "pos");
@@ -63,6 +71,7 @@ export function CheckoutModal({
     setCoupon(null);
     setCouponInput("");
     setCouponError("");
+    setUseClub(false);
     onClose();
   }
   const finalTotal = Math.max(total - discountNumber, 0);
@@ -99,9 +108,11 @@ export function CheckoutModal({
       transferAmount: transferNumber,
       discount: discountNumber,
       ...(coupon ? { couponCode: coupon.code } : {}),
+      ...(clubUsed > 0 ? { clubCashback: clubUsed } : {}),
     });
     setCoupon(null);
     setCouponInput("");
+    setUseClub(false);
   }
 
   return (
@@ -156,6 +167,14 @@ export function CheckoutModal({
             )}
             {couponError && <p className="mt-1 text-xs font-bold text-red-400">{couponError}</p>}
           </div>
+
+          {clubCashback > 0 && (
+            <label className="mt-3 flex cursor-pointer items-center justify-between gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-3">
+              <span className="font-black text-emerald-300">⭐ Usar saldo del club (${clubCashback.toFixed(2)})</span>
+              <input type="checkbox" checked={useClub} onChange={(e) => setUseClub(e.target.checked)} className="h-5 w-5 accent-emerald-500" />
+            </label>
+          )}
+          {clubUsed > 0 && <p className="mt-1 text-xs text-emerald-400">Se usan ${clubUsed.toFixed(2)} de su saldo.</p>}
 
           {!coupon && (
             <div className="mt-3">

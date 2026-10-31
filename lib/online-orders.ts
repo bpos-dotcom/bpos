@@ -12,6 +12,7 @@ import { buildSelection, extrasPrice, lineIdFor } from "@/lib/compound";
 import { getDigitalMenu, isAvailableOnline, mapsLink, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
+import { earnLoyalty } from "@/lib/loyalty-pos";
 import { getBusinessSettings } from "@/lib/business-settings";
 import type { DispatchInfo } from "@/lib/drivers";
 import { discountInventoryByOrder } from "@/lib/inventory";
@@ -30,6 +31,8 @@ export type OnlineOrder = {
   folio: string;
   /** Llave de la liga del cliente para ver su pedido */
   token: string;
+  /** Cuenta del cliente (si pidió con su cuenta): suma al club */
+  account_id?: string | null;
   status: OnlineOrderStatus;
   data: OnlineOrderData;
   sale_order_id: number | null;
@@ -48,7 +51,7 @@ export async function listOnlineOrders(): Promise<OnlineOrder[]> {
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
   const { data, error } = await getSupabase()
     .from("bpos_online_orders")
-    .select("id, folio, token, status, data, sale_order_id, eta_minutes, reason, created_at, updated_at")
+    .select("id, folio, token, account_id, status, data, sale_order_id, eta_minutes, reason, created_at, updated_at")
     .eq("branch_id", branchId)
     .or(`created_at.gte.${since},status.in.(nuevo,aceptando)`)
     .order("created_at", { ascending: false })
@@ -179,6 +182,8 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
     localStorage.setItem(ORDERS_KEY, JSON.stringify([...orders, sale]));
     window.dispatchEvent(new Event("bpos:orders-updated"));
     if (coupon) countCouponUse(coupon.code);
+    // Club: si pidió con su cuenta y es socio, se le suma (una sola vez por pedido)
+    if (order.account_id) void earnLoyalty(order.account_id, total, `online:${order.id}`, userName);
     discountInventoryByOrder(sale.id, cart);
     notifyKdsUpdated(sale.id);
     await setStatus(order.id, { status: "aceptado", sale_order_id: sale.id, eta_minutes: etaMinutes });

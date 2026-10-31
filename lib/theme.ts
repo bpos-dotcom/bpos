@@ -17,8 +17,8 @@ export function getTheme(): Theme {
   }
 }
 
-/** El menú digital (/m/...) es de los clientes: tiene sus propios colores y no usa el tema de B-POS */
-const isPublicMenu = () => /^/m//.test(window.location.pathname);
+/** El menú digital (/m/...) y el club (/fidelidad/...) son de los clientes: tienen sus propios colores y no usan el tema de B-POS */
+const isPublicMenu = () => window.location.pathname.startsWith("/m/") || window.location.pathname.startsWith("/fidelidad/");
 
 export function applyTheme(theme: Theme) {
   document.documentElement.classList.toggle("theme-light", theme === "light" && !isPublicMenu());
@@ -33,4 +33,4 @@ export function setTheme(theme: Theme) {
 }
 
 /** Se pone en <head> para que la página no parpadee en oscuro antes de cargar. */
-export const THEME_BOOT_SCRIPT = `try{if(localStorage.getItem("${THEME_KEY}")==="light"&&!/^\/m\//.test(location.pathname))document.documentElement.classList.add("theme-light")}catch(e){}`;
+export const THEME_BOOT_SCRIPT = `try{if(localStorage.getItem("${THEME_KEY}")==="light"&&location.pathname.indexOf("/m/")!==0&&location.pathname.indexOf("/fidelidad/")!==0)document.documentElement.classList.add("theme-light")}catch(e){}`;

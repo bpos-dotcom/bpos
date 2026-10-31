@@ -24,6 +24,9 @@ import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
+import { ClubPanel } from "@/components/club/ClubPanel";
+import { getLoyalty } from "@/lib/loyalty";
+import { earnLoyalty, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCorner } from "@/components/layout/TopCorner";
 import RequirePermission from "@/components/auth/RequirePermission";
@@ -82,6 +85,8 @@ function PosScreen() {
   const terminal = useTerminalCharge();
   // Pedido a domicilio cobrado: elegir repartidor
   const [dispatch, setDispatch] = useState<{ info: DispatchInfo; saleId: number } | null>(null);
+  /** Socio del club elegido para esta venta */
+  const [clubMember, setClubMember] = useState<ClubMember | null>(null);
 
   const [details, setDetails] = useState<OrderDetails>({
     orderType: "Mostrador",
@@ -292,6 +297,7 @@ function PosScreen() {
     transferAmount: number;
     discount: number;
     couponCode?: string;
+    clubCashback?: number;
   }) {
     // El descuento de un cupón vigente no pide autorización (se revisa otra vez aquí)
     const coupon = data.couponCode ? checkCoupon(data.couponCode, subtotal, "pos") : null;
@@ -299,8 +305,11 @@ function PosScreen() {
       alert(coupon.error);
       return;
     }
-    const byCoupon = Boolean(coupon?.ok && Math.abs(coupon.discount - data.discount) < 0.01);
-    if (data.discount > 0 && !byCoupon && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
+    // El saldo del club que usa el socio tampoco pide autorización
+    const clubCash = clubMember?.member ? Math.min(Math.max(0, data.clubCashback || 0), clubMember.cashback) : 0;
+    const otherDiscount = Math.max(0, data.discount - clubCash);
+    const byCoupon = Boolean(coupon?.ok && Math.abs(coupon.discount - otherDiscount) < 0.01);
+    if (otherDiscount > 0 && !byCoupon && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
 
     const total = Math.max(subtotal - data.discount, 0);
 
@@ -316,6 +325,9 @@ function PosScreen() {
       paymentMethod: data.paymentMethod,
       discount: data.discount,
       ...(byCoupon && data.couponCode ? { couponCode: data.couponCode } : {}),
+      // Con socio del club: sus datos quedan en la venta (Clientes)
+      ...(clubMember && !details.customerName ? { customerName: clubMember.name } : {}),
+      ...(clubMember && !details.customerPhone ? { customerPhone: clubMember.phone } : {}),
     };
 
     let sequence;
@@ -339,6 +351,19 @@ function PosScreen() {
 
     saveOrders([...orders, newOrder]);
     if (nextDetails.couponCode) countCouponUse(nextDetails.couponCode);
+    // Club: primero el saldo que usó, luego lo que gana por esta venta
+    if (clubMember?.member) {
+      const ref = `pos:${sequence.shiftSessionId}:${newOrder.id}`;
+      const member = clubMember;
+      void (async () => {
+        try {
+          if (clubCash > 0) await redeemLoyalty(member.account_id, { cashback: clubCash }, `Saldo usado en Pedido #${formatOrderNumber(newOrder)}`, ref, currentUser?.name || "");
+          await earnLoyalty(member.account_id, total, ref, currentUser?.name || "");
+        } catch (e) {
+          alert(`Venta cobrada, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`);
+        }
+      })();
+    }
     discountInventoryByOrder(newOrder.id, cart);
     // Comandas por estación y ticket del cliente en Caja, directo a las térmicas
     void printSale(newOrder, { stations: saleStations(newOrder), customer: true }, false)
@@ -368,6 +393,7 @@ function PosScreen() {
 
     setCheckoutOpen(false);
     setCart([]);
+    setClubMember(null);
     setDetails({
       orderType: "Mostrador",
       customerName: "",
@@ -580,6 +606,7 @@ Gracias por pedir en ${businessName} 🚀`;
       <CheckoutModal
         isOpen={checkoutOpen}
         total={subtotal}
+        clubCashback={clubMember?.member && getLoyalty().kind === "cashback" ? clubMember.cashback : 0}
         onClose={() => setCheckoutOpen(false)}
         onConfirm={confirmCheckout}
       />
@@ -687,6 +714,7 @@ Gracias por pedir en ${businessName} 🚀`;
 
           <section className="space-y-4 md:order-3 xl:order-none xl:sticky xl:top-28 xl:self-start">
             <OrderDetailsPanel details={details} onChange={setDetails} />
+            <ClubPanel member={clubMember} onChange={setClubMember} />
           </section>
 
           <section id="pedido-actual" className="scroll-mt-3 space-y-4 md:order-2 xl:order-none xl:sticky xl:top-28 xl:self-start">

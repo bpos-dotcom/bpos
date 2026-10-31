@@ -35,6 +35,12 @@ const adminModules = [
     description: "Tu menú en internet y pedidos sin comisión: liga, QR de mesas, horario, agotados y ocultos.",
   },
   {
+    title: "Club de clientes",
+    href: "/configuracion/club",
+    icon: "⭐",
+    description: "Fidelidad: puntos, sellos o cashback, regalo de bienvenida, comunidad y redes, y el QR para tu restaurante.",
+  },
+  {
     title: "Notificaciones",
     href: "/configuracion/notificaciones",
     icon: "🔔",

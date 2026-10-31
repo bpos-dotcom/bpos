@@ -55,6 +55,7 @@ const BUSINESS_KEYS = new Set([
   "bpos_drivers",
   "bpos_coupons",
   "bpos_customers",
+  "bpos_loyalty",
 ]);
 
 /** Eventos que ya escuchan las pantallas de B-POS */
