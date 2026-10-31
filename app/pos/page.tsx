@@ -1,7 +1,7 @@
 "use client";
 
 import { addAuditEvent } from "@/lib/audit";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
 import { buildSelection, extrasPrice, lineIdFor, needsChoices } from "@/lib/compound";
@@ -26,7 +26,7 @@ import { discountInventoryByOrder } from "@/lib/inventory";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { ClubPanel } from "@/components/club/ClubPanel";
 import { getLoyalty } from "@/lib/loyalty";
-import { earnLoyalty, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
+import { earnLoyalty, findMembers, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCorner } from "@/components/layout/TopCorner";
 import RequirePermission from "@/components/auth/RequirePermission";
@@ -87,6 +87,8 @@ function PosScreen() {
   const [dispatch, setDispatch] = useState<{ info: DispatchInfo; saleId: number } | null>(null);
   /** Socio del club elegido para esta venta */
   const [clubMember, setClubMember] = useState<ClubMember | null>(null);
+  /** Último WhatsApp con el que se buscó socio (para no repetir) */
+  const lookedUpPhone = useRef("");
 
   const [details, setDetails] = useState<OrderDetails>({
     orderType: "Mostrador",
@@ -159,6 +161,27 @@ function PosScreen() {
     (total, item) => total + item.price * item.quantity,
     0
   );
+
+  // Al escribir un WhatsApp de 10 dígitos en Detalles, se busca al socio del club y se enrola solo
+  const phoneDigits = details.customerPhone.replace(/D/g, "");
+  useEffect(() => {
+    if (clubMember || phoneDigits.length !== 10 || lookedUpPhone.current === phoneDigits) return;
+    lookedUpPhone.current = phoneDigits;
+    let alive = true;
+    const t = window.setTimeout(async () => {
+      try {
+        const found = await findMembers(phoneDigits);
+        const m = found.find((x) => x.member && x.phone.replace(/D/g, "").endsWith(phoneDigits));
+        if (alive && m) setClubMember(m);
+      } catch {
+        // sin internet: se puede buscar a mano en el Club
+      }
+    }, 600);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [phoneDigits, clubMember]);
 
   const requiresDeliveryData =
     details.orderType === "Domicilio" || details.orderType === "WhatsApp";
@@ -300,6 +323,9 @@ function PosScreen() {
     /** A domicilio: dirección y repartidor elegidos al cobrar */
     address?: string;
     driver?: Driver;
+    deliveryFee?: number;
+    /** En espera: se prepara ya y se cobra cuando regrese el repartidor */
+    pending?: boolean;
   }) {
     // El descuento de un cupón vigente no pide autorización (se revisa otra vez aquí)
     const coupon = data.couponCode ? checkCoupon(data.couponCode, subtotal, "pos") : null;
@@ -313,11 +339,12 @@ function PosScreen() {
     const byCoupon = Boolean(coupon?.ok && Math.abs(coupon.discount - otherDiscount) < 0.01);
     if (otherDiscount > 0 && !byCoupon && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
 
-    const total = Math.max(subtotal - data.discount, 0);
+    const deliveryFee = Math.max(0, data.deliveryFee || 0);
+    const total = Math.max(subtotal - data.discount, 0) + deliveryFee;
 
     // Con terminal vinculada, la parte con tarjeta se cobra primero en la terminal
     const cardPart = data.paymentMethod === "Tarjeta" ? total : data.paymentMethod === "Mixto" ? Math.min(total, data.cardAmount || 0) : 0;
-    if (cardPart > 0 && (await branchUsesTerminal())) {
+    if (!data.pending && cardPart > 0 && (await branchUsesTerminal())) {
       const result = await terminal.charge(cardPart, `Pedido ${getNextShiftOrderNumberPreview()}`);
       if (result === "cancelled") return;
     }
@@ -327,6 +354,7 @@ function PosScreen() {
       paymentMethod: data.paymentMethod,
       discount: data.discount,
       ...(data.address !== undefined ? { customerAddress: data.address } : {}),
+      ...(deliveryFee > 0 ? { deliveryFee } : {}),
       ...(byCoupon && data.couponCode ? { couponCode: data.couponCode } : {}),
       // Con socio del club: sus datos quedan en la venta (Clientes)
       ...(clubMember && !details.customerName ? { customerName: clubMember.name } : {}),
@@ -350,6 +378,8 @@ function PosScreen() {
       details: nextDetails,
       subtotal,
       total,
+      // En espera: queda "por cobrar"; el club se le suma cuando pague
+      ...(data.pending ? { pendingPayment: true, ...(clubMember?.member ? { clubAccountId: clubMember.account_id } : {}) } : {}),
     } as SavedOrder & { localOrderNumber: number; shiftSessionId: string };
 
     saveOrders([...orders, newOrder]);
@@ -361,7 +391,7 @@ function PosScreen() {
       void (async () => {
         try {
           if (clubCash > 0) await redeemLoyalty(member.account_id, { cashback: clubCash }, `Saldo usado en Pedido #${formatOrderNumber(newOrder)}`, ref, currentUser?.name || "");
-          await earnLoyalty(member.account_id, total, ref, currentUser?.name || "");
+          if (!data.pending) await earnLoyalty(member.account_id, total, ref, currentUser?.name || "");
         } catch (e) {
           alert(`Venta cobrada, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`);
         }
@@ -376,7 +406,7 @@ function PosScreen() {
       .catch(() => alert("Pedido cobrado, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Impresiones."));
     addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por $${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
 
-    alert(`Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);
+    alert(data.pending ? `Pedido #${formatOrderNumber(newOrder)} mandado a preparar. Se cobra cuando regrese el repartidor (Historial → "Ya pagó").` : `Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);
 
     if (nextDetails.orderType === "Domicilio") {
       const info: DispatchInfo = {
@@ -385,7 +415,7 @@ function PosScreen() {
           customer: { name: nextDetails.customerName, phone: nextDetails.customerPhone, address: nextDetails.customerAddress },
           lines: cart.map((i) => ({ quantity: i.quantity, name: i.name, detail: [...(i.parts || []).map((p) => p.name), ...(i.modifiers || []).filter((m) => !m.extra).map((m) => m.name), i.comment].filter(Boolean).join(" · ") || undefined })),
           total,
-          payment: { paid: true, method: data.paymentMethod },
+          payment: data.pending ? { paid: false, method: data.paymentMethod, amount: total } : { paid: true, method: data.paymentMethod },
       };
       if (data.driver) {
         // Repartidor elegido al cobrar: se le manda el pedido por WhatsApp de una vez
@@ -441,6 +471,19 @@ function PosScreen() {
   function logout() {
     localStorage.removeItem("bpos_current_user");
     window.location.href = "/login";
+  }
+
+  /** Pedido en espera: el repartidor ya trajo el dinero */
+  function markPaid(order: SavedOrder, method: string) {
+    if (!confirm(`¿Pedido #${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })} pagado con ${method.toLowerCase()} por ${order.total.toFixed(2)}?`)) return;
+    const paid: SavedOrder = { ...order, pendingPayment: false, paidAt: new Date().toISOString(), details: { ...order.details, paymentMethod: method } };
+    saveOrders(orders.map((o) => (o.id === order.id ? paid : o)));
+    if (order.clubAccountId) {
+      void earnLoyalty(order.clubAccountId, order.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, currentUser?.name || "").catch((e) =>
+        alert(`Cobrado, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`)
+      );
+    }
+    addAuditEvent({ category: "Venta", action: "sale.paid", description: `${currentUser?.name || "Usuario"} cobró Pedido #${formatOrderNumber(paid as SavedOrder & { localOrderNumber?: number })} en espera (${order.total.toFixed(2)}, ${method})`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { total: order.total, paymentMethod: method } });
   }
 
   function printTicket(order: SavedOrder) {
@@ -537,8 +580,10 @@ function PosScreen() {
 
           <div class="line">
             <span>Descuento</span>
-            <strong>-$${order.details.discount.toFixed(2)}</strong>
+            <strong>-${order.details.discount.toFixed(2)}</strong>
           </div>
+          ${order.details.deliveryFee ? `<div class="line"><span>Envío</span><strong>${order.details.deliveryFee.toFixed(2)}</strong></div>` : ""}
+          ${order.pendingPayment ? `<div class="line"><strong>POR COBRAR AL ENTREGAR</strong></div>` : ""}
 
           <div class="line total">
             <span>TOTAL</span>
@@ -797,6 +842,7 @@ Gracias por pedir en ${businessName} 🚀`;
             onDelete={deleteOrder}
             onPrint={printTicket}
             onWhatsapp={sendWhatsapp}
+            onMarkPaid={markPaid}
           />
         </div>
       </section>
