@@ -655,7 +655,7 @@ Gracias por pedir en ${businessName} 🚀`;
         {/* Tableta: productos a la izquierda (con su propio scroll) y datos + pedido a la derecha.
             Celular: productos compactos en una caja con scroll y una barra para ir a cobrar. */}
         <div className="grid grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_minmax(290px,370px)] xl:grid-cols-[1fr_330px_390px]">
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 md:row-span-2 md:sticky md:top-3 md:max-h-[calc(100dvh-1.5rem)] md:self-start md:overflow-y-auto xl:static xl:row-span-1 xl:max-h-none xl:overflow-visible">
+          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 md:row-span-2 md:sticky md:top-3 md:max-h-[calc(100dvh-1.5rem)] md:self-start md:overflow-y-auto bpos-scroll xl:static xl:row-span-1 xl:max-h-none xl:overflow-visible">
             <h2 className="text-xl font-black">PRODUCTOS</h2>
             <p className="mt-1 hidden text-sm text-zinc-400 sm:block">
               Busca por nombre o filtra por categoría.
@@ -684,7 +684,7 @@ Gracias por pedir en ${businessName} 🚀`;
               ))}
             </div>
 
-            <div className="mt-1 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto px-1 pt-2 sm:mt-3 sm:gap-3 md:max-h-none md:overflow-visible md:pr-0 lg:grid-cols-3 2xl:grid-cols-4">
+            <div className="mt-1 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto bpos-scroll px-1 pt-2 sm:mt-3 sm:gap-3 md:max-h-none md:overflow-visible md:pr-0 lg:grid-cols-3 2xl:grid-cols-4">
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}
