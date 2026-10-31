@@ -652,10 +652,11 @@ Gracias por pedir en ${businessName} 🚀`;
           </div>
         </header>
 
-        {/* Tableta: productos a la izquierda (con su propio scroll) y datos + pedido a la derecha.
+        {/* Computadora: tres columnas que caben en la pantalla sin bajar (cada una con su propio scroll).
+            Tableta: productos a la izquierda (con su propio scroll) y datos + pedido a la derecha.
             Celular: productos compactos en una caja con scroll y una barra para ir a cobrar. */}
-        <div className="grid grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_minmax(290px,370px)] xl:grid-cols-[1fr_330px_390px]">
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 md:row-span-2 md:sticky md:top-3 md:max-h-[calc(100dvh-1.5rem)] md:self-start md:overflow-y-auto bpos-scroll xl:static xl:row-span-1 xl:max-h-none xl:overflow-visible">
+        <div className="grid grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-6 md:grid-cols-[minmax(0,1fr)_minmax(290px,370px)] lg:h-[calc(100dvh-3.5rem)] lg:grid-cols-[minmax(0,1fr)_minmax(270px,320px)_minmax(300px,360px)] lg:gap-3 lg:p-3">
+          <section className="flex flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 md:row-span-2 md:sticky md:top-3 md:max-h-[calc(100dvh-1.5rem)] md:self-start md:overflow-y-auto bpos-scroll lg:static lg:row-span-1 lg:max-h-full lg:min-h-0 lg:overflow-hidden">
             <h2 className="text-xl font-black">PRODUCTOS</h2>
             <p className="mt-1 hidden text-sm text-zinc-400 sm:block">
               Busca por nombre o filtra por categoría.
@@ -684,7 +685,7 @@ Gracias por pedir en ${businessName} 🚀`;
               ))}
             </div>
 
-            <div className="mt-1 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto bpos-scroll px-1 pt-2 sm:mt-3 sm:gap-3 md:max-h-none md:overflow-visible md:pr-0 lg:grid-cols-3 2xl:grid-cols-4">
+            <div className="mt-1 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto bpos-scroll px-1 pt-2 sm:mt-3 sm:gap-3 md:max-h-none md:overflow-visible md:pr-0 lg:min-h-0 lg:flex-1 lg:grid-cols-2 xl:grid-cols-3 lg:content-start lg:overflow-y-auto lg:pr-2">
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}
@@ -697,12 +698,12 @@ Gracias por pedir en ${businessName} 🚀`;
             </div>
           </section>
 
-          <section className="space-y-4 md:order-3 xl:order-none xl:sticky xl:top-28 xl:self-start">
+          <section className="space-y-4 md:order-3 lg:order-none lg:min-h-0 lg:overflow-y-auto bpos-scroll lg:pr-1">
             <OrderDetailsPanel details={details} onChange={setDetails} />
             <ClubPanel member={clubMember} onChange={setClubMember} />
           </section>
 
-          <section id="pedido-actual" className="scroll-mt-3 space-y-4 md:order-2 xl:order-none xl:sticky xl:top-28 xl:self-start">
+          <section id="pedido-actual" className="scroll-mt-3 space-y-4 md:order-2 lg:order-none lg:min-h-0 lg:overflow-y-auto bpos-scroll lg:pr-1">
             <CartPanel
               items={cart}
               discount={details.discount}
