@@ -23,6 +23,7 @@ import {
   orderWhatsappText,
   paidOnline,
   scheduledLabel,
+  sortCategories,
   whatsappNumber,
   type Align,
   type DigitalMenuSettings,
@@ -220,7 +221,7 @@ function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: st
     [data.products, menu, now]
   );
   const byId = useMemo(() => new Map(visible.map((p) => [Number(p.id), p])), [visible]);
-  const categories = useMemo(() => Array.from(new Set(visible.map((p) => p.category || "Otros"))), [visible]);
+  const categories = useMemo(() => sortCategories(Array.from(new Set(visible.map((p) => p.category || "Otros"))), menu.categoryOrder), [visible, menu.categoryOrder]);
   const shown = visible.filter(
     (p) => (category === "Todos" || (p.category || "Otros") === category) && p.name.toLowerCase().includes(search.trim().toLowerCase())
   );

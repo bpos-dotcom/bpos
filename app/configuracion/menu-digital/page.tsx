@@ -21,6 +21,7 @@ import {
   getDigitalMenu,
   isSoldOut,
   saveDigitalMenu,
+  sortCategories,
   suggestSlug,
   ONLINE_PAYMENTS,
   type DigitalMenuSettings,
@@ -125,14 +126,29 @@ export default function MenuDigitalPage() {
     update({ hidden: menu.hidden.includes(id) ? menu.hidden.filter((h) => h !== id) : [...menu.hidden, id] });
   }
 
+  /** Categorías del catálogo en el orden del negocio (las nuevas, al final) */
+  const orderedCategories = useMemo(
+    () => sortCategories(Array.from(new Set(products.filter((p) => !p.notSoldAlone).map((p) => p.category || "Sin categoría"))), menu.categoryOrder),
+    [products, menu.categoryOrder]
+  );
+
+  function moveCategory(index: number, delta: number) {
+    const next = [...orderedCategories];
+    const target = index + delta;
+    if (target < 0 || target >= next.length) return;
+    [next[index], next[target]] = [next[target], next[index]];
+    update({ categoryOrder: next });
+  }
+
   const byCategory = useMemo(() => {
     const q = search.trim().toLowerCase();
     const map = new Map<string, Product[]>();
     products
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q))
       .forEach((p) => map.set(p.category || "Sin categoría", [...(map.get(p.category || "Sin categoría") || []), p]));
-    return [...map.entries()];
-  }, [products, search]);
+    const rank = new Map(orderedCategories.map((c, i) => [c, i]));
+    return [...map.entries()].sort((a, b) => (rank.get(a[0]) ?? 999) - (rank.get(b[0]) ?? 999));
+  }, [products, search, orderedCategories]);
 
   const soldOutCount = products.filter((p) => isSoldOut(menu, p.id, now)).length;
   const hours = menu.hours || { days: [], from: "", to: "" };
@@ -401,6 +417,44 @@ export default function MenuDigitalPage() {
             <div className="mt-4">
               <MenuDesignEditor design={menu.design} products={products} onChange={(design) => update({ design })} />
             </div>
+          </section>
+
+          {/* Orden de categorías */}
+          <section className={card}>
+            <h2 className="text-lg font-black">🔀 Orden de las categorías</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Así aparecen en tu menú digital y en el punto de venta. Sube o baja cada una con las flechas. Las categorías nuevas se van al final.
+            </p>
+            {orderedCategories.length === 0 ? (
+              <p className="mt-3 text-sm text-zinc-500">No hay categorías todavía.</p>
+            ) : (
+              <ol className="mt-4 grid gap-2 md:grid-cols-2">
+                {orderedCategories.map((c, i) => (
+                  <li key={c} className="flex items-center gap-2 rounded-2xl border border-zinc-800 bg-black px-3 py-2">
+                    <span className="w-6 text-center text-xs font-black text-zinc-500">{i + 1}</span>
+                    <span className="min-w-0 flex-1 truncate font-black">{c}</span>
+                    <button
+                      type="button"
+                      onClick={() => moveCategory(i, -1)}
+                      disabled={i === 0}
+                      aria-label={`Subir ${c}`}
+                      className="rounded-xl border border-zinc-700 px-3 py-1 font-black hover:border-orange-500 disabled:opacity-30"
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => moveCategory(i, 1)}
+                      disabled={i === orderedCategories.length - 1}
+                      aria-label={`Bajar ${c}`}
+                      className="rounded-xl border border-zinc-700 px-3 py-1 font-black hover:border-orange-500 disabled:opacity-30"
+                    >
+                      ↓
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            )}
           </section>
 
           {/* Productos */}

@@ -103,6 +103,11 @@ export type DigitalMenuSettings = {
   scheduling: { enabled: boolean; minMinutes: number; maxDays: number; leadMinutes: number };
   /** Liga para dejar reseña en Google (se ofrece a quien califica con 4 o 5 estrellas) */
   googleReviewUrl: string;
+  /**
+   * Orden de las categorías en el menú digital y en el POS, como lo acomoda
+   * el negocio. Las que no estén aquí van después, en el orden del catálogo.
+   */
+  categoryOrder: string[];
   /** Productos que no se muestran en el menú digital (ids) */
   hidden: number[];
   /** Productos agotados (también se ocultan) */
@@ -130,6 +135,7 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   whatsappNotify: true,
   scheduling: { enabled: true, minMinutes: 60, maxDays: 3, leadMinutes: 30 },
   googleReviewUrl: "",
+  categoryOrder: [],
   hidden: [],
   soldOut: {},
   whatsapp: "",
@@ -267,6 +273,9 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
       leadMinutes: Math.round(num(r.scheduling?.leadMinutes, 30, 5, 180)),
     },
     googleReviewUrl: /^https:\/\/\S+$/i.test(String(r.googleReviewUrl || "").trim()) ? String(r.googleReviewUrl).trim().slice(0, 300) : "",
+    categoryOrder: Array.isArray(r.categoryOrder)
+      ? Array.from(new Set(r.categoryOrder.filter((c): c is string => typeof c === "string").map((c) => c.trim().slice(0, 60)).filter(Boolean))).slice(0, 100)
+      : [],
     hidden: Array.isArray(r.hidden) ? r.hidden.map(Number).filter(Number.isFinite) : [],
     soldOut,
     whatsapp: String(r.whatsapp || "").replace(/\D/g, "").slice(0, 13),
@@ -277,6 +286,22 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
     },
     design: normalizeDesign(r.design),
   };
+}
+
+/**
+ * Acomoda las categorías según el orden del negocio: primero las del orden
+ * guardado (en ese orden), después las demás como vienen del catálogo.
+ */
+export function sortCategories(categories: string[], order: string[]): string[] {
+  const rank = new Map(order.map((c, i) => [c, i]));
+  return [...categories].sort((a, b) => {
+    const ra = rank.get(a);
+    const rb = rank.get(b);
+    if (ra !== undefined && rb !== undefined) return ra - rb;
+    if (ra !== undefined) return -1;
+    if (rb !== undefined) return 1;
+    return 0; // sort es estable: conservan el orden del catálogo
+  });
 }
 
 export function getDigitalMenu(): DigitalMenuSettings {
