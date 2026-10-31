@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { DispatchModal } from "@/components/delivery/DispatchModal";
 import { getCurrentUser } from "@/lib/auth";
-import { DIGITAL_MENU_EVENT, getDigitalMenu, mapsLink } from "@/lib/digital-menu";
+import { DIGITAL_MENU_EVENT, getDigitalMenu, mapsLink, scheduledLabel, scheduledLater, whatsappNumber } from "@/lib/digital-menu";
 import {
   ONLINE_ORDERS_EVENT,
   acceptOnlineOrder,
@@ -69,15 +69,17 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   }
 
   async function accept() {
+    // Programado: el tiempo estimado es lo que falta para su hora
+    const etaUse = d.scheduledFor ? Math.max(5, Math.round((Date.parse(d.scheduledFor) - Date.now()) / 60000)) : eta;
     await step(
       "aceptado",
       async () => {
-        const result = await acceptOnlineOrder(order, eta, getCurrentUser()?.name);
+        const result = await acceptOnlineOrder(order, etaUse, getCurrentUser()?.name);
         if (result.printFailed.length) setMessage(`Aceptado. No se imprimió en: ${result.printFailed.join(", ")}. Reimprime desde Impresiones.`);
         // A domicilio: de una vez elegir quién lo lleva
         if (order.data.type === "Domicilio") setDispatching(true);
       },
-      { eta }
+      { eta: etaUse }
     );
   }
 
@@ -92,6 +94,12 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   const resend = notice ? customerWhatsappLink(order, notice) : "";
 
   const isNew = order.status === "nuevo" || order.status === "aceptando";
+  const later = isNew && scheduledLater(d, menu.scheduling.leadMinutes);
+  const phone = whatsappNumber(d.customer.phone);
+  const confirmLink =
+    later && phone
+      ? `https://wa.me/${phone}?text=${encodeURIComponent(`¡Hola ${d.customer.name.split(" ")[0]}! Recibimos tu pedido programado ${order.folio} para ${scheduledLabel(d.scheduledFor!)}. ¡Te esperamos! 🧡`)}`
+      : "";
   return (
     <div className={`rounded-3xl border p-5 ${isNew ? "border-emerald-400 bg-emerald-500/5" : "border-zinc-800 bg-zinc-950"}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -105,6 +113,13 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         <p className="text-2xl font-black text-orange-400">{money(d.total)}</p>
       </div>
 
+      {d.scheduledFor && (
+        <p className="mt-3 rounded-2xl border border-sky-500/50 bg-sky-500/10 px-3 py-2 text-sm font-black text-sky-300">
+          📅 Programado para {scheduledLabel(d.scheduledFor)}
+          {later && <span className="block text-xs font-bold text-sky-200/80">Se manda solo a cocina {menu.scheduling.leadMinutes} min antes (con caja abierta).</span>}
+          {!order.account_id && <span className="block text-xs font-bold text-yellow-300">⚠️ Sin cuenta del cliente</span>}
+        </p>
+      )}
       <div className="mt-3 rounded-2xl bg-black p-3 text-sm">
         <p className="font-black">{d.customer.name}</p>
         {d.customer.phone && (
@@ -143,16 +158,23 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         </ul>
       )}
 
+      {confirmLink && (
+        <a href={confirmLink} target="_blank" rel="noreferrer" className="mt-3 inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300">
+          📲 Confirmar al cliente por WhatsApp
+        </a>
+      )}
       {isNew && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
+          {!d.scheduledFor && (
           <label className="flex items-center gap-2 text-sm font-bold text-zinc-300">
             Listo en
             <select value={eta} onChange={(e) => setEta(Number(e.target.value))} className="rounded-xl border border-zinc-700 bg-black px-2 py-2">
               {[10, 15, 20, 25, 30, 40, 50, 60, 90].map((m) => <option key={m} value={m}>{m} min</option>)}
             </select>
           </label>
+          )}
           <button disabled={busy} onClick={() => void accept()} className="flex-1 rounded-2xl bg-emerald-500 px-5 py-3 font-black text-black disabled:opacity-50">
-            {busy ? "..." : "✅ Aceptar y mandar a cocina"}
+            {busy ? "..." : later ? "👨‍🍳 Mandar a cocina ya" : "✅ Aceptar y mandar a cocina"}
           </button>
           <button disabled={busy} onClick={() => void reject()} className="rounded-2xl border border-red-500/60 px-4 py-3 font-black text-red-300 disabled:opacity-50">
             Rechazar
@@ -224,7 +246,10 @@ export default function PedidosEnLineaPage() {
     };
   }, [load]);
 
-  const fresh = (orders || []).filter((o) => o.status === "nuevo" || o.status === "aceptando");
+  const leadMinutes = getDigitalMenu().scheduling.leadMinutes;
+  const isPending = (o: OnlineOrder) => o.status === "nuevo" || o.status === "aceptando";
+  const programmed = (orders || []).filter((o) => isPending(o) && scheduledLater(o.data, leadMinutes)).sort((a, b) => (a.data.scheduledFor || "").localeCompare(b.data.scheduledFor || ""));
+  const fresh = (orders || []).filter((o) => isPending(o) && !scheduledLater(o.data, leadMinutes));
   const preparing = (orders || []).filter((o) => o.status === "aceptado" || o.status === "listo");
   const done = (orders || []).filter((o) => o.status === "entregado" || o.status === "rechazado");
 
@@ -249,6 +274,12 @@ export default function PedidosEnLineaPage() {
               {fresh.map((o) => <OrderCard key={o.id} order={o} onChanged={() => void load()} />)}
               {orders && fresh.length === 0 && <p className="rounded-3xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">Sin pedidos nuevos.</p>}
             </div>
+            {programmed.length > 0 && (
+              <>
+                <h2 className="mb-3 mt-6 text-lg font-black">📅 Programados ({programmed.length})</h2>
+                <div className="space-y-4">{programmed.map((o) => <OrderCard key={o.id} order={o} onChanged={() => void load()} />)}</div>
+              </>
+            )}
           </section>
           <section>
             <h2 className="mb-3 text-lg font-black">👨‍🍳 En preparación ({preparing.length})</h2>

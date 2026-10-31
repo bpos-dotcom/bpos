@@ -217,6 +217,31 @@ export default function MenuDigitalPage() {
                 hint="Al aceptar, marcar listo, en camino o entregado se abre WhatsApp con el mensaje para el cliente. Gratis."
               />
             </div>
+            <div className="mt-4 rounded-2xl border border-zinc-800 bg-black p-4">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input type="checkbox" checked={menu.scheduling.enabled} onChange={(e) => update({ scheduling: { ...menu.scheduling, enabled: e.target.checked } })} className="mt-1 h-5 w-5 accent-orange-500" />
+                <span>
+                  <span className="font-black">📅 Pedidos programados</span>
+                  <span className="mt-1 block text-xs text-zinc-500">Tus clientes con cuenta eligen día y hora. Sin cuenta se les invita a registrarse. B-POS los manda solos a cocina antes de la hora (con caja abierta).</span>
+                </span>
+              </label>
+              {menu.scheduling.enabled && (
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <label className={label}>
+                    Mínimo de anticipación (horas)
+                    <input type="number" min={0.25} step={0.25} value={menu.scheduling.minMinutes / 60} onChange={(e) => update({ scheduling: { ...menu.scheduling, minMinutes: Math.round((Number(e.target.value) || 1) * 60) } })} className={`${input} mt-1`} />
+                  </label>
+                  <label className={label}>
+                    Máximo de días antes
+                    <input type="number" min={0} max={14} value={menu.scheduling.maxDays} onChange={(e) => update({ scheduling: { ...menu.scheduling, maxDays: Number(e.target.value) || 0 } })} className={`${input} mt-1`} />
+                  </label>
+                  <label className={label}>
+                    Mandar a cocina (min antes)
+                    <input type="number" min={5} max={180} value={menu.scheduling.leadMinutes} onChange={(e) => update({ scheduling: { ...menu.scheduling, leadMinutes: Number(e.target.value) || 30 } })} className={`${input} mt-1`} />
+                  </label>
+                </div>
+              )}
+            </div>
             <div className="mt-4 grid gap-4 md:grid-cols-4">
               <label className={label}>
                 Costo de envío $
