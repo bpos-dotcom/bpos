@@ -6,8 +6,8 @@
  * Solo revisa si el menú digital está publicado.
  */
 import { useEffect, useRef, useState } from "react";
-import { DIGITAL_MENU_EVENT, getDigitalMenu, scheduledLater } from "@/lib/digital-menu";
-import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, listOnlineOrders } from "@/lib/online-orders";
+import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, scheduledLater } from "@/lib/digital-menu";
+import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, expireUnpaidOrder, listOnlineOrders } from "@/lib/online-orders";
 
 const CHECK_MS = 10_000;
 
@@ -27,7 +27,10 @@ export function useOnlineOrdersWatch() {
       busy.current = true;
       try {
         // Los programados esperan sin sonar hasta que toca mandarlos a cocina
-        const fresh = (await listOnlineOrders()).filter((o) => o.status === "nuevo" && !scheduledLater(o.data, menu.scheduling.leadMinutes));
+        // Los que se pagan con Mercado Pago no suenan hasta que se aprueba el pago (sin pagar en 2 h, se cierran)
+        const all = await listOnlineOrders();
+        for (const o of all.filter((x) => x.status === "nuevo" && awaitingOnlinePayment(x.data))) await expireUnpaidOrder(o).catch(() => false);
+        const fresh = all.filter((o) => o.status === "nuevo" && !awaitingOnlinePayment(o.data) && !scheduledLater(o.data, menu.scheduling.leadMinutes));
         if (!alive) return;
         const known = seen.current;
         const arrived = known ? fresh.filter((o) => !known.has(o.id)) : [];

@@ -5,6 +5,7 @@
  * QR), su horario, y qué productos se ven: ocultar o marcar "Agotado" (solo
  * hoy o hasta que se vuelva a activar).
  */
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import QRCode from "qrcode";
 import RequireRole from "@/components/auth/RequireRole";
@@ -27,6 +28,7 @@ import {
 import { PUSH_SERVER as PUBLIC_SITE } from "@/lib/push/rules";
 import { DAY_SHORT } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
+import { getMpStatus } from "@/lib/mp/client";
 import { MenuDesignEditor } from "@/components/menu/MenuDesignEditor";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
@@ -54,6 +56,14 @@ export default function MenuDigitalPage() {
   const [qr, setQr] = useState("");
   const [search, setSearch] = useState("");
   const [now, setNow] = useState(() => new Date());
+  /** ¿Tiene Mercado Pago vinculado? (para el pago en línea del menú) */
+  const [mpLinked, setMpLinked] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    getMpStatus()
+      .then((s) => setMpLinked(s.linked))
+      .catch(() => setMpLinked(null));
+  }, []);
 
   useEffect(() => {
     const sync = () => setMenu(getDigitalMenu());
@@ -302,7 +312,13 @@ export default function MenuDigitalPage() {
                 </tbody>
               </table>
             </div>
-            <p className="mt-1 text-xs text-zinc-500">Mercado Pago en línea se agrega aquí cuando activemos el cobro en línea. Transferencia necesita tu CLABE y WhatsApp abajo.</p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Mercado Pago: el cliente paga en línea al pedir y el dinero cae en tu cuenta. Necesita tu cuenta vinculada en{" "}
+              <Link href="/configuracion/pagos" className="underline">Métodos de pago</Link>; mientras no esté vinculada, no se muestra en el menú. Transferencia necesita tu CLABE y WhatsApp abajo.
+            </p>
+            {mpLinked === false && Object.values(menu.paymentsByType).some((l) => l.includes("Mercado Pago")) && (
+              <p className="mt-2 text-sm font-bold text-yellow-200">Activaste Mercado Pago pero tu cuenta no está vinculada: vincúlala en Métodos de pago para que aparezca en tu menú.</p>
+            )}
 
             <p className="mt-5 text-sm font-bold text-zinc-300">Horario para recibir pedidos (vacío = siempre)</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">

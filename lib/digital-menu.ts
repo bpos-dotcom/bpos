@@ -199,7 +199,8 @@ export function normalizeDesign(raw: unknown): MenuDesign {
   };
 }
 
-export const ONLINE_PAYMENTS = ["Efectivo", "Tarjeta", "Transferencia"] as const;
+/** "Mercado Pago": el cliente paga en línea al pedir, con la cuenta que vinculó el negocio */
+export const ONLINE_PAYMENTS = ["Efectivo", "Tarjeta", "Transferencia", "Mercado Pago"] as const;
 export type OnlinePayment = (typeof ONLINE_PAYMENTS)[number];
 const ORDER_TYPES = ["Recoger", "Domicilio", "Mesa"] as const;
 
@@ -371,7 +372,9 @@ export type OnlineOrderData = {
   type: OnlineOrderType;
   table?: string;
   customer: { name: string; phone: string; address: string; reference: string; location?: { lat: number; lng: number } };
-  payment: "Efectivo" | "Tarjeta" | "Transferencia";
+  payment: OnlinePayment;
+  /** Pago en línea con Mercado Pago (lo escribe solo el servidor de B-POS al confirmar el pago) */
+  mp?: OnlineMpPayment;
   /** Con cuánto paga (efectivo, para llevar cambio) */
   cashWith?: number;
   note: string;
@@ -384,6 +387,24 @@ export type OnlineOrderData = {
   coupon?: { code: string; discount: number };
   total: number;
 };
+
+export type OnlineMpPayment = {
+  status: "approved" | "refunded";
+  paymentId: string;
+  amount: number;
+  paidAt: string;
+  refundedAt?: string;
+};
+
+/** Eligió pagar con Mercado Pago y todavía no paga: el negocio no lo ve como pedido nuevo */
+export function awaitingOnlinePayment(d: Pick<OnlineOrderData, "payment" | "mp">) {
+  return d.payment === "Mercado Pago" && !d.mp;
+}
+
+/** Ya pagado en línea (Mercado Pago aprobado, sin devolver) */
+export function paidOnline(d: Pick<OnlineOrderData, "payment" | "mp">) {
+  return d.payment === "Mercado Pago" && d.mp?.status === "approved";
+}
 
 /** "vie 31 oct, 8:00 p.m." */
 export function scheduledLabel(iso: string) {
@@ -426,7 +447,7 @@ export function orderWhatsappText(businessName: string, folio: string, d: Online
     "",
     ...where,
     d.scheduledFor ? `📅 Programado para ${scheduledLabel(d.scheduledFor)}` : "",
-    `💳 Pago: ${d.payment}${d.payment === "Transferencia" ? " · te envío el comprobante" : ""}`,
+    `💳 Pago: ${d.payment}${d.payment === "Transferencia" ? " · te envío el comprobante" : paidOnline(d) ? " · ya pagado en línea" : ""}`,
     d.note ? `📝 ${d.note}` : "",
   ]
     .filter((l, i, all) => l !== "" || (all[i - 1] !== "" && i > 0))

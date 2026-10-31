@@ -14,12 +14,14 @@ import { use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@/data/products";
 import { OWN_OPTIONS, buildSelection, extrasPrice, extraCount, isAutoGroup, modifierProblem, optionName } from "@/lib/compound";
 import {
+  awaitingOnlinePayment,
   isAvailableOnline,
   isOpenNow,
   mapsLink,
   normalizeDigitalMenu,
   onlineGroups,
   orderWhatsappText,
+  paidOnline,
   scheduledLabel,
   whatsappNumber,
   type Align,
@@ -209,7 +211,10 @@ function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: st
   }, []);
 
   const open = isOpenNow(menu, now);
-  const canOrder = menu.acceptOrders && open;
+  const canOrderNow = menu.acceptOrders && open;
+  // Cerrado pero con pedidos programados: se puede armar el pedido y programarlo para cuando abra
+  const canSchedule = menu.acceptOrders && !open && menu.scheduling.enabled && !table;
+  const canOrder = canOrderNow || canSchedule;
   const visible = useMemo(
     () => data.products.filter((p) => !p.notSoldAlone && isAvailableOnline(menu, p, now) && !onlineGroups(p, data.products, menu, now).blocked),
     [data.products, menu, now]
@@ -367,8 +372,8 @@ function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: st
               {table && <b className="ml-1 text-zinc-800">· Mesa {table}</b>}
             </p>
           </div>
-          <span className={`hidden rounded-full px-3 py-1 text-xs font-black sm:inline ${canOrder ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-600"}`}>
-            {canOrder ? "Abierto" : menu.acceptOrders ? "Cerrado" : "Solo menú"}
+          <span className={`hidden rounded-full px-3 py-1 text-xs font-black sm:inline ${canOrderNow ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-600"}`}>
+            {canOrderNow ? "Abierto" : menu.acceptOrders ? "Cerrado" : "Solo menú"}
           </span>
           <button
             onClick={() => setAccountOpen(true)}
@@ -387,9 +392,11 @@ function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: st
 
       <main className="mx-auto max-w-6xl px-4 pb-32">
         {menu.notice && <p className="mt-4 rounded-2xl px-4 py-3 text-sm font-bold text-white" style={{ background: color }}>{menu.notice}</p>}
-        {!canOrder && menu.acceptOrders && (
+        {!canOrderNow && menu.acceptOrders && (
           <p className="mt-4 rounded-2xl bg-zinc-200 px-4 py-3 text-sm text-zinc-700">
-            Ahora no estamos recibiendo pedidos{hoursText ? ` · Horario: ${hoursText}` : ""}. Puedes ver el menú.
+            {canSchedule
+              ? `Ahora estamos cerrados${hoursText ? ` · Horario: ${hoursText}` : ""}. Puedes armar tu pedido y programarlo para cuando abramos (con tu cuenta).`
+              : `Ahora no estamos recibiendo pedidos${hoursText ? ` · Horario: ${hoursText}` : ""}. Puedes ver el menú.`}
           </p>
         )}
 
@@ -619,6 +626,7 @@ function Menu({ data, table, customer, onPlaced }: { data: PublicMenu; table: st
           cart={cart}
           setCart={setCart}
           customer={customer}
+          closed={!canOrderNow}
           notice={reorderNote}
           onNeedAccount={(start) => {
             setAccountStart(start);
@@ -763,6 +771,7 @@ function Checkout({
   cart,
   setCart,
   customer,
+  closed,
   notice,
   onNeedAccount,
   onClose,
@@ -774,6 +783,8 @@ function Checkout({
   cart: CartLine[];
   setCart: React.Dispatch<React.SetStateAction<CartLine[]>>;
   customer: Customer;
+  /** El negocio está cerrado: solo se puede programar */
+  closed: boolean;
   /** Aviso de "Pedir otra vez" (lo que ya no hay) */
   notice: string;
   /** Programar pide cuenta: abre registro o entrar */
@@ -787,7 +798,21 @@ function Checkout({
   const offered: Record<OnlineOrderType, boolean> = { Recoger: menu.pickup, Domicilio: menu.delivery, Mesa: Boolean(table) };
   const [type, setType] = useState<OnlineOrderType>(table ? "Mesa" : menu.pickup || !menu.delivery ? "Recoger" : "Domicilio");
   // Formas de pago de ese tipo de pedido; transferencia solo con CLABE y WhatsApp del negocio
-  const payments = menu.paymentsByType[type].filter((p) => p !== "Transferencia" || (wa && menu.bank.clabe.length === 18));
+  // Mercado Pago solo si el negocio tiene su cuenta vinculada (se pregunta al servidor)
+  const [mpOk, setMpOk] = useState(false);
+  const wantsMp = Object.values(menu.paymentsByType).some((l) => l.includes("Mercado Pago"));
+  useEffect(() => {
+    if (!wantsMp) return;
+    let alive = true;
+    fetch(`/api/menu/pago?liga=${encodeURIComponent(slug)}`)
+      .then((r) => r.json())
+      .then((b) => alive && setMpOk(Boolean(b?.available)))
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [wantsMp, slug]);
+  const payments = menu.paymentsByType[type].filter((p) => (p !== "Transferencia" || (wa && menu.bank.clabe.length === 18)) && (p !== "Mercado Pago" || mpOk));
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
@@ -810,7 +835,7 @@ function Checkout({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   /** ¿Para cuándo? Programar solo con cuenta (así se sabe que es un cliente real) */
-  const [when, setWhen] = useState<"ahora" | "programar">("ahora");
+  const [when, setWhen] = useState<"ahora" | "programar">(closed ? "programar" : "ahora");
   const [day, setDay] = useState(0);
   const [slot, setSlot] = useState("");
   const sched = menu.scheduling;
@@ -889,6 +914,7 @@ function Checkout({
     if (belowMin) return setError(`El pedido mínimo es de ${money(menu.minOrder)}.`);
     if (!offered[type]) return setError(type === "Domicilio" ? "Por ahora no tenemos servicio a domicilio. Elige para recoger." : "Por ahora no tenemos pedidos para recoger.");
     if (!payment) return setError("El negocio no tiene formas de pago para este tipo de pedido.");
+    if (closed && (when !== "programar" || !scheduledFor)) return setError(customer.account ? "Estamos cerrados: elige el día y la hora de tu pedido." : "Estamos cerrados: entra a tu cuenta para programar tu pedido.");
     if (when === "programar" && !customer.account) return setError("Para programar tu pedido entra a tu cuenta, o elige pedir ahora.");
     if (when === "programar" && !scheduledFor) return setError("Elige el día y la hora de tu pedido.");
     const order: OnlineOrderData = {
@@ -923,6 +949,15 @@ function Checkout({
       if (customer.token) void customer.linkOrder(p.id, p.token);
       // Transferencia: se abre WhatsApp con el desglose (si el navegador lo bloquea, queda el botón en el seguimiento)
       if (payment === "Transferencia" && wa) window.open(waLink(wa, orderWhatsappText(data.business.name, p.folio, order)), "_blank");
+      // Mercado Pago: a pagar; al terminar regresa al seguimiento (si falla, ahí queda el botón para pagar)
+      if (payment === "Mercado Pago") {
+        const url = await startOnlinePayment(p).catch(() => "");
+        if (url) {
+          window.history.replaceState(null, "", `/m/${slug}?pedido=${p.id}&t=${p.token}`);
+          window.location.assign(url);
+          return;
+        }
+      }
       onPlaced(p);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo enviar el pedido. Intenta de nuevo.");
@@ -980,13 +1015,14 @@ function Checkout({
         {sched.enabled && type !== "Mesa" && slots.length > 0 && (
           <div className="mt-4">
             <p className="text-sm font-bold">¿Para cuándo?</p>
-            <div className="mt-1 grid grid-cols-2 gap-2">
+            {closed && <p className="mt-1 text-xs font-bold text-zinc-500">Ahora estamos cerrados: programa tu pedido para cuando abramos.</p>}
+            <div className={`mt-1 grid gap-2 ${closed ? "grid-cols-1" : "grid-cols-2"}`}>
               {(
                 [
                   ["ahora", "⚡ Lo antes posible"],
                   ["programar", "📅 Programar"],
                 ] as const
-              ).map(([k, text]) => (
+              ).filter(([k]) => !closed || k === "programar").map(([k, text]) => (
                 <button
                   key={k}
                   onClick={() => setWhen(k)}
@@ -1027,9 +1063,11 @@ function Checkout({
                   <button onClick={() => onNeedAccount("entrar")} className="mt-2 w-full rounded-xl border border-zinc-200 py-2.5 font-black">
                     Ya tengo cuenta: entrar
                   </button>
-                  <button onClick={() => setWhen("ahora")} className="mt-2 text-sm font-bold underline" style={{ color }}>
-                    Mejor pedir ahora sin cuenta
-                  </button>
+                  {!closed && (
+                    <button onClick={() => setWhen("ahora")} className="mt-2 text-sm font-bold underline" style={{ color }}>
+                      Mejor pedir ahora sin cuenta
+                    </button>
+                  )}
                 </div>
               ))}
           </div>
@@ -1073,7 +1111,11 @@ function Checkout({
 
         {payments.length > 0 && (
           <div className="mt-4">
-            <p className="text-sm font-bold">Pagas {type === "Domicilio" ? "al recibir" : type === "Mesa" ? "en la mesa" : "al recoger"} con:</p>
+            <p className="text-sm font-bold">
+              {payments.length === 1 && payments[0] === "Mercado Pago"
+                ? "Pagas en línea con:"
+                : `Pagas ${type === "Domicilio" ? "al recibir" : type === "Mesa" ? "en la mesa" : "al recoger"}${payments.includes("Mercado Pago") ? " o en línea" : ""} con:`}
+            </p>
             <div className="mt-2 flex flex-wrap gap-2">
               {payments.map((p) => (
                 <button key={p} onClick={() => setPayment(p)} className="rounded-xl border px-4 py-2 font-bold" style={payment === p ? { background: color, borderColor: color, color: "#fff" } : { borderColor: "#e4e4e7" }}>
@@ -1083,6 +1125,11 @@ function Checkout({
             </div>
             {payment === "Efectivo" && type === "Domicilio" && (
               <input value={cashWith} onChange={(e) => setCashWith(e.target.value.replace(/[^0-9.]/g, ""))} inputMode="decimal" placeholder="¿Con cuánto pagas? (para llevarte cambio)" className={field} />
+            )}
+            {payment === "Mercado Pago" && (
+              <p className="mt-2 rounded-xl bg-sky-50 p-3 text-xs text-sky-800">
+                Al enviar tu pedido te llevamos a Mercado Pago para pagar con tarjeta de crédito o débito, o con tu saldo. El negocio lo recibe en cuanto se aprueba tu pago.
+              </p>
             )}
             {payment === "Transferencia" && (
               <p className="mt-2 rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800">
@@ -1130,7 +1177,7 @@ function Checkout({
 
         {error && <p className="mt-3 text-sm font-bold text-red-600">{error}</p>}
         <button disabled={sending || cart.length === 0} onClick={() => void send()} className="mt-4 w-full rounded-2xl py-4 text-lg font-black text-white disabled:opacity-40" style={{ background: color }}>
-          {sending ? "Enviando..." : `${scheduledFor ? "Programar pedido" : "Enviar pedido"} · ${money(total)}`}
+          {sending ? "Enviando..." : `${scheduledFor ? "Programar pedido" : payment === "Mercado Pago" ? "Pedir y pagar" : "Enviar pedido"} · ${money(total)}`}
         </button>
         <p className="mt-2 text-center text-xs text-zinc-400">Sin comisiones. El negocio confirma tu pedido en unos minutos.</p>
       </div>
@@ -1230,6 +1277,21 @@ function RateOrder({ placed, color, done }: { placed: Placed; color: string; don
 
 // ------------------------------------------------------------ seguimiento
 
+/** Liga de Mercado Pago para pagar el pedido (la arma el servidor con la cuenta del negocio) */
+async function startOnlinePayment(p: Pick<Placed, "id" | "token">): Promise<string> {
+  const r = await fetch("/api/menu/pago", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "pagar", id: p.id, token: p.token }) });
+  const b = await r.json().catch(() => null);
+  if (!r.ok || !b?.url) throw new Error(b?.error || "Mercado Pago no respondió. Intenta de nuevo.");
+  return b.url as string;
+}
+
+/** ¿Ya se aprobó el pago? Le pregunta el servidor a Mercado Pago (al regresar de pagar) */
+async function checkOnlinePayment(p: Pick<Placed, "id" | "token">) {
+  const r = await fetch("/api/menu/pago", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "revisar", id: p.id, token: p.token }) });
+  const b = await r.json().catch(() => null);
+  return Boolean(b?.mp);
+}
+
 const STEPS = [
   { key: "nuevo", label: "Recibido", icon: "🧾" },
   { key: "aceptado", label: "Preparando", icon: "👨‍🍳" },
@@ -1242,14 +1304,22 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
   const [signup, setSignup] = useState(false);
   const [linked, setLinked] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [paying, setPaying] = useState(false);
+  const [payError, setPayError] = useState("");
   const color = data?.business.color || "#f97316";
   const name = data?.business.name || "";
 
   useEffect(() => {
     let alive = true;
+    let asked = 0;
     const check = async () => {
       const { data: s } = await getSupabase().rpc("bpos_menu_order_status", { p_id: placed.id, p_token: placed.token });
-      if (alive) setStatus((s as OrderStatus) || null);
+      const st = (s as OrderStatus) || null;
+      // Falta el pago en línea: al regresar de Mercado Pago se le pregunta (por si su aviso no ha llegado)
+      if (st && st.status === "nuevo" && awaitingOnlinePayment(st.data) && asked < 8 && asked++ % 2 === 0) {
+        if (await checkOnlinePayment(placed).catch(() => false)) return void check();
+      }
+      if (alive) setStatus(st);
     };
     void check();
     const timer = setInterval(() => void check(), 8000);
@@ -1277,6 +1347,7 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
   const wa = data ? whatsappNumber(data.menu.whatsapp) : "";
   const bank = data?.menu.bank;
   const transfer = d.payment === "Transferencia" && status.status !== "rechazado";
+  const unpaid = awaitingOnlinePayment(d) && status.status === "nuevo";
   const message = orderWhatsappText(name || slug, status.folio, d);
 
   async function copyClabe() {
@@ -1298,11 +1369,15 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
           <div className="mt-6 rounded-2xl bg-red-50 p-5 text-center">
             <p className="text-lg font-black text-red-700">No pudimos tomar tu pedido</p>
             <p className="mt-1 text-sm text-red-600">{status.reason}</p>
+            {d.mp?.status === "refunded" && <p className="mt-2 text-sm font-bold text-red-700">Te devolvimos tu pago de Mercado Pago. Puede tardar unos días en verse en tu tarjeta.</p>}
+            {paidOnline(d) && <p className="mt-2 text-sm font-bold text-red-700">El negocio te va a devolver tu pago de Mercado Pago.</p>}
           </div>
         ) : (
           <>
             <p className="mt-4 text-center text-lg font-black">
-              {status.status === "nuevo" || status.status === "aceptando"
+              {unpaid
+                ? "Falta pagar tu pedido"
+                : status.status === "nuevo" || status.status === "aceptando"
                 ? "Esperando que el negocio confirme tu pedido..."
                 : status.status === "aceptado"
                   ? "¡Lo estamos preparando!"
@@ -1328,6 +1403,31 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
             </div>
           </>
         )}
+
+        {unpaid && (
+          <div className="mt-6 rounded-2xl border-2 border-sky-500 bg-sky-50 p-5 text-center">
+            <p className="font-black text-sky-900">💳 Paga {money(d.total)} con Mercado Pago</p>
+            <p className="mt-1 text-sm text-sky-800">El negocio recibe tu pedido en cuanto se aprueba tu pago. Si ya pagaste, espera unos segundos.</p>
+            <button
+              disabled={paying}
+              onClick={async () => {
+                setPaying(true);
+                setPayError("");
+                try {
+                  window.location.assign(await startOnlinePayment(placed));
+                } catch (e) {
+                  setPayError(e instanceof Error ? e.message : "Mercado Pago no respondió.");
+                  setPaying(false);
+                }
+              }}
+              className="mt-3 w-full rounded-xl bg-sky-500 py-3 font-black text-white disabled:opacity-60"
+            >
+              {paying ? "Abriendo Mercado Pago..." : "Pagar con Mercado Pago"}
+            </button>
+            {payError && <p className="mt-2 text-sm font-bold text-red-600">{payError}</p>}
+          </div>
+        )}
+        {paidOnline(d) && status.status !== "rechazado" && <p className="mt-6 rounded-2xl bg-emerald-50 p-4 text-center text-sm font-bold text-emerald-800">✅ Pagaste {money(d.mp?.amount || d.total)} con Mercado Pago</p>}
 
         {(status.status === "listo" || status.status === "entregado") && <RateOrder placed={placed} color={color} done={status.review} />}
 
@@ -1355,7 +1455,7 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
           <p className="text-center font-black">{(name || "").toUpperCase()}</p>
           <p className="mt-2 flex justify-between"><span>Cliente</span><span>{d.customer.name}</span></p>
           <p className="flex justify-between"><span>Entrega</span><span>{d.type === "Mesa" ? `Mesa ${d.table}` : d.type === "Domicilio" ? "A domicilio" : "Para recoger"}</span></p>
-          <p className="flex justify-between"><span>Pago</span><span>{d.payment}</span></p>
+          <p className="flex justify-between"><span>Pago</span><span>{d.payment}{paidOnline(d) ? " ✅ pagado" : d.mp?.status === "refunded" ? " · devuelto" : ""}</span></p>
           {mapsLink(d.customer.location) && <p className="flex justify-between"><span>Ubicación</span><span>📍 compartida</span></p>}
           <div className="my-3 border-t border-dashed border-zinc-300" />
           {d.lines.map((l, i) => (

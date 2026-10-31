@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { DispatchModal } from "@/components/delivery/DispatchModal";
 import { getCurrentUser } from "@/lib/auth";
-import { DIGITAL_MENU_EVENT, getDigitalMenu, mapsLink, scheduledLabel, scheduledLater, whatsappNumber } from "@/lib/digital-menu";
+import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, mapsLink, paidOnline, scheduledLabel, scheduledLater, whatsappNumber } from "@/lib/digital-menu";
 import {
   ONLINE_ORDERS_EVENT,
   acceptOnlineOrder,
@@ -19,6 +19,7 @@ import {
   markOnlineOrder,
   noticeFor,
   onlineDispatchInfo,
+  onlinePaymentShort,
   rejectOnlineOrder,
   type CustomerNotice,
   type OnlineOrder,
@@ -38,7 +39,8 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const d = order.data;
-  const problems = order.status === "nuevo" ? buildOnlineCart(d).problems : [];
+  const short = order.status === "nuevo" ? onlinePaymentShort(d) : "";
+  const problems = order.status === "nuevo" ? [...buildOnlineCart(d).problems, ...(short ? [short] : [])] : [];
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -86,7 +88,14 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   async function reject() {
     const reason = prompt("¿Por qué no puedes tomar el pedido? (se le muestra al cliente)", "Por ahora no podemos tomar tu pedido. ¡Disculpa!");
     if (reason === null) return;
-    await step("rechazado", () => rejectOnlineOrder(order, reason, getCurrentUser()?.name), { reason });
+    await step(
+      "rechazado",
+      async () => {
+        const { refundError } = await rejectOnlineOrder(order, reason, getCurrentUser()?.name);
+        if (refundError) alert(refundError);
+      },
+      { reason }
+    );
   }
 
   // Para volver a mandar el aviso del estado actual
@@ -133,10 +142,16 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
             🗺️ Ver ubicación en el mapa
           </a>
         )}
-        <p className="text-zinc-400">
-          Paga con {d.payment}
-          {d.cashWith ? ` (trae ${money(d.cashWith)})` : ""}
-        </p>
+        {paidOnline(d) ? (
+          <p className="font-black text-emerald-400">✅ Pagado con Mercado Pago · {money(d.mp?.amount || 0)}</p>
+        ) : d.mp?.status === "refunded" ? (
+          <p className="font-black text-sky-300">↩️ Pago de Mercado Pago devuelto</p>
+        ) : (
+          <p className="text-zinc-400">
+            Paga con {d.payment}
+            {d.cashWith ? ` (trae ${money(d.cashWith)})` : ""}
+          </p>
+        )}
         {d.note && <p className="mt-1 italic text-yellow-200">“{d.note}”</p>}
       </div>
 
@@ -247,7 +262,8 @@ export default function PedidosEnLineaPage() {
   }, [load]);
 
   const leadMinutes = getDigitalMenu().scheduling.leadMinutes;
-  const isPending = (o: OnlineOrder) => o.status === "nuevo" || o.status === "aceptando";
+  const unpaid = (orders || []).filter((o) => o.status === "nuevo" && awaitingOnlinePayment(o.data));
+  const isPending = (o: OnlineOrder) => (o.status === "nuevo" || o.status === "aceptando") && !awaitingOnlinePayment(o.data);
   const programmed = (orders || []).filter((o) => isPending(o) && scheduledLater(o.data, leadMinutes)).sort((a, b) => (a.data.scheduledFor || "").localeCompare(b.data.scheduledFor || ""));
   const fresh = (orders || []).filter((o) => isPending(o) && !scheduledLater(o.data, leadMinutes));
   const preparing = (orders || []).filter((o) => o.status === "aceptado" || o.status === "listo");
@@ -274,6 +290,11 @@ export default function PedidosEnLineaPage() {
               {fresh.map((o) => <OrderCard key={o.id} order={o} onChanged={() => void load()} />)}
               {orders && fresh.length === 0 && <p className="rounded-3xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">Sin pedidos nuevos.</p>}
             </div>
+            {unpaid.length > 0 && (
+              <p className="mt-4 rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3 text-sm text-sky-200">
+                ⏳ Pagando con Mercado Pago: {unpaid.map((o) => `${o.folio} (${money(o.data.total)})`).join(", ")}. Aparecen aquí en cuanto se aprueba el pago.
+              </p>
+            )}
             {programmed.length > 0 && (
               <>
                 <h2 className="mb-3 mt-6 text-lg font-black">📅 Programados ({programmed.length})</h2>
