@@ -43,8 +43,14 @@ export function ProductCard({ product, onAdd, offSchedule, inCart = 0 }: Product
         </span>
       )}
 
-      <div className="flex h-14 items-center justify-center rounded-xl bg-zinc-950 text-3xl sm:h-24 sm:text-5xl">
-        {product.emoji}
+      {/* La misma foto que en el menú digital; sin foto, el emoji */}
+      <div className="flex h-14 items-center justify-center overflow-hidden rounded-xl bg-zinc-950 text-3xl sm:h-24 sm:text-5xl">
+        {product.image ? (
+          // eslint-disable-next-line @next/next/no-img-element -- fotos del negocio en la nube
+          <img src={product.image} alt="" loading="lazy" className="h-full w-full object-contain" />
+        ) : (
+          product.emoji
+        )}
       </div>
 
       <h3 className="mt-2 text-sm font-black leading-tight sm:mt-4 sm:text-base">{product.name}</h3>
