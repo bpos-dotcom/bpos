@@ -17,7 +17,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ slug: stri
     JSON.stringify({
       id: base,
       name: brand.name,
-      short_name: brand.name.slice(0, 12),
+      short_name: brand.name.length <= 15 ? brand.name : brand.name.split(" ")[0].slice(0, 15),
       description: `Menú y pedidos de ${brand.name}`,
       start_url: base,
       scope: `${base}`,
