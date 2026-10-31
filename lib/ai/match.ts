@@ -3,9 +3,9 @@
  * renglón nuevo de un ticket de delivery ("Boneless Individuales (8 pzs)"
  * → "Boneless Orden Individual"). Solo sugiere: la persona revisa y guarda.
  */
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import { AI_MODEL, anthropicClient } from "@/lib/ai/key-store";
+import { generateJson, type AiUsage } from "@/lib/ai/engine";
+import type { AiConfig } from "@/lib/ai/settings";
 
 const MatchSchema = z.object({
   matches: z.array(
@@ -33,31 +33,29 @@ Reglas:
 - reason: en español, una frase corta que explique la elección (ej. "8 piezas = orden individual").
 - Regresa un elemento por cada renglón, en el mismo orden y con el texto del renglón tal cual en line.`;
 
-/** Sugerencias para los renglones y lo que gastó; lanza error si la API falla (usar friendlyAiError). */
+/** Sugerencias para los renglones y lo que gastó; lanza AiFailure si la IA falla. */
 export async function matchLines(
-  key: string,
+  ai: AiConfig,
   lines: string[],
   platform: string,
   products: CatalogProduct[]
-): Promise<{ matches: LineMatch[] | "refusal" | null; usage?: { input_tokens: number; output_tokens: number } }> {
+): Promise<{ matches: LineMatch[] | "refusal" | null; usage?: AiUsage }> {
   const catalog = products.map((p) => `${p.id} | ${p.name} | ${p.category || ""} | $${p.price || 0}`).join("\n");
-  const response = await anthropicClient(key).beta.messages.parse({
-    model: AI_MODEL,
-    max_tokens: 8000,
-    betas: ["server-side-fallback-2026-07-01"],
-    fallbacks: "default",
-    output_config: { effort: "low", format: betaZodOutputFormat(MatchSchema) },
+  const response = await generateJson(ai, {
     system: SYSTEM,
-    messages: [
+    schema: MatchSchema,
+    maxTokens: 8000,
+    effort: "low",
+    parts: [
       {
-        role: "user",
-        content: `Catálogo de B-POS (id | nombre | categoría | precio):\n${catalog}\n\nPlataforma: ${platform || "desconocida"}\nRenglones del ticket:\n${lines.map((l, i) => `${i + 1}. ${l}`).join("\n")}`,
+        type: "text",
+        text: `Catálogo de B-POS (id | nombre | categoría | precio):\n${catalog}\n\nPlataforma: ${platform || "desconocida"}\nRenglones del ticket:\n${lines.map((l, i) => `${i + 1}. ${l}`).join("\n")}`,
       },
     ],
   });
   const usage = response.usage;
-  if (response.stop_reason === "refusal") return { matches: "refusal", usage };
-  const parsed = response.parsed_output;
+  if (response.refusal) return { matches: "refusal", usage };
+  const parsed = response.data;
   if (!parsed) return { matches: null, usage };
   // Solo ids que existen de verdad
   const ids = new Set(products.map((p) => p.id));

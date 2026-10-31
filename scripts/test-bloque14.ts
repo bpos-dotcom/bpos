@@ -126,7 +126,8 @@ if (key) {
     { id: 3, name: "Refresco", category: "Bebidas", price: 35 },
     { id: 4, name: "Hamburguesa Sriracha", category: "Burgers", price: 139 },
   ];
-  const { matches } = await matchLines(key, ["BONELESS INDIVIDUALES (8 pzs)", "Sin cubiertos", "Coca Cola 600ml", "Pizza hawaiana"], "Rappi", products);
+  const ai = { feature: "interprete" as const, provider: "anthropic" as const, model: "claude-opus-5-5", key, priceIn: 4, priceOut: 20, source: "vercel" as const };
+  const { matches } = await matchLines(ai, ["BONELESS INDIVIDUALES (8 pzs)", "Sin cubiertos", "Coca Cola 600ml", "Pizza hawaiana"], "Rappi", products);
   if (Array.isArray(matches)) {
     console.log("     IA:", matches.map((m) => `${m.line} → ${m.action}${m.productId ? ` #${m.productId}` : ""} (${m.confidence})`).join(" | "));
     check("IA: boneless 8 pzs → orden individual", matches[0]?.action === "product" && matches[0].productId === 1, matches[0]);

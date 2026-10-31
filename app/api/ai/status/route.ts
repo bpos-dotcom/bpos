@@ -1,5 +1,6 @@
 import type { NextRequest } from "next/server";
 import { aiPreflight, aiReply, aiSession } from "@/lib/ai/cloud";
+import { getAiConfig } from "@/lib/ai/settings";
 
 /**
  * ¿Este negocio puede usar las funciones con IA ahora? (para las pantallas)
@@ -17,5 +18,5 @@ export async function GET(request: NextRequest) {
   if ("error" in session) return session.error;
   const a = session.allowance;
   const reason = a.plan !== "max" ? "plan" : !a.active ? "inactive" : a.spent >= a.budget ? "limit" : null;
-  return aiReply(request, { success: true, plan: a.plan, active: a.active, available: !reason && Boolean(session.key), reason });
+  return aiReply(request, { success: true, plan: a.plan, active: a.active, available: !reason && Boolean(await getAiConfig("interprete")), reason });
 }

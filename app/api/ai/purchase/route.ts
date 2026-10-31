@@ -1,8 +1,7 @@
 import type { NextRequest } from "next/server";
-import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 import { z } from "zod";
-import { AI_MODEL, anthropicClient, friendlyAiError } from "@/lib/ai/key-store";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
+import { AiFailure, generateJson } from "@/lib/ai/engine";
 
 /**
  * Compras → Foto de ticket con IA (solo plan Max).
@@ -86,30 +85,23 @@ export async function POST(request: NextRequest) {
     .join("\n");
 
   try {
-    const response = await anthropicClient(session.key).beta.messages.parse({
-      model: AI_MODEL,
-      max_tokens: 16000,
-      betas: ["server-side-fallback-2026-07-01"],
-      fallbacks: "default",
-      output_config: { effort: "medium", format: betaZodOutputFormat(TicketSchema) },
+    const response = await generateJson(session.ai!, {
       system: SYSTEM,
-      messages: [
+      schema: TicketSchema,
+      maxTokens: 16000,
+      effort: "medium",
+      parts: [
+        { type: "image", mediaType: image.mediaType, data: image.data },
         {
-          role: "user",
-          content: [
-            { type: "image", source: { type: "base64", media_type: image.mediaType as "image/jpeg" | "image/png" | "image/webp" | "image/gif", data: image.data } },
-            {
-              type: "text",
-              text: `Insumos del inventario (id | nombre | unidad):\n${catalog || "(no hay insumos)"}\n\nEquivalencias aprendidas:\n${learned || "(ninguna)"}\n\n${supplier ? `El proveedor es: ${supplier}.\n` : ""}Lee este ticket de compra.`,
-            },
-          ],
+          type: "text",
+          text: `Insumos del inventario (id | nombre | unidad):\n${catalog || "(no hay insumos)"}\n\nEquivalencias aprendidas:\n${learned || "(ninguna)"}\n\n${supplier ? `El proveedor es: ${supplier}.\n` : ""}Lee este ticket de compra.`,
         },
       ],
     });
     await chargeAi(session, response.usage);
 
-    if (response.stop_reason === "refusal") return aiReply(request, { success: false, error: "No se pudo leer esta foto. Prueba con otra." }, 422);
-    const parsed = response.parsed_output;
+    if (response.refusal) return aiReply(request, { success: false, error: "No se pudo leer esta foto. Prueba con otra." }, 422);
+    const parsed = response.data;
     if (!parsed) return aiReply(request, { success: false, error: "No se pudo leer el ticket. Intenta de nuevo." }, 502);
 
     const ids = new Set(ingredients.map((i) => Number(i.id)));
@@ -128,6 +120,6 @@ export async function POST(request: NextRequest) {
     };
     return aiReply(request, { success: true, ticket });
   } catch (error) {
-    return aiReply(request, { success: false, error: friendlyAiError(error) }, 502);
+    return aiReply(request, { success: false, error: error instanceof AiFailure ? error.message : "Error con la IA." }, error instanceof AiFailure ? error.status : 502);
   }
 }

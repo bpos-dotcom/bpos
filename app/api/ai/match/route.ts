@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { friendlyAiError } from "@/lib/ai/key-store";
+import { AiFailure } from "@/lib/ai/engine";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 import { matchLines, type CatalogProduct } from "@/lib/ai/match";
 
@@ -19,7 +19,6 @@ export async function POST(request: NextRequest) {
   // En la nube con la llave de la plataforma: solo plan Max y dentro del presupuesto del mes
   const session = await aiSession(request);
   if ("error" in session) return session.error;
-  const { key } = session;
 
   let lines: string[] = [];
   let platform = "";
@@ -39,12 +38,12 @@ export async function POST(request: NextRequest) {
   if (!products.length) return aiReply(request, { success: false, error: "No hay productos en el catálogo." }, 400);
 
   try {
-    const { matches, usage } = await matchLines(key, lines, platform, products);
+    const { matches, usage } = await matchLines(session.ai!, lines, platform, products);
     if (usage) await chargeAi(session, usage);
     if (matches === "refusal") return aiReply(request, { success: false, error: "Claude no pudo revisar estos renglones." }, 422);
     if (!matches) return aiReply(request, { success: false, error: "Claude no regresó sugerencias. Intenta de nuevo." }, 502);
     return aiReply(request, { success: true, matches });
   } catch (error) {
-    return aiReply(request, { success: false, error: friendlyAiError(error) }, 502);
+    return aiReply(request, { success: false, error: error instanceof AiFailure ? error.message : "Error con la IA." }, error instanceof AiFailure ? error.status : 502);
   }
 }

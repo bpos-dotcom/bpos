@@ -1,8 +1,9 @@
 /**
  * Bloque 15 · IA de B-POS desde la nube (corre en Vercel).
  *
- * La llave de Anthropic de la plataforma vive SOLO en Vercel
- * (ANTHROPIC_API_KEY): nunca va en los instaladores. Cada caja llama aquí con
+ * Las claves de IA de la plataforma viven solo en el servidor: las que el
+ * dueño pone en Configuración → Administrador (cifradas, lib/ai/settings.ts)
+ * o ANTHROPIC_API_KEY de Vercel. Nunca van en los instaladores. Cada caja llama aquí con
  * la sesión de su negocio; antes de gastar se revisa:
  *  - que el negocio tenga plan Max activo (o en prueba);
  *  - que no haya pasado su presupuesto de IA del mes (no se le muestra).
@@ -11,16 +12,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
-import { readAnthropicKey } from "@/lib/ai/key-store";
-
-/** Precio de Claude Opus 5.5 por millón de tokens (dólares). */
-const PRICE_INPUT = 4;
-const PRICE_OUTPUT = 20;
-
-export function aiCost(usage: { input_tokens?: number | null; output_tokens?: number | null; cache_read_input_tokens?: number | null; cache_creation_input_tokens?: number | null }) {
-  const input = (usage.input_tokens || 0) + (usage.cache_creation_input_tokens || 0) * 1.25 + (usage.cache_read_input_tokens || 0) * 0.1;
-  return (input * PRICE_INPUT + (usage.output_tokens || 0) * PRICE_OUTPUT) / 1_000_000;
-}
+import { getAiConfig, type AiConfig, type AiFeature } from "@/lib/ai/settings";
+import { aiCost, type AiUsage } from "@/lib/ai/engine";
 
 // Las cajas llaman desde http://localhost:3000; la sesión va en el encabezado (sin cookies)
 function cors(request: NextRequest) {
@@ -43,13 +36,13 @@ export function aiPreflight(request: NextRequest) {
 
 export type AiAllowance = { plan: string; status: string; active: boolean; budget: number; spent: number };
 
-type AiSession = { supabase: SupabaseClient; businessId: string; key: string; allowance: AiAllowance };
+type AiSession = { supabase: SupabaseClient; businessId: string; userId: string; ai: AiConfig | null; allowance: AiAllowance };
 
 /**
  * Sesión para usar IA, o la respuesta de error. `check`: false solo consulta
  * el estado (para mostrar si el plan la incluye) sin exigir llave.
  */
-export async function aiSession(request: NextRequest, check = true): Promise<{ error: NextResponse } | AiSession> {
+export async function aiSession(request: NextRequest, check = true, feature: AiFeature = "interprete"): Promise<{ error: NextResponse } | AiSession> {
   const auth = request.headers.get("authorization") || "";
   const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!token) return { error: aiReply(request, { success: false, error: "Inicia sesión con la cuenta del negocio." }, 401) };
@@ -76,14 +69,15 @@ export async function aiSession(request: NextRequest, check = true): Promise<{ e
     if (a.spent >= a.budget) return { error: aiReply(request, { success: false, code: "limit", error: "Ya usaste las funciones con IA de este mes. Vuelven a estar disponibles el próximo mes." }, 429) };
   }
 
-  const key = readAnthropicKey();
-  if (check && !key) return { error: aiReply(request, { success: false, error: "La IA no está disponible por ahora. Intenta más tarde." }, 503) };
-  return { supabase, businessId, key: key || "", allowance: a };
+  const ai = check ? await getAiConfig(feature) : null;
+  if (check && !ai) return { error: aiReply(request, { success: false, error: "La IA no está disponible por ahora. Intenta más tarde." }, 503) };
+  return { supabase, businessId, userId: user.user.id, ai, allowance: a };
 }
 
 /** Suma lo que costó una consulta al gasto del mes del negocio. */
-export async function chargeAi(session: AiSession, usage: Parameters<typeof aiCost>[0]) {
-  const cost = Math.round(aiCost(usage) * 1_000_000) / 1_000_000;
+export async function chargeAi(session: AiSession, usage: AiUsage) {
+  if (!session.ai) return;
+  const cost = aiCost(session.ai, usage);
   const { error } = await session.supabase.rpc("bpos_ai_charge", { p_business_id: session.businessId, p_cost: cost });
   if (error) console.error("[B-POS] No se pudo registrar el uso de IA:", error.message);
 }
