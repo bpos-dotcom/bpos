@@ -709,7 +709,20 @@ Gracias por pedir en ${businessName} 🚀`;
 
           <section className="flex min-h-0 flex-col gap-3 md:overflow-y-auto bpos-scroll md:pr-1 sm:gap-4 md:gap-3">
             {/* Primero el Club (lo más importante para el cliente), luego los datos y al final el pedido */}
-            <ClubPanel member={clubMember} onChange={setClubMember} />
+            <ClubPanel
+              member={clubMember}
+              onChange={(m) => {
+                setClubMember(m);
+                // Al encontrar al socio, sus datos llenan Cliente y WhatsApp (si están vacíos)
+                if (m && !clubMember) {
+                  setDetails((d) => ({
+                    ...d,
+                    ...(d.customerName.trim() ? {} : { customerName: m.name }),
+                    ...(d.customerPhone.trim() ? {} : { customerPhone: m.phone }),
+                  }));
+                }
+              }}
+            />
             <OrderDetailsPanel details={details} onChange={setDetails} />
             <div id="pedido-actual" className="scroll-mt-3">
             <CartPanel
