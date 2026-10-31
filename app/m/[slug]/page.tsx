@@ -164,11 +164,11 @@ const ALIGN: Record<Align, { box: string; row: string; fade: string }> = {
   right: { box: "items-end text-right", row: "justify-end", fade: "bg-gradient-to-l from-white/90 via-white/50 to-transparent" },
 };
 
-/** Foto del producto, o su emoji en un fondo suave si no tiene. */
+/** Foto del producto (completa, sin recortar, sobre fondo suave), o su emoji si no tiene. */
 function Photo({ product, className = "", emoji = "text-5xl" }: { product: Pick<Product, "image" | "emoji" | "name">; className?: string; emoji?: string }) {
   if (product.image) {
     // eslint-disable-next-line @next/next/no-img-element -- fotos del negocio en la nube
-    return <img src={product.image} alt={product.name} loading="lazy" className={`object-cover ${className}`} />;
+    return <img src={product.image} alt={product.name} loading="lazy" className={`bg-orange-50 object-contain ${className}`} />;
   }
   return <div className={`flex items-center justify-center bg-orange-50 ${emoji} ${className}`}>{product.emoji || "🍽️"}</div>;
 }
