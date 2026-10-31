@@ -180,6 +180,7 @@ export default function ProductosAdminPage() {
               externalName: alias.externalName,
               platform: alias.platform || undefined,
               actionType: alias.actionType,
+              compound: alias.compound,
               targets: alias.targets.map((t) => (String(t.id) === String(id) ? { ...t, id: String(replacement.id), name: replacement.name } : t)),
             }),
           });

@@ -8,6 +8,10 @@ export type PreparedSaleProduct = {
   quantity: number;
   externalName: string;
   aliasId: string;
+  /** Renglón del ticket original (para leer solo las opciones de ese renglón) */
+  sourceIndex?: number;
+  /** Combo con equivalencia compuesta: elegir opciones con las sub-líneas del ticket */
+  compound?: boolean;
 };
 
 export type PreparedInventoryAdjustment = {
@@ -106,6 +110,8 @@ export function prepareSalePayload(input: {
       quantity: product.quantity,
       externalName: product.externalName,
       aliasId: product.aliasId,
+      sourceIndex: product.sourceIndex,
+      ...(product.compound ? { compound: true } : {}),
     })),
     inventoryAdjustments: [
       ...interpretation.ingredients.map((ingredient) => ({

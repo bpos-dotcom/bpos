@@ -88,7 +88,10 @@ export function stationsByLine(
   interpretation.products.forEach((p) => {
     const l = line(p.sourceIndex);
     const product = products.find((x) => String(x.id) === String(p.productId));
-    const parts = linkedParts(product);
+    // Partes por estación solo con equivalencia compuesta (interpretaciones
+    // viejas sin la marca: como antes, por tener grupos de opciones)
+    const compound = p.compound === undefined ? true : p.compound;
+    const parts = compound ? linkedParts(product) : [];
     const own: KitchenStation[] = !parts.length || !product?.noOwnTicket ? [productStation.get(String(p.productId)) || "Cocina"] : [];
     [...own, ...parts.map((part) => part.station)].forEach((s) => {
       l.stations.add(s);
