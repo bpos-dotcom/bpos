@@ -150,14 +150,14 @@ export function AccountSheet({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
-  /** Club del restaurante: a quien tiene cuenta y no es socio se le invita (cuentas nuevas y anteriores) */
-  const [club, setClub] = useState<{ enabled: boolean; name: string; welcome: string; isMember: boolean } | null>(null);
-  const [hideInvite, setHideInvite] = useState(false);
+  /** Recién creó su cuenta: se le invita al club del restaurante */
+  const [justJoined, setJustJoined] = useState(false);
+  const [club, setClub] = useState<{ enabled: boolean; name: string; welcome: string } | null>(null);
   useEffect(() => {
-    callAccount<{ club: { enabled: boolean; name: string; welcome: string }; member: unknown }>("club", slug, {}, customer.token)
-      .then((r) => setClub({ ...r.club, isMember: Boolean(r.member) }))
+    callAccount<{ club: { enabled: boolean; name: string; welcome: string } }>("club", slug)
+      .then((r) => setClub(r.club))
       .catch(() => undefined);
-  }, [slug, customer.token]);
+  }, [slug]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -186,7 +186,11 @@ export function AccountSheet({
       setSentTo(r.email);
       setView("codigo");
     });
-  const verify = () => run(async () => done(await callAccount("verificar", slug, { phone, code })));
+  const verify = () =>
+    run(async () => {
+      done(await callAccount("verificar", slug, { phone, code }));
+      setJustJoined(true);
+    });
   const resend = () =>
     run(async () => {
       await callAccount("reenviar", slug, { phone });
@@ -325,7 +329,7 @@ export function AccountSheet({
               {customer.account.phone} · {customer.account.email}
             </p>
             {club?.enabled &&
-              (!club.isMember && !hideInvite ? (
+              (justJoined ? (
                 <div className="mt-4 rounded-2xl border-2 p-4 text-center" style={{ borderColor: color }}>
                   <p className="text-2xl">⭐</p>
                   <p className="font-black">¿Quieres unirte al {club.name}?</p>
@@ -333,7 +337,7 @@ export function AccountSheet({
                   <a href={`/fidelidad/${slug}`} className="mt-3 block rounded-2xl py-3 font-black text-white" style={{ background: color }}>
                     Unirme
                   </a>
-                  <button onClick={() => setHideInvite(true)} className="mt-2 text-xs font-bold text-zinc-400 underline">
+                  <button onClick={() => setJustJoined(false)} className="mt-2 text-xs font-bold text-zinc-400 underline">
                     Ahora no
                   </button>
                 </div>
