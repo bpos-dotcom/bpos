@@ -7,6 +7,7 @@
  */
 import Link from "next/link";
 import { ThemeToggle } from "@/components/layout/TopCorner";
+import { Advisor } from "@/components/owner/Advisor";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { canViewCosts, getCurrentUser } from "@/lib/auth";
@@ -57,6 +58,7 @@ export default function OwnerPage() {
 
 function OwnerApp() {
   const [preset, setPreset] = useState<Preset>("hoy");
+  const [tab, setTab] = useState<"resumen" | "asesor">("resumen");
   const [branch, setBranch] = useState("all");
   const [data, setData] = useState<Data | null>(null);
   const [alerts, setAlerts] = useState<OperationsAlert[]>([]);
@@ -275,14 +277,41 @@ function OwnerApp() {
       </header>
 
       <div className="mx-auto max-w-3xl space-y-4 px-4 pt-4">
-        <Chips items={PRESETS} value={preset} onChange={setPreset} />
+        {!installed && (canInstall || ios) && (
+          <section className="rounded-3xl border border-orange-500/50 bg-orange-500/10 p-4">
+            <p className="font-black">📲 Instala la App del dueño</p>
+            {canInstall ? (
+              <>
+                <p className="mt-1 text-xs text-zinc-400">Ábrela como app desde tu pantalla de inicio y recibe avisos.</p>
+                <button onClick={() => promptInstall().then(() => setInstalled(isInstalled()))} className="mt-3 w-full rounded-2xl bg-orange-500 px-4 py-3 text-sm font-black text-black">
+                  Instalar en este dispositivo
+                </button>
+              </>
+            ) : (
+              <p className="mt-1 text-xs text-zinc-300">
+                En iPhone: abre esta página en <b>Safari</b>, toca <b>Compartir</b> (el cuadrito con la flecha ⬆️) y luego <b>Agregar a pantalla de inicio</b>.
+              </p>
+            )}
+          </section>
+        )}
+        <Chips items={[["resumen", "📊 Resumen"], ["asesor", "✨ Asesor IA"]] as ["resumen" | "asesor", string][]} value={tab} onChange={setTab} />
+        {tab === "resumen" && <Chips items={PRESETS} value={preset} onChange={setPreset} />}
         {data && data.branches.length > 1 && (
           <Chips items={[["all", "Todas"], ...data.branches.map((b) => [b.id, b.name] as [string, string])]} value={branch} onChange={setBranch} />
         )}
 
         {error && <p className="rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
 
-        {!view || !kpis ? (
+        {tab === "asesor" ? (
+          data ? (
+            <Advisor
+              orders={(branch === "all" ? data.orders : data.orders.filter((o) => o.branchId === branch)).map((o) => o.order)}
+              branchLabel={branch === "all" ? (data.branches.length > 1 ? "Todas las sucursales" : data.branches[0]?.name || "Tu negocio") : data.branches.find((b) => b.id === branch)?.name || "Sucursal"}
+            />
+          ) : (
+            <p className="py-16 text-center text-zinc-500">Cargando tus números...</p>
+          )
+        ) : !view || !kpis ? (
           <p className="py-16 text-center text-zinc-500">Cargando ventas...</p>
         ) : (
           <>
