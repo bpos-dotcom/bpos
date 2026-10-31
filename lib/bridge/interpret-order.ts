@@ -1,3 +1,5 @@
+import { ticketLineParents } from "./ticket-lines";
+
 export type AliasActionType = "product" | "ingredient" | "bundle" | "ignore";
 
 export type AliasTarget = {
@@ -14,6 +16,13 @@ export type BridgeAlias = {
   platform?: string | null;
   actionType: AliasActionType;
   targets: AliasTarget[];
+  /**
+   * Equivalencia compuesta (solo "product"): el renglón es un combo del POS;
+   * sus sub-líneas en el ticket eligen las opciones del combo y ya no
+   * necesitan equivalencia propia. Sin esto, el producto se descuenta con su
+   * receta tal cual y las sub-líneas van por su propia equivalencia.
+   */
+  compound?: boolean;
 };
 
 export type CatalogProduct = {
@@ -43,6 +52,8 @@ export type InterpretedProduct = {
   productId: string;
   productName: string;
   quantity: number;
+  /** Combo: leer sus sub-líneas para elegir opciones (ver BridgeAlias.compound) */
+  compound?: boolean;
 };
 
 export type InterpretedIngredient = {
@@ -81,6 +92,10 @@ export type InterpretedIgnored = {
   sourceIndex: number;
   externalName: string;
   sourceQuantity: number;
+  /** Sub-línea de un combo (equivalencia compuesta): la leyó el combo, no se interpreta aparte */
+  reason?: "compound_option";
+  /** Renglón del combo al que pertenece */
+  parentIndex?: number;
 };
 
 export type PendingInterpretation = {
@@ -209,6 +224,7 @@ export function interpretOrder(input: {
 }): OrderInterpretation {
   const platform = normalize(input.platform);
   const lines = extractQuantifiedSourceLines(input.rawText || "");
+  const parents = ticketLineParents(input.rawText || "");
 
   const products: InterpretedProduct[] = [];
   const ingredients: InterpretedIngredient[] = [];
@@ -225,6 +241,23 @@ export function interpretOrder(input: {
   }
 
   for (const line of lines) {
+    // Sub-línea de un combo con equivalencia compuesta: la elige el combo
+    // (hamburguesa, refresco...), así que no se interpreta ni se cobra aparte
+    const parentIndex = parents.get(line.index);
+    const parentCombo = parentIndex === undefined ? undefined : products.find((p) => p.sourceIndex === parentIndex && p.compound);
+    if (parentCombo) {
+      ignored.push({
+        type: "ignore",
+        aliasId: parentCombo.aliasId,
+        sourceIndex: line.index,
+        externalName: line.externalName,
+        sourceQuantity: line.quantity,
+        reason: "compound_option",
+        parentIndex,
+      });
+      continue;
+    }
+
     const alias = findAlias(input.aliases, line.externalName, platform);
 
     if (!alias) {
@@ -284,6 +317,7 @@ export function interpretOrder(input: {
         productId: String(product.id),
         productName: product.name,
         quantity: line.quantity,
+        ...(alias.compound ? { compound: true } : {}),
       });
       continue;
     }

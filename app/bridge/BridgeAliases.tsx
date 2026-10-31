@@ -24,6 +24,8 @@ type BridgeAlias = {
   platform?: string | null;
   actionType: AliasActionType;
   targets: AliasTarget[];
+  /** Combo: sus sub-líneas del ticket eligen las opciones y no necesitan equivalencia propia */
+  compound?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -89,6 +91,7 @@ export default function BridgeAliases({
   const [platform, setPlatform] = useState("all");
   const [actionType, setActionType] = useState<AliasActionType>("product");
   const [productId, setProductId] = useState("");
+  const [compound, setCompound] = useState(false);
   const [targets, setTargets] = useState<DraftTarget[]>([createDraftTarget()]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -225,6 +228,7 @@ export default function BridgeAliases({
     setPlatform("all");
     setActionType("product");
     setProductId("");
+    setCompound(false);
     setTargets([createDraftTarget()]);
   }
 
@@ -354,6 +358,7 @@ export default function BridgeAliases({
     setMessage("");
     if (alias.actionType === "product") {
       setProductId(String(alias.targets[0]?.id || ""));
+      setCompound(Boolean(alias.compound));
       setTargets([createDraftTarget()]);
     } else if (alias.actionType === "ignore") {
       setProductId("");
@@ -388,6 +393,7 @@ export default function BridgeAliases({
           externalName: externalName.trim(),
           platform: normalizePlatform(platform),
           actionType,
+          compound: actionType === "product" && compound,
           targets: buildTargets(),
         }),
       });
@@ -555,9 +561,9 @@ export default function BridgeAliases({
             </button>
             {pickingProduct && (
               <ProductPicker
-                title="Producto real en B-POS"
-                products={sortedProducts}
-                detail={(p) => (p.notSoldAlone ? "🚫 no se vende solo" : "")}
+                title={compound ? "Combo (producto con opciones) en B-POS" : "Producto real en B-POS"}
+                products={compound ? sortedProducts.filter((p) => p.modifierGroups?.length) : sortedProducts}
+                detail={(p) => (p.notSoldAlone ? "🚫 no se vende solo" : p.modifierGroups?.length ? "🧩 con opciones" : "")}
                 onClose={() => setPickingProduct(false)}
                 onPick={(p) => {
                   setProductId(String(p.id));
@@ -566,9 +572,31 @@ export default function BridgeAliases({
               />
             )}
 
+            {/* Compuesta: el combo lee sus sub-líneas del ticket (hamburguesa, refresco...) */}
+            <label className={`mt-1 flex items-start gap-3 rounded-2xl border p-3 font-normal ${compound ? "border-orange-500/60 bg-orange-500/10" : "border-zinc-800 bg-zinc-950"}`}>
+              <input
+                type="checkbox"
+                checked={compound}
+                onChange={(event) => {
+                  const on = event.target.checked;
+                  setCompound(on);
+                  // Si el producto elegido no es combo, hay que elegir uno que sí
+                  const chosen = products.find((p) => String(p.id) === productId);
+                  if (on && chosen && !chosen.modifierGroups?.length) setProductId("");
+                }}
+                className="mt-1 h-4 w-4 accent-orange-500"
+              />
+              <span className="text-xs text-zinc-300">
+                <span className="font-black text-white">🧩 Equivalencia compuesta</span> · el renglón es un combo del POS.
+                Las sub-líneas del ticket (hamburguesa, refresco...) eligen las opciones del combo, cada una va a su estación y
+                descuenta su receta. Esas sub-líneas ya no necesitan equivalencia propia.
+              </span>
+            </label>
+
             <span className="text-xs font-normal text-zinc-500">
-              Al crear la venta, B-POS aplicará la receta configurada para este
-              producto.
+              {compound
+                ? "Al crear la venta, B-POS arma el combo con las opciones elegidas y descuenta la receta del combo más la de cada opción."
+                : "Al crear la venta, B-POS aplicará la receta configurada para este producto. Sus sub-líneas del ticket pasan por su propia equivalencia (insumo, ignorar...)."}
             </span>
           </label>
         )}
@@ -757,6 +785,11 @@ export default function BridgeAliases({
                       <span className="rounded-full bg-orange-500/15 px-2 py-1 text-[11px] font-black uppercase text-orange-400">
                         {ACTION_LABELS[alias.actionType]}
                       </span>
+                      {alias.compound && (
+                        <span className="rounded-full bg-orange-500/15 px-2 py-1 text-[11px] font-black uppercase text-orange-300" title="Combo: sus sub-líneas eligen las opciones">
+                          🧩 compuesta
+                        </span>
+                      )}
 
                       <span className="rounded-full bg-zinc-900 px-2 py-1 text-[11px] font-bold uppercase text-zinc-500">
                         {alias.platform || "Todas"}
@@ -788,6 +821,7 @@ export default function BridgeAliases({
                                   setPlatform(alias.platform || "all");
                                   setActionType("product");
                                   setProductId("");
+                                  setCompound(Boolean(alias.compound));
                                   setAiNote("");
                                 }}
                                 className="ml-2 rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-black text-red-300"

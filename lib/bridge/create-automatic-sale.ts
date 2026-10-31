@@ -12,13 +12,42 @@ import type { Product } from "@/data/products";
 
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
+type PreparedLine = { sourceIndex?: number; externalName?: string; compound?: boolean };
+
 /**
- * Opciones de un producto de delivery: lo que el cliente eligió en la
- * plataforma ("Elige tu refresco: Manzanita") decide la opción; en un grupo
- * obligatorio sin nada reconocido, la primera opción.
+ * ¿Este renglón se arma como combo (leer sub-líneas, partes por estación,
+ * receta de cada opción)? Solo si la equivalencia se marcó compuesta. Un
+ * pedido preparado antes de que existiera la casilla conserva el
+ * comportamiento viejo: combo si el producto tiene grupos de opciones.
  */
-function deliveryPicks(product: Product, catalog: Product[], ticket?: DeliveryTicket) {
-  const said = (ticket?.items || []).flatMap((i) => [...i.choices.map((c) => c.name), ...i.notes]).map(plain).filter(Boolean);
+function isCompoundLine(product: Product, line: PreparedLine) {
+  if (!product.modifierGroups?.length) return false;
+  return line.compound === undefined ? true : line.compound;
+}
+
+/**
+ * Renglón del ticket al que corresponde el producto: por número de renglón,
+ * si no por nombre. Sin renglón propio se leen las opciones de todo el ticket
+ * (pedidos viejos preparados antes de guardar el renglón).
+ */
+function ownTicketItems(ticket: DeliveryTicket | undefined, line: PreparedLine) {
+  const items = ticket?.items || [];
+  const byIndex = items.find((i) => i.index === line.sourceIndex);
+  if (byIndex) return [byIndex];
+  const name = plain(line.externalName || "");
+  const byName = name ? items.filter((i) => plain(i.name) === name) : [];
+  return byName.length ? byName : items;
+}
+
+/**
+ * Opciones de un combo de delivery: lo que el cliente eligió en la
+ * plataforma ("Elige tu refresco: Manzanita") decide la opción; en un grupo
+ * obligatorio sin nada reconocido, la primera opción. Solo cuentan las
+ * sub-líneas del renglón de este combo: dos combos con hamburguesas
+ * distintas en el mismo pedido no se cruzan.
+ */
+function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
+  const said = ownTicketItems(ticket, line).flatMap((i) => [...i.choices.map((c) => c.name), ...i.notes]).map(plain).filter(Boolean);
   const picks: Record<string, string[]> = {};
   for (const group of product.modifierGroups || []) {
     if (isAutoGroup(group)) continue; // ya se llena solo
@@ -34,8 +63,8 @@ function deliveryPicks(product: Product, catalog: Product[], ticket?: DeliveryTi
   return picks;
 }
 
-function deliverySelection(product: Product, catalog: Product[], ticket?: DeliveryTicket) {
-  const { parts, modifiers, ownTicket } = buildSelection(product, catalog, { [OWN_OPTIONS]: deliveryPicks(product, catalog, ticket) });
+function deliverySelection(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
+  const { parts, modifiers, ownTicket } = buildSelection(product, catalog, { [OWN_OPTIONS]: deliveryPicks(product, catalog, ticket, line) });
   // El cobro de extras ya viene en el total de la plataforma
   const kept = modifiers?.filter((m) => !m.extra);
   return { ...(parts?.length ? { parts, ownTicket } : {}), ...(kept?.length ? { modifiers: kept } : {}) };
@@ -211,9 +240,9 @@ export function createAutomaticSale(
       ...(product.notSoldAlone ? { price: 0 } : {}),
       quantity,
       externalName: preparedProduct.externalName,
-      // Combo: cada parte va a su estación y descuenta su receta
-      // Opciones enlazadas (combos): cada producto va a su estación y descuenta su receta
-      ...(product.modifierGroups?.length ? deliverySelection(product, catalog, options.ticket) : {}),
+      // Equivalencia compuesta: cada opción elegida va a su estación y descuenta
+      // su receta. Sin ella, el producto se descuenta con su receta tal cual.
+      ...(isCompoundLine(product, preparedProduct) ? deliverySelection(product, catalog, options.ticket, preparedProduct) : {}),
     });
   }
 

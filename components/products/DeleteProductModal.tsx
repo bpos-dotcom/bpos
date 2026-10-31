@@ -17,6 +17,7 @@ export type DeliveryAlias = {
   platform?: string | null;
   actionType: "product" | "ingredient" | "bundle" | "ignore";
   targets: AliasTarget[];
+  compound?: boolean;
 };
 
 type Props = {

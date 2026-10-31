@@ -24,6 +24,8 @@ type BridgeAlias = {
   platform?: string | null;
   actionType: AliasActionType;
   targets: AliasTarget[];
+  /** Combo: leer las sub-líneas del ticket como opciones (solo "product") */
+  compound?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -134,6 +136,7 @@ export async function POST(request: NextRequest) {
 
     const normalizedExternalName =
       normalizeExternalName(externalName);
+    const compound = actionType === "product" && body.compound === true;
 
     const aliases = (await store.aliases()) as BridgeAlias[];
     const now = new Date().toISOString();
@@ -157,6 +160,7 @@ export async function POST(request: NextRequest) {
         platform,
         actionType,
         targets,
+        compound,
         updatedAt: now,
       };
     } else {
@@ -167,6 +171,7 @@ export async function POST(request: NextRequest) {
         platform,
         actionType,
         targets,
+        compound,
         createdAt: now,
         updatedAt: now,
       };
