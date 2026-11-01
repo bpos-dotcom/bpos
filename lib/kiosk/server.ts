@@ -30,6 +30,7 @@ import {
   type OnlineOrderData,
   type OnlineOrderLine,
 } from "@/lib/digital-menu";
+import { clubName, normalizeLoyalty } from "@/lib/loyalty";
 import { cancelPointOrder, createPointOrder, getPointOrder, listTerminals, merchantToken, setTerminalPdv, type PointOrder } from "@/lib/mp/merchant";
 
 export class KioskError extends Error {
@@ -181,6 +182,43 @@ export async function kioskStatus(kiosk: Kiosk) {
   };
 }
 
+// ------------------------------------------------------------ club de clientes
+
+export type KioskClub = { name: string; kind: "puntos" | "sellos" | "cashback" };
+export type KioskClubMember = { accountId: string; name: string; member: boolean };
+
+/** El club del negocio (Configuración → Club), si está encendido: nombre y tipo. */
+export async function kioskClub(kiosk: Kiosk): Promise<KioskClub | null> {
+  const db = supabaseAdmin();
+  const [{ data: row }, info] = await Promise.all([
+    db.from("sync_records").select("data").eq("business_id", kiosk.business_id).eq("scope", "business").eq("collection", "bpos_loyalty").eq("record_id", "__doc__").maybeSingle(),
+    kioskInfo(kiosk),
+  ]);
+  const cfg = normalizeLoyalty(row?.data);
+  if (!cfg.enabled) return null;
+  return { name: clubName(cfg, info.business.name), kind: cfg.kind };
+}
+
+/**
+ * Busca al cliente por el teléfono con el que se registró en el menú del
+ * negocio (su "número del club"). Solo cuentas verificadas de ESTE negocio.
+ */
+export async function findClubMember(kiosk: Kiosk, phone: unknown): Promise<KioskClubMember | null> {
+  const digits = String(phone || "").replace(/\D/g, "").slice(-10);
+  if (digits.length !== 10) return null;
+  const db = supabaseAdmin();
+  const { data: account } = await db
+    .from("bpos_customer_accounts")
+    .select("id, name")
+    .eq("business_id", kiosk.business_id)
+    .eq("phone", digits)
+    .not("email_verified_at", "is", null)
+    .maybeSingle();
+  if (!account) return null;
+  const { data: member } = await db.from("bpos_loyalty_members").select("account_id").eq("account_id", account.id).maybeSingle();
+  return { accountId: account.id, name: String(account.name || ""), member: Boolean(member) };
+}
+
 // ------------------------------------------------------------ pantallas (negocio)
 
 export async function listKiosks(businessId: string, branchId: string) {
@@ -294,10 +332,21 @@ async function sendToTerminal(db: SupabaseClient, kiosk: Kiosk, order: OrderRow,
   return { ...order, data };
 }
 
-export type KioskOrderResult = { id: string; folio: string; total: number; status: "esperando" };
+export type KioskOrderResult = {
+  id: string;
+  folio: string;
+  total: number;
+  status: "esperando";
+  /** Nombre del socio del club al que se ligó el pedido (si puso su número) */
+  club?: string;
+};
 
-/** El cliente tocó "Pagar": se guarda el pedido y la terminal se enciende con el total. */
-export async function createKioskOrder(kiosk: Kiosk, body: { lines?: unknown; eat?: unknown; name?: unknown }): Promise<KioskOrderResult> {
+/**
+ * El cliente tocó "Pagar": se guarda el pedido y la terminal se enciende con el total.
+ * Si puso su número del club, el pedido queda ligado a su cuenta y al aceptarlo
+ * en B-POS se le suma como cualquier pedido en línea con cuenta.
+ */
+export async function createKioskOrder(kiosk: Kiosk, body: { lines?: unknown; eat?: unknown; name?: unknown; club?: unknown }): Promise<KioskOrderResult> {
   const db = supabaseAdmin();
   const { data: link } = await db.from("bpos_menu_links").select("slug").eq("branch_id", kiosk.branch_id).maybeSingle();
   if (!link?.slug) throw new KioskError("Esta sucursal no tiene menú digital publicado.", 409);
@@ -313,7 +362,8 @@ export async function createKioskOrder(kiosk: Kiosk, body: { lines?: unknown; ea
   const { lines, subtotal } = priceLines(menuPub, incoming);
   if (menu.minOrder > 0 && subtotal < menu.minOrder) throw new KioskError(`El pedido mínimo es de $${menu.minOrder.toFixed(2)}.`);
   const eat: KioskEat = body.eat === "aqui" ? "aqui" : "llevar";
-  const name = String(body.name || "").trim().slice(0, 60);
+  const member = body.club ? await findClubMember(kiosk, body.club) : null;
+  const name = String(body.name || "").trim().slice(0, 60) || (member?.name.trim().split(" ")[0] ?? "");
   const order: OnlineOrderData = {
     type: "Recoger",
     customer: { name: name || "Cliente del kiosco", phone: "", address: "", reference: "" },
@@ -330,13 +380,15 @@ export async function createKioskOrder(kiosk: Kiosk, body: { lines?: unknown; ea
   const p = placed as { id: string; folio: string; token: string };
   const row: OrderRow = { id: p.id, business_id: kiosk.business_id, branch_id: kiosk.branch_id, folio: p.folio, token: p.token, status: "nuevo", data: order, created_at: new Date().toISOString() };
   try {
+    // Pedido ligado a la cuenta del socio: al aceptarlo, B-POS le suma al club
+    if (member) await db.from("bpos_online_orders").update({ account_id: member.accountId }).eq("id", p.id);
     await sendToTerminal(db, kiosk, row, 1);
   } catch (e) {
     // La terminal no recibió el cobro: el pedido no se queda a medias
     await db.from("bpos_online_orders").delete().eq("id", p.id);
     throw e;
   }
-  return { id: p.id, folio: p.folio, total: subtotal, status: "esperando" };
+  return { id: p.id, folio: p.folio, total: subtotal, status: "esperando", ...(member?.member ? { club: member.name } : {}) };
 }
 
 export type KioskPaymentStatus = {

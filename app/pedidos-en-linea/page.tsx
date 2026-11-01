@@ -145,7 +145,11 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         </p>
       )}
       <div className="mt-3 rounded-2xl bg-black p-3 text-sm">
-        <p className="font-black">{d.customer.name}{d.kiosk ? <span className="ml-2 text-xs font-bold text-zinc-500">🖥️ {d.kiosk.screen}</span> : null}</p>
+        <p className="font-black">
+          {d.customer.name}
+          {d.kiosk ? <span className="ml-2 text-xs font-bold text-zinc-500">🖥️ {d.kiosk.screen}</span> : null}
+          {d.kiosk && order.account_id ? <span className="ml-2 text-xs font-bold text-amber-300">⭐ Socio del club</span> : null}
+        </p>
         {d.customer.phone && (
           <a href={`https://wa.me/52${d.customer.phone.slice(-10)}`} target="_blank" rel="noreferrer" className="text-emerald-400 underline">
             📱 {d.customer.phone}
