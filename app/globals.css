@@ -246,3 +246,10 @@ html.kiosk::-webkit-scrollbar, html.kiosk *::-webkit-scrollbar { display: none; 
 /* Teclado en pantalla abierto: las hojas fijas (opciones del producto, pedido) terminan arriba del teclado */
 html.kb-open .fixed.inset-0 { bottom: var(--kb-h, 0px); }
 html.kb-open .fixed.inset-0 > div { max-height: 100%; }
+
+/* Menú digital y kiosco: el grupo obligatorio que falta parpadea en rojo al tocar "Agregar" */
+@keyframes menu-flash {
+  0%, 100% { background-color: transparent; box-shadow: none; }
+  50% { background-color: rgba(220, 38, 38, 0.12); box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.7); }
+}
+.menu-flash { animation: menu-flash 0.45s ease-in-out 3; }

@@ -9,7 +9,7 @@
  * teléfono para que la compra sume a su cuenta; el campo se vacía con cada
  * pedido.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { KioskEat, OnlineOrderLine } from "@/lib/digital-menu";
 import { kioskFetch, setKioskBusy, type KioskSession } from "@/lib/kiosk/client";
 
@@ -55,6 +55,8 @@ export function KioskCheckout({
   const [club, setClub] = useState<Club | null>(null);
   const [clubPhone, setClubPhone] = useState("");
   const [clubLookup, setClubLookup] = useState<ClubLookup | null>(null);
+  const [flashEat, setFlashEat] = useState(false);
+  const eatRef = useRef<HTMLDivElement>(null);
 
   // ¿El negocio tiene club? Si no, el campo no sale
   useEffect(() => {
@@ -142,7 +144,13 @@ export function KioskCheckout({
   async function pay() {
     setError("");
     if (!cart.length) return setError("Tu pedido está vacío.");
-    if (!eat) return setError("Dinos si es para comer aquí o para llevar.");
+    if (!eat) {
+      // Parpadea en rojo la pregunta que falta y se desplaza a la vista
+      eatRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setFlashEat(false);
+      window.setTimeout(() => setFlashEat(true), 20);
+      return setError("Dinos si es para comer aquí o para llevar.");
+    }
     if (minOrder > 0 && total < minOrder) return setError(`El pedido mínimo es de ${money(minOrder)}.`);
     if (clubPhone && clubPhone.length !== 10) return setError(`Tu número del ${club?.name || "club"} son los 10 dígitos de tu teléfono (o déjalo vacío).`);
     setBusy(true);
@@ -289,7 +297,8 @@ export function KioskCheckout({
         </div>
         {cart.length === 0 && <p className="py-8 text-center text-xl text-zinc-500">Tu pedido está vacío.</p>}
 
-        <p className="mt-5 text-lg font-black">¿Dónde lo vas a comer?</p>
+        <div ref={eatRef} onAnimationEnd={() => setFlashEat(false)} className={`mt-5 rounded-3xl ${flashEat ? "menu-flash" : ""}`}>
+        <p className={`text-lg font-black ${flashEat ? "text-red-600" : ""}`}>¿Dónde lo vas a comer?</p>
         <div className="mt-2 grid grid-cols-2 gap-3">
           {(
             [
@@ -306,6 +315,7 @@ export function KioskCheckout({
               {text}
             </button>
           ))}
+        </div>
         </div>
 
         <label className="mt-5 block text-lg font-black">
@@ -345,7 +355,7 @@ export function KioskCheckout({
           <span className="text-4xl font-black" style={{ color }}>{money(total)}</span>
         </div>
         {error && <p className="mt-3 text-lg font-bold text-red-600">{error}</p>}
-        <button disabled={busy || cart.length === 0} onClick={() => void pay()} className={`${big} mt-4`} style={{ background: color }}>
+        <button disabled={busy || cart.length === 0} onClick={() => void pay()} className={`${big} mt-4`} style={{ background: eat ? color : "#a1a1aa" }}>
           {busy ? "Encendiendo la terminal..." : `💳 Pagar en la terminal · ${money(total)}`}
         </button>
         <button onClick={onClose} className="mt-3 w-full rounded-3xl border-2 border-zinc-200 py-4 text-xl font-black text-zinc-700">
