@@ -28,6 +28,8 @@ export type BridgeAlias = {
 export type CatalogProduct = {
   id: string | number;
   name: string;
+  /** Opciones del producto (si tiene, un renglón reconocido por nombre se trata como combo) */
+  modifierGroups?: unknown[];
 };
 
 export type CatalogIngredient = {
@@ -54,6 +56,8 @@ export type InterpretedProduct = {
   quantity: number;
   /** Combo: leer sus sub-líneas para elegir opciones (ver BridgeAlias.compound) */
   compound?: boolean;
+  /** Sin equivalencia: se reconoció porque el nombre es igual al del producto del POS */
+  auto?: boolean;
 };
 
 export type InterpretedIngredient = {
@@ -92,8 +96,11 @@ export type InterpretedIgnored = {
   sourceIndex: number;
   externalName: string;
   sourceQuantity: number;
-  /** Sub-línea de un combo (equivalencia compuesta): la leyó el combo, no se interpreta aparte */
-  reason?: "compound_option";
+  /**
+   * compound_option: sub-línea de un combo (equivalencia compuesta), la leyó el combo.
+   * free_option: sub-línea sin costo y sin equivalencia (opción gratis, "No, gracias"...): no bloquea el pedido.
+   */
+  reason?: "compound_option" | "free_option";
   /** Renglón del combo al que pertenece */
   parentIndex?: number;
 };
@@ -151,6 +158,8 @@ function cleanExternalName(value: string) {
       /\s+(?:MX\$|\$)\s*-?\d[\d,]*(?:\.\d{1,2})?\s*(?:MXN)?\s*$/i,
       ""
     )
+    // "Copiar": texto del botón de DiDi que se cuela al final del nombre
+    .replace(/\s+copiar$/i, "")
     .trim();
 }
 
@@ -201,6 +210,19 @@ function findAlias(
           normalizedName && !normalize(alias.platform)
     )
   );
+}
+
+/** Precio al final del renglón ("MX$0.00", "$25"); null si no trae */
+function linePrice(rawLine: string): number | null {
+  const match = String(rawLine || "").match(/(?:MX\$|\$)\s*(-?\d[\d,]*(?:\.\d{1,2})?)\s*(?:MXN)?\s*$/i);
+  return match ? Number(match[1].replace(/,/g, "")) : null;
+}
+
+/** Producto del POS cuyo nombre es igual al renglón (sin acentos ni mayúsculas) */
+function findProductByName(products: CatalogProduct[], externalName: string): CatalogProduct | undefined {
+  const wanted = normalize(externalName);
+  if (!wanted) return undefined;
+  return products.find((product) => normalize(product.name) === wanted);
 }
 
 function findCatalogEntry<T extends { id: string | number }>(
@@ -261,6 +283,40 @@ export function interpretOrder(input: {
     const alias = findAlias(input.aliases, line.externalName, platform);
 
     if (!alias) {
+      // Sin equivalencia, pero el nombre es exactamente el de un producto del POS
+      const byName = findProductByName(input.products, line.externalName);
+      if (byName) {
+        const hasOptions = Array.isArray(byName.modifierGroups) && byName.modifierGroups.length > 0;
+        products.push({
+          type: "product",
+          aliasId: "auto:nombre",
+          sourceIndex: line.index,
+          externalName: line.externalName,
+          sourceQuantity: line.quantity,
+          productId: String(byName.id),
+          productName: byName.name,
+          quantity: line.quantity,
+          auto: true,
+          ...(hasOptions ? { compound: true } : {}),
+        });
+        continue;
+      }
+
+      // Sub-línea sin costo (opción gratis del producto, "No, gracias"...): no bloquea el pedido
+      const price = linePrice(line.rawLine);
+      if (parentIndex !== undefined && (price === null || price === 0)) {
+        ignored.push({
+          type: "ignore",
+          aliasId: "auto:sin-costo",
+          sourceIndex: line.index,
+          externalName: line.externalName,
+          sourceQuantity: line.quantity,
+          reason: "free_option",
+          parentIndex,
+        });
+        continue;
+      }
+
       pending.push({
         sourceIndex: line.index,
         externalName: line.externalName,

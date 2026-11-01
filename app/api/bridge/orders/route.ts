@@ -267,6 +267,11 @@ export async function DELETE(request: NextRequest) {
   const auth = await bridgeAuth(request);
   if ("denied" in auth) return auth.denied;
 
+  // ?finished=1: solo el historial (finalizados y con venta creada); los pendientes se quedan
+  if (request.nextUrl.searchParams.get("finished") === "1") {
+    const removed = await bridgeStore(auth.ctx).clearFinishedOrders();
+    return NextResponse.json({ success: true, removed });
+  }
   await bridgeStore(auth.ctx).clearOrders();
   return NextResponse.json({ success: true, count: 0, orders: [] });
 }
