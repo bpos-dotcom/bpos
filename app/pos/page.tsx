@@ -475,9 +475,9 @@ function PosScreen() {
     // Comandas por estación y ticket del cliente en Caja, directo a las térmicas
     void printSale(newOrder, { stations: saleStations(newOrder), customer: true }, false)
       .then((failed) => {
-        if (failed.length) alert(`Pedido cobrado, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`);
+        if (failed.length) alert(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`);
       })
-      .catch(() => alert("Pedido cobrado, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Impresiones."));
+      .catch(() => alert(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Impresiones.`));
     addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por $${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
 
     alert(data.pending ? `Pedido #${formatOrderNumber(newOrder)} mandado a cocina. Queda en Cuentas en espera para cobrarlo${nextDetails.orderType === "Domicilio" ? " cuando regrese el repartidor" : ""}.` : `Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);
