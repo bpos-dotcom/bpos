@@ -124,11 +124,31 @@ function Channel({ name, hint, value, onChange }: { name: string; hint: string; 
 }
 
 export function MenuDesignEditor({ design, products, onChange }: { design: MenuDesign; products: Product[]; onChange: (d: MenuDesign) => void }) {
-  const set = <K extends keyof MenuDesign>(key: K, patch: Partial<MenuDesign[K]>) => onChange({ ...design, [key]: { ...design[key], ...patch } });
+  const set = <K extends Exclude<keyof MenuDesign, "theme">>(key: K, patch: Partial<MenuDesign[K]>) => onChange({ ...design, [key]: { ...design[key], ...patch } });
   const sellable = products.filter((p) => !p.notSoldAlone);
 
   return (
     <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-zinc-800 bg-black p-4">
+        <span className="font-black">🌓 Colores del menú</span>
+        <div className="flex gap-2">
+          {(
+            [
+              ["light", "☀️ Claro"],
+              ["dark", "🌙 Oscuro"],
+            ] as const
+          ).map(([k, text]) => (
+            <button
+              key={k}
+              onClick={() => onChange({ ...design, theme: k })}
+              className={`rounded-xl border px-4 py-2 text-sm font-black ${design.theme === k ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-700 text-zinc-300"}`}
+            >
+              {text}
+            </button>
+          ))}
+        </div>
+        <span className="text-xs text-zinc-500">Se aplica al menú digital y al kiosco. Tus fotos y tu color de marca se quedan igual.</span>
+      </div>
       <Section title="Barra de arriba" hint="Frase corta, ciudad y horario (el horario sale de tu configuración)." on={design.topBar.on} onToggle={(on) => set("topBar", { on })}>
         <Text text="Frase" value={design.topBar.text} max={90} placeholder="Hamburguesas que hacen un mejor día" onChange={(text) => set("topBar", { text })} />
         <Text text="Ciudad" value={design.topBar.city} placeholder="Lerdo, Durango" onChange={(city) => set("topBar", { city })} />

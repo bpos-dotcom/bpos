@@ -157,12 +157,13 @@ export function PublicMenu({ slug, kiosk, onKioskDone }: { slug: string; kiosk?:
   );
 }
 
-function Shell({ children }: { children: React.ReactNode }) {
-  // Siempre claro: el modo claro/oscuro de B-POS (mismo sitio) no aplica al menú de los clientes
+function Shell({ children, dark = false }: { children: React.ReactNode; dark?: boolean }) {
+  // El modo claro/oscuro de B-POS (mismo sitio) no aplica al menú de los clientes: el menú trae su propio tema
+  // (Configuración → Menú digital → Diseño → Colores). En oscuro, .menu-dark (globals.css) cambia los colores de fondo y texto.
   useEffect(() => {
     document.documentElement.classList.remove("theme-light");
   }, []);
-  return <div className="min-h-screen w-full bg-[#fff8f1] text-zinc-900 [color-scheme:light]">{children}</div>;
+  return <div className={`min-h-screen w-full bg-[#fff8f1] text-zinc-900 ${dark ? "menu-dark [color-scheme:dark]" : "[color-scheme:light]"}`}>{children}</div>;
 }
 
 /** Textos y botones encima de la imagen: a la izquierda, al centro o a la derecha (con el difuminado de ese lado) */
@@ -371,7 +372,7 @@ function Menu({
   );
 
   return (
-    <Shell>
+    <Shell dark={design.theme === "dark"}>
       {design.topBar.on && (design.topBar.text || design.topBar.city || hoursText) && (
         <div className="px-4 py-2 text-xs font-semibold text-white" style={{ background: color }}>
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
@@ -1378,10 +1379,10 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
     };
   }, [placed]);
 
-  if (status === undefined) return <Shell><p className="py-24 text-center text-zinc-500">Buscando tu pedido...</p></Shell>;
+  if (status === undefined) return <Shell dark={data?.menu.design.theme === "dark"}><p className="py-24 text-center text-zinc-500">Buscando tu pedido...</p></Shell>;
   if (status === null) {
     return (
-      <Shell>
+      <Shell dark={data?.menu.design.theme === "dark"}>
         <div className="py-24 text-center">
           <p className="text-zinc-500">No encontramos ese pedido.</p>
           <button onClick={onBack} className="mt-4 font-black underline">Ver el menú</button>
@@ -1408,7 +1409,7 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
   }
 
   return (
-    <Shell>
+    <Shell dark={data?.menu.design.theme === "dark"}>
       <div className="mx-auto max-w-lg px-4 py-8">
         <p className="text-center text-sm text-zinc-500">Pedido en {name || slug} · {status.branch}</p>
         <p className="mt-1 text-center text-xs font-bold tracking-widest text-zinc-400">FOLIO</p>

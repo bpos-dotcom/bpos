@@ -11,12 +11,13 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PublicMenu } from "@/components/menu/PublicMenu";
+import { TouchKeyboard } from "@/components/menu/TouchKeyboard";
 import { KIOSK_BUSY_EVENT, kioskFetch, readKioskSession, saveKioskSession, type KioskSession } from "@/lib/kiosk/client";
 
 /** Segundos sin tocar la pantalla para volver al inicio */
 const IDLE_SECONDS = 90;
 
-type Status = { slug: string; name: string; business: KioskSession["business"]; branch: string; terminal: boolean };
+type Status = { slug: string; name: string; business: KioskSession["business"]; branch: string; terminal: boolean; theme: "light" | "dark" };
 
 export default function KioskPage() {
   const [session, setSession] = useState<KioskSession | null | undefined>(undefined);
@@ -56,17 +57,22 @@ export default function KioskPage() {
   }, [session?.token, check]); // eslint-disable-line react-hooks/exhaustive-deps -- solo cuando cambia la llave
 
   if (session === undefined) return <div className="min-h-screen bg-[#fff8f1]" />;
-  if (!session) {
-    return (
-      <Pair
-        onPaired={(s) => {
-          saveKioskSession(s);
-          setSession(s);
-        }}
-      />
-    );
-  }
-  return <Kiosk session={session} status={status} />;
+  return (
+    <>
+      {session ? (
+        <Kiosk session={session} status={status} />
+      ) : (
+        <Pair
+          onPaired={(s) => {
+            saveKioskSession(s);
+            setSession(s);
+          }}
+        />
+      )}
+      {/* Pantalla táctil sin teclado: teclado en pantalla al tocar un campo */}
+      <TouchKeyboard />
+    </>
+  );
 }
 
 // ------------------------------------------------------------ vincular
@@ -170,16 +176,17 @@ function Kiosk({ session, status }: { session: KioskSession; status: Status | nu
 
   // Sin terminal asignada, el kiosco no puede cobrar: aviso para el personal (el cliente no debería ver esto)
   const noTerminal = status ? !status.terminal : false;
+  const dark = status?.theme === "dark";
 
   return (
-    <div className="min-h-screen bg-[#fff8f1] text-zinc-900 [color-scheme:light]">
+    <div className={`min-h-screen bg-[#fff8f1] text-zinc-900 ${dark ? "menu-dark [color-scheme:dark]" : "[color-scheme:light]"}`}>
       {noTerminal && (
         <p className="sticky top-0 z-50 bg-red-600 px-4 py-2 text-center text-sm font-black text-white">
           Esta pantalla no tiene terminal Point asignada: asígnala en Configuración → Menú digital → Pantalla en el local.
         </p>
       )}
       {idle ? (
-        <button onClick={() => setIdle(false)} className="flex min-h-screen w-full flex-col items-center justify-center gap-8 p-8 text-center" style={{ background: `linear-gradient(160deg, #fff8f1 0%, ${color}22 100%)` }}>
+        <button onClick={() => setIdle(false)} className="flex min-h-screen w-full flex-col items-center justify-center gap-8 p-8 text-center" style={{ background: `linear-gradient(160deg, ${dark ? "#0c0c0e" : "#fff8f1"} 0%, ${color}${dark ? "33" : "22"} 100%)` }}>
           {/* eslint-disable-next-line @next/next/no-img-element -- logo del negocio */}
           <img src={session.business.logo || "/bpos-logo.png"} alt="" className="h-40 w-40 rounded-3xl bg-white object-contain p-3 shadow-xl" />
           <div>
