@@ -129,7 +129,7 @@ export function KioskScreens({ published }: { published: boolean }) {
                 <Link href="/configuracion/sistema" className="font-black text-white underline">
                   Configuración → Sistema
                 </Link>
-                , igual que el de la caja. Luego aquí elige ese Agent y su impresora: ese Agent solo imprime el ticket de su pantalla (no toma comandas).
+                , igual que el de la caja. Luego aquí elige ese Agent y su impresora. Puede ser la misma computadora de la caja: entonces imprime las comandas y además el ticket del kiosco. Si es otra computadora, solo imprime el ticket del kiosco mientras la de la caja esté conectada.
               </li>
             </ol>
             {code ? (
@@ -202,7 +202,7 @@ export function KioskScreens({ published }: { published: boolean }) {
                     {agents.map((a) => (
                       <option key={a.id} value={a.id} disabled={Boolean(a.kiosk_id && a.kiosk_id !== k.id)}>
                         {a.online ? "🟢" : "🔴"} {a.name || "B-POS Agent"}
-                        {a.kiosk_id && a.kiosk_id !== k.id ? " · es de otra pantalla" : !a.kiosk_id ? " · hoy imprime las comandas" : ""}
+                        {a.kiosk_id && a.kiosk_id !== k.id ? " · es de otra pantalla" : !a.kiosk_id ? " · la de la caja" : ""}
                       </option>
                     ))}
                   </select>
