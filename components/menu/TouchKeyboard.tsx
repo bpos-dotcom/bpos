@@ -52,8 +52,6 @@ export function TouchKeyboard() {
         setField(el);
         setShift(false);
         setAccent(false);
-        // Que el campo no quede tapado por el teclado
-        window.setTimeout(() => el.scrollIntoView({ block: "center", behavior: "smooth" }), 50);
       }
     };
     const onBlur = (e: FocusEvent) => {
@@ -72,13 +70,41 @@ export function TouchKeyboard() {
     };
   }, []);
 
-  // Espacio abajo para que el contenido se pueda desplazar por encima del teclado
+  // Con teclado abierto: espacio abajo en la página, las hojas (opciones, pedido) se acortan para
+  // quedar por encima del teclado (html.kb-open en globals.css) y el campo se desplaza a la vista
   useEffect(() => {
     if (!field) return;
     const previous = document.body.style.paddingBottom;
-    document.body.style.paddingBottom = "320px";
+    const reveal = () => {
+      const kb = boxRef.current;
+      if (!kb || !field.isConnected) return;
+      const h = kb.offsetHeight;
+      document.documentElement.style.setProperty("--kb-h", `${h}px`);
+      document.documentElement.classList.add("kb-open");
+      document.body.style.paddingBottom = `${h + 24}px`;
+      // Desplazar el contenedor con scroll más cercano hasta que el campo quede arriba del teclado
+      const limit = window.innerHeight - h - 24;
+      const rect = field.getBoundingClientRect();
+      if (rect.bottom > limit || rect.top < 0) {
+        let el: HTMLElement | null = field.parentElement;
+        while (el && el !== document.body) {
+          const o = getComputedStyle(el).overflowY;
+          if ((o === "auto" || o === "scroll") && el.scrollHeight > el.clientHeight) break;
+          el = el.parentElement;
+        }
+        const delta = rect.bottom - limit + 40;
+        if (el && el !== document.body) el.scrollTop += delta;
+        else window.scrollBy({ top: delta });
+      }
+    };
+    const t1 = window.setTimeout(reveal, 60);
+    const t2 = window.setTimeout(reveal, 350);
     return () => {
+      window.clearTimeout(t1);
+      window.clearTimeout(t2);
       document.body.style.paddingBottom = previous;
+      document.documentElement.classList.remove("kb-open");
+      document.documentElement.style.removeProperty("--kb-h");
     };
   }, [field]);
 

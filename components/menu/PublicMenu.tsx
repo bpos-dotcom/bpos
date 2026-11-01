@@ -163,7 +163,7 @@ function Shell({ children, dark = false }: { children: React.ReactNode; dark?: b
   useEffect(() => {
     document.documentElement.classList.remove("theme-light");
   }, []);
-  return <div className={`min-h-screen w-full bg-[#fff8f1] text-zinc-900 ${dark ? "menu-dark [color-scheme:dark]" : "[color-scheme:light]"}`}>{children}</div>;
+  return <div className={`menu-shell min-h-screen w-full bg-[#fff8f1] text-zinc-900 ${dark ? "menu-dark [color-scheme:dark]" : "[color-scheme:light]"}`}>{children}</div>;
 }
 
 /** Textos y botones encima de la imagen: a la izquierda, al centro o a la derecha (con el difuminado de ese lado) */
