@@ -236,3 +236,13 @@ html.theme-light .bpos-scroll:hover::-webkit-scrollbar-thumb {
 .menu-dark .text-emerald-800, .menu-dark .text-emerald-700 { color: #6ee7b7; }
 .menu-dark .text-sky-800 { color: #7dd3fc; }
 .menu-dark .text-amber-800, .menu-dark .text-amber-700 { color: #fcd34d; }
+
+/* Menú digital: los recuadros que se deslizan (categorías, menú, hojas) sin barra visible */
+.menu-shell * { scrollbar-width: none; }
+.menu-shell *::-webkit-scrollbar { display: none; }
+/* Kiosco: pantalla táctil, ninguna barra en toda la página */
+html.kiosk, html.kiosk * { scrollbar-width: none; }
+html.kiosk::-webkit-scrollbar, html.kiosk *::-webkit-scrollbar { display: none; }
+/* Teclado en pantalla abierto: las hojas fijas (opciones del producto, pedido) terminan arriba del teclado */
+html.kb-open .fixed.inset-0 { bottom: var(--kb-h, 0px); }
+html.kb-open .fixed.inset-0 > div { max-height: 100%; }

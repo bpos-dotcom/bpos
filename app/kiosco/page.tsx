@@ -26,12 +26,14 @@ export default function KioskPage() {
   useEffect(() => {
     // Pantalla táctil: todo un poco más grande, y siempre en claro
     document.documentElement.classList.remove("theme-light");
+    document.documentElement.classList.add("kiosk");
     const previous = document.documentElement.style.fontSize;
     document.documentElement.style.fontSize = "19px";
     // eslint-disable-next-line react-hooks/set-state-in-effect -- llave guardada en este equipo: solo después de montar
     setSession(readKioskSession());
     return () => {
       document.documentElement.style.fontSize = previous;
+      document.documentElement.classList.remove("kiosk");
     };
   }, []);
 
