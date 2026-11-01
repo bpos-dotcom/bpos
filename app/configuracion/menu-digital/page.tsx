@@ -30,6 +30,7 @@ import { PUSH_SERVER as PUBLIC_SITE } from "@/lib/push/rules";
 import { DAY_SHORT } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
 import { getMpStatus } from "@/lib/mp/client";
+import { KioskScreens } from "@/components/menu/KioskScreens";
 import { MenuDesignEditor } from "@/components/menu/MenuDesignEditor";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
@@ -374,6 +375,8 @@ export default function MenuDigitalPage() {
           </section>
 
           {/* WhatsApp y transferencia */}
+          <KioskScreens published={menu.enabled && menu.acceptOrders && Boolean(menu.slug)} />
+
           <section className={card}>
             <h2 className="text-lg font-black">💬 WhatsApp y transferencia</h2>
             <p className="mt-1 text-sm text-zinc-400">
