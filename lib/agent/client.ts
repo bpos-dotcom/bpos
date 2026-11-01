@@ -16,7 +16,7 @@ export type AgentInfo = {
   name: string;
   version: string;
   printers: AgentPrinter[];
-  /** Es el Agent de una pantalla de kiosco: imprime su ticket; las comandas solo si no hay otro Agent de caja en línea */
+  /** Es el Agent exclusivo de una pantalla de kiosco (se vincula desde Menú digital): solo imprime su ticket, nunca comandas */
   kiosk_id: string | null;
   last_seen_at: string | null;
   created_at: string;
