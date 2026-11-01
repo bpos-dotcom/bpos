@@ -1,0 +1,84 @@
+import type { NextRequest } from "next/server";
+import { aiPreflight, aiReply } from "@/lib/ai/cloud";
+import { supabaseAdmin } from "@/lib/billing/mercadopago";
+import { KioskError, listKiosks, newKioskCode, revokeKiosk, updateKiosk } from "@/lib/kiosk/server";
+import { listTerminals, memberSession, merchantToken } from "@/lib/mp/merchant";
+
+/**
+ * Pantallas de kiosco de la sucursal (Configuración → Menú digital, con la
+ * sesión del negocio).
+ *   GET    ?branch=<id>                       pantallas, terminales de la cuenta y la de caja
+ *   POST   { branchId }                       código de 6 dígitos para vincular una pantalla
+ *   PATCH  { id, name?, terminalId? }         nombre o terminal de la pantalla
+ *   DELETE ?id=<pantalla>                     desvincular
+ */
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+export function OPTIONS(request: NextRequest) {
+  return aiPreflight(request);
+}
+
+const fail = (request: NextRequest, error: unknown) =>
+  error instanceof KioskError
+    ? aiReply(request, { success: false, error: error.message }, error.status)
+    : aiReply(request, { success: false, error: error instanceof Error ? error.message : "No se pudo." }, 502);
+
+export async function GET(request: NextRequest) {
+  const session = await memberSession(request);
+  if ("error" in session) return session.error;
+  const branch = request.nextUrl.searchParams.get("branch") || "";
+  if (!session.branchIds.includes(branch)) return aiReply(request, { success: false, error: "Sucursal no encontrada." }, 404);
+  try {
+    const kiosks = await listKiosks(session.businessId, branch);
+    const token = await merchantToken(session.businessId).catch(() => null);
+    const terminals = token ? await listTerminals(token).catch(() => []) : [];
+    const { data: pos } = await supabaseAdmin().from("bpos_mp_terminals").select("terminal_id").eq("branch_id", branch).maybeSingle();
+    return aiReply(request, { success: true, kiosks, terminals, mpLinked: Boolean(token), posTerminal: pos?.terminal_id || null });
+  } catch (error) {
+    return fail(request, error);
+  }
+}
+
+export async function POST(request: NextRequest) {
+  const session = await memberSession(request);
+  if ("error" in session) return session.error;
+  const body = await request.json().catch(() => ({}));
+  const branchId = String(body?.branchId || "");
+  if (!session.branchIds.includes(branchId)) return aiReply(request, { success: false, error: "Sucursal no encontrada." }, 404);
+  try {
+    return aiReply(request, { success: true, ...(await newKioskCode(session.businessId, branchId, session.userId)) });
+  } catch (error) {
+    return fail(request, error);
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  const session = await memberSession(request);
+  if ("error" in session) return session.error;
+  const body = await request.json().catch(() => ({}));
+  const id = String(body?.id || "");
+  if (!id) return aiReply(request, { success: false, error: "Falta la pantalla." }, 400);
+  try {
+    await updateKiosk(session.businessId, id, {
+      ...(body?.name !== undefined ? { name: String(body.name) } : {}),
+      ...(body?.terminalId !== undefined ? { terminalId: String(body.terminalId) } : {}),
+    });
+    return aiReply(request, { success: true });
+  } catch (error) {
+    return fail(request, error);
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  const session = await memberSession(request);
+  if ("error" in session) return session.error;
+  const id = request.nextUrl.searchParams.get("id") || "";
+  if (!id) return aiReply(request, { success: false, error: "Falta la pantalla." }, 400);
+  try {
+    await revokeKiosk(session.businessId, id);
+    return aiReply(request, { success: true });
+  } catch (error) {
+    return fail(request, error);
+  }
+}

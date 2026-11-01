@@ -414,6 +414,11 @@ export type OnlineOrderData = {
   deliveryQuote?: boolean;
   /** Pedido programado: cuándo lo quiere (ISO). Sin esto, lo antes posible */
   scheduledFor?: string;
+  /**
+   * Pedido hecho en el kiosco del local (pantalla táctil): para comer aquí o
+   * para llevar, qué pantalla, y la orden de cobro en la terminal Point.
+   */
+  kiosk?: { eat: KioskEat; screen: string; chargeId?: string };
   /** Cupón que escribió el cliente y el descuento que vio */
   coupon?: { code: string; discount: number };
   total: number;
@@ -435,6 +440,14 @@ export function awaitingOnlinePayment(d: Pick<OnlineOrderData, "payment" | "mp">
 /** Ya pagado en línea (Mercado Pago aprobado, sin devolver) */
 export function paidOnline(d: Pick<OnlineOrderData, "payment" | "mp">) {
   return d.payment === "Mercado Pago" && d.mp?.status === "approved";
+}
+
+export type KioskEat = "aqui" | "llevar";
+
+/** "Kiosco · Para comer aquí" / "Kiosco · Para llevar" ("" si no es del kiosco) */
+export function kioskLabel(d: Pick<OnlineOrderData, "kiosk">) {
+  if (!d.kiosk) return "";
+  return `Kiosco · ${d.kiosk.eat === "aqui" ? "Para comer aquí" : "Para llevar"}`;
 }
 
 /** "vie 31 oct, 8:00 p.m." */

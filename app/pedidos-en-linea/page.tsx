@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { DispatchModal } from "@/components/delivery/DispatchModal";
 import { getCurrentUser } from "@/lib/auth";
-import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, mapsLink, paidOnline, scheduledLabel, scheduledLater, whatsappNumber } from "@/lib/digital-menu";
+import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, kioskLabel, mapsLink, paidOnline, scheduledLabel, scheduledLater, whatsappNumber } from "@/lib/digital-menu";
 import {
   ONLINE_ORDERS_EVENT,
   acceptOnlineOrder,
@@ -130,7 +130,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         <div>
           <p className="text-2xl font-black tracking-widest">{order.folio}</p>
           <p className="text-sm text-zinc-400">
-            {TYPE_ICON[d.type]}
+            {d.kiosk ? `🖥️ ${kioskLabel(d)}` : TYPE_ICON[d.type]}
             {d.type === "Mesa" && d.table ? ` ${d.table}` : ""} · {ago(order.created_at)}
           </p>
         </div>
@@ -145,7 +145,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         </p>
       )}
       <div className="mt-3 rounded-2xl bg-black p-3 text-sm">
-        <p className="font-black">{d.customer.name}</p>
+        <p className="font-black">{d.customer.name}{d.kiosk ? <span className="ml-2 text-xs font-bold text-zinc-500">🖥️ {d.kiosk.screen}</span> : null}</p>
         {d.customer.phone && (
           <a href={`https://wa.me/52${d.customer.phone.slice(-10)}`} target="_blank" rel="noreferrer" className="text-emerald-400 underline">
             📱 {d.customer.phone}
@@ -176,7 +176,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         )}
         {quoting && !isNew && <p className="text-zinc-300">🚚 Envío cotizado: {money(d.deliveryFee || 0)}{paidOnline(d) && d.deliveryFee ? " (cobrar al entregar)" : ""}</p>}
         {paidOnline(d) ? (
-          <p className="font-black text-emerald-400">✅ Pagado con Mercado Pago · {money(d.mp?.amount || 0)}</p>
+          <p className="font-black text-emerald-400">✅ Pagado {d.kiosk ? "en la terminal del kiosco" : "con Mercado Pago"} · {money(d.mp?.amount || 0)}</p>
         ) : d.mp?.status === "refunded" ? (
           <p className="font-black text-sky-300">↩️ Pago de Mercado Pago devuelto</p>
         ) : (

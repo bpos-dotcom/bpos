@@ -10,7 +10,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { getAdminProducts } from "@/lib/admin";
 import { buildSelection, extrasPrice, lineIdFor } from "@/lib/compound";
 import { aiFetch } from "@/lib/ai/client";
-import { awaitingOnlinePayment, getDigitalMenu, isAvailableOnline, mapsLink, paidOnline, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
+import { awaitingOnlinePayment, getDigitalMenu, isAvailableOnline, kioskLabel, mapsLink, paidOnline, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { earnLoyalty } from "@/lib/loyalty-pos";
@@ -169,7 +169,7 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
       createdAt: new Date().toISOString(),
       items,
       details: {
-        orderType: TYPE_LABEL[order.data.type] || "En línea",
+        orderType: kioskLabel(order.data) || TYPE_LABEL[order.data.type] || "En línea",
         customerName: [c.name, tableNote].filter(Boolean).join(" · "),
         customerPhone: c.phone || "",
         customerAddress: [c.address, c.reference, deliveryFee ? `Envío $${deliveryFee.toFixed(2)}${paidOnline(order.data) ? " (cobrar al entregar)" : ""}` : ""].filter(Boolean).join(" · "),
@@ -181,7 +181,7 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
       subtotal,
       total,
       ...(deliveryFee ? { deliveryFee } : {}),
-      source: "Menú digital",
+      source: order.data.kiosk ? "Kiosco" : "Menú digital",
       onlineOrderId: order.id,
       onlineFolio: order.folio,
       ...(order.data.note ? { note: order.data.note } : {}),
