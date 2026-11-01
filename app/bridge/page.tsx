@@ -588,6 +588,8 @@ export default function BridgePage() {
   // equivalencias, esas van a Cocina) cada estación recibe un ticket con solo
   // lo suyo y Caja el de la bolsa con precios. El original queda guardado.
   const stationPrintLocks = useRef(new Set<string>());
+  /** Intentos fallidos por pedido: si ninguna impresora aceptó, se vuelve a intentar (hasta 3) */
+  const stationPrintFailures = useRef(new Map<string, number>());
 
   useEffect(() => {
     let cancelled = false;
@@ -612,6 +614,19 @@ export default function BridgePage() {
           );
           const result = await printDeliveryTickets({ platform: order.platform, orderId: order.orderId, tickets });
           const printers = (result.results || []).filter((r) => r.ok && r.printer).map((r) => r.printer as string);
+          const failures = (result.results || []).filter((r) => !r.ok);
+          if (printers.length === 0 && failures.length) {
+            // Nada salió (impresora apagada, cola trabada): no se da por impreso; se reintenta en el siguiente ciclo
+            const tries = (stationPrintFailures.current.get(key) || 0) + 1;
+            stationPrintFailures.current.set(key, tries);
+            const detail = failures.map((r) => `${r.target}: ${r.error || "sin detalle"}`).join(" · ");
+            console.error(`Ningún ticket de ${key} salió (intento ${tries}): ${detail}`);
+            if (tries < 3) {
+              stationPrintLocks.current.delete(key);
+              continue;
+            }
+            alert(`No se pudieron imprimir los tickets del pedido ${order.orderId} tras 3 intentos.\n${detail}\n\nRevisa la impresora y usa Reimprimir en Impresiones.`);
+          }
           await bridgeFetch("/api/bridge/orders", {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
