@@ -20,6 +20,9 @@ const END_MARKERS = [
   /^monto\b/i,
   /^hora de aceptaci[oó]n\b/i,
   /^resumen de pago\b/i,
+  /^oferta\b/i,
+  /^fecha de la transacci/i,
+  /^gracias por\b/i,
 ];
 
 function cleanLine(value: unknown) {

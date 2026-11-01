@@ -41,10 +41,11 @@ function ownTicketItems(ticket: DeliveryTicket | undefined, line: PreparedLine) 
 
 /**
  * Opciones de un combo de delivery: lo que el cliente eligió en la
- * plataforma ("Elige tu refresco: Manzanita") decide la opción; en un grupo
- * obligatorio sin nada reconocido, la primera opción. Solo cuentan las
- * sub-líneas del renglón de este combo: dos combos con hamburguesas
- * distintas en el mismo pedido no se cruzan.
+ * plataforma ("Elige tu refresco: Manzanita") decide la opción. Si el
+ * ticket no dice nada de un grupo, el grupo queda vacío: no se inventa
+ * la primera opción (salía "Papas Fritas" fantasma en una hamburguesa
+ * sola). Solo cuentan las sub-líneas del renglón de este combo: dos
+ * combos con hamburguesas distintas en el mismo pedido no se cruzan.
  */
 function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
   const said = ownTicketItems(ticket, line).flatMap((i) => [...i.choices.map((c) => c.name), ...i.notes]).map(plain).filter(Boolean);
@@ -58,7 +59,7 @@ function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTic
       })
       .map((o) => o.key);
     const limit = group.max > 0 ? group.max : matched.length;
-    picks[group.key] = matched.length ? matched.slice(0, limit) : Array(group.min).fill(group.options[0]?.key).filter(Boolean);
+    if (matched.length) picks[group.key] = matched.slice(0, limit);
   }
   return picks;
 }

@@ -40,15 +40,17 @@ export type DeliveryTicket = {
 };
 
 const QUANTIFIED = /^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/;
-const TRAILING_MONEY = /\s*(-?)\s*(?:MX\$|\$)\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:MXN)?\s*$/i;
+// "MX$135.00", "$135", "135,00 MXN" (Uber, sin signo) y "(40,50 MXN)" (descuento entre paréntesis)
+const TRAILING_MONEY = /\s*(-?)\s*\(?\s*(?:(?:MX\$|\$)\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:MXN)?|(\d[\d,]*(?:[.,]\d{2}))\s*MXN)\s*\)?\s*$/i;
 const CHARGE = /^(sub\s*total|total(?:\s+a\s+pagar|\s+pagado)?|dto\.?\s+de\s+producto|descuento[^$]*|promoci[oó]n[^$]*|tarifa\s+de\s+(?:entrega|servicio)|costo\s+de\s+env[ií]o|env[ií]o|propina|cargo[^$]*)\s*[:\-]?\s*-?\s*(?:MX\$|\$)/i;
 const NOTE = /^(sin|con|extra|poco|mucho|bien|t[eé]rmino|nota|notas|por favor|aparte)\b/i;
-const END_OF_ITEMS = /^(pago\s+(?:de|en|con)\b|hora\s+de|m[eé]todo\s+de\s+pago|forma\s+de\s+pago)/i;
+const END_OF_ITEMS = /^(pago\s+(?:de|en|con)\b|hora\s+de|m[eé]todo\s+de\s+pago|forma\s+de\s+pago|importe\s+pagado|fecha\s+de\s+la\s+transacci[oó]n|previsto\s+a\s+las|gracias\s+por)/i;
 
 function splitPrice(text: string): { text: string; price: number | null } {
   const match = text.match(TRAILING_MONEY);
   if (!match) return { text: text.trim(), price: null };
-  const amount = Number(match[2].replace(/,/g, ""));
+  // Con signo: "1,234.50" (coma de miles). Sin signo (Uber): "135,00" (coma decimal)
+  const amount = match[2] !== undefined ? Number(match[2].replace(/,/g, "")) : Number(match[3].replace(",", "."));
   return { text: text.slice(0, match.index).trim().replace(/[.\s]+$/, ""), price: match[1] ? -amount : amount };
 }
 
