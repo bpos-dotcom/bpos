@@ -82,6 +82,8 @@ export type DigitalMenuSettings = {
   pickup: boolean;
   delivery: boolean;
   deliveryFee: number;
+  /** Envío a cotizar: el cliente pide sin costo de envío y el negocio lo pone al aceptar (viendo el mapa) */
+  deliveryQuote: boolean;
   minOrder: number;
   /** Mesas con QR (0 = sin pedidos en mesa) */
   tables: number;
@@ -125,6 +127,7 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   pickup: true,
   delivery: false,
   deliveryFee: 0,
+  deliveryQuote: false,
   minOrder: 0,
   tables: 0,
   prepMinutes: 20,
@@ -253,6 +256,7 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
     pickup: r.pickup !== false,
     delivery: r.delivery === true,
     deliveryFee: num(r.deliveryFee, 0),
+    deliveryQuote: r.deliveryQuote === true,
     minOrder: num(r.minOrder, 0),
     tables: Math.round(num(r.tables, 0, 0, 200)),
     prepMinutes: Math.round(num(r.prepMinutes, 20, 5, 240)),
@@ -406,6 +410,8 @@ export type OnlineOrderData = {
   lines: OnlineOrderLine[];
   subtotal: number;
   deliveryFee: number;
+  /** El envío se cotiza al aceptar: deliveryFee y total se actualizan cuando el negocio lo pone */
+  deliveryQuote?: boolean;
   /** Pedido programado: cuándo lo quiere (ISO). Sin esto, lo antes posible */
   scheduledFor?: string;
   /** Cupón que escribió el cliente y el descuento que vio */
@@ -466,9 +472,9 @@ export function orderWhatsappText(businessName: string, folio: string, d: Online
     `Cliente: ${d.customer.name}${d.customer.phone ? ` · ${d.customer.phone}` : ""}`,
     "",
     ...lines,
-    d.deliveryFee ? `Envío ${money(d.deliveryFee)}` : "",
+    d.deliveryFee ? `Envío ${money(d.deliveryFee)}${paidOnline(d) ? " (se paga al repartidor)" : ""}` : d.deliveryQuote ? "Envío: por cotizar" : "",
     d.coupon ? `Cupón ${d.coupon.code} -${money(d.coupon.discount)}` : "",
-    `*Total ${money(d.total)}*`,
+    `*Total ${money(d.total)}${d.deliveryQuote && !d.deliveryFee ? " + envío" : ""}*`,
     "",
     ...where,
     d.scheduledFor ? `📅 Programado para ${scheduledLabel(d.scheduledFor)}` : "",

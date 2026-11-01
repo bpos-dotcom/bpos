@@ -270,8 +270,16 @@ export default function MenuDigitalPage() {
             </div>
             <div className="mt-4 grid gap-4 md:grid-cols-4">
               <label className={label}>
-                Costo de envío $
-                <input type="number" min={0} value={menu.deliveryFee || ""} onChange={(e) => update({ deliveryFee: Number(e.target.value) || 0 })} className={`${input} mt-1`} disabled={!menu.delivery} />
+                Envío
+                <select value={menu.deliveryQuote ? "cotizar" : "fijo"} onChange={(e) => update({ deliveryQuote: e.target.value === "cotizar" })} className={`${input} mt-1`} disabled={!menu.delivery}>
+                  <option value="fijo">Cuota fija</option>
+                  <option value="cotizar">A cotizar al aceptar</option>
+                </select>
+                {menu.deliveryQuote ? (
+                  <span className="mt-1 block text-xs font-normal text-zinc-500">El cliente pide sin costo de envío; al aceptar, ves su ubicación en el mapa y pones lo que cobrarás. Se le avisa y su total se actualiza.</span>
+                ) : (
+                  <input type="number" min={0} placeholder="Costo de envío $" value={menu.deliveryFee || ""} onChange={(e) => update({ deliveryFee: Number(e.target.value) || 0 })} className={`${input} mt-1`} disabled={!menu.delivery} />
+                )}
               </label>
               <label className={label}>
                 Pedido mínimo $

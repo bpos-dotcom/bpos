@@ -883,7 +883,9 @@ function Checkout({
   }, []);
 
   const subtotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
-  const fee = type === "Domicilio" ? menu.deliveryFee : 0;
+  // Envío a cotizar: se pide sin costo de envío; el negocio lo pone al aceptar
+  const quote = type === "Domicilio" && menu.deliveryQuote;
+  const fee = type === "Domicilio" && !quote ? menu.deliveryFee : 0;
   const couponOk = coupon && subtotal >= coupon.minPurchase ? coupon : null;
   const discount = couponOk ? couponDiscount(couponOk, subtotal) : 0;
   const total = Math.max(0, subtotal + fee - discount);
@@ -938,6 +940,7 @@ function Checkout({
       lines: cart.map(({ productId, name: n, quantity, unitPrice, picks, summary, comment }) => ({ productId, name: n, quantity, unitPrice, picks, summary, ...(comment ? { comment } : {}) })),
       subtotal,
       deliveryFee: fee,
+      ...(quote ? { deliveryQuote: true } : {}),
       ...(couponOk && discount > 0 ? { coupon: { code: couponOk.code, discount } } : {}),
       total,
     };
@@ -1175,13 +1178,15 @@ function Checkout({
         <div className="mt-5 space-y-1 border-t border-zinc-100 pt-4 text-sm">
           <p className="flex justify-between"><span>Subtotal</span><span>{money(subtotal)}</span></p>
           {fee > 0 && <p className="flex justify-between"><span>Envío</span><span>{money(fee)}</span></p>}
+          {quote && <p className="flex justify-between"><span>Envío</span><span className="font-bold">Por cotizar</span></p>}
           {discount > 0 && couponOk && <p className="flex justify-between text-emerald-700"><span>Cupón {couponOk.code}</span><span>-{money(discount)}</span></p>}
-          <p className="flex justify-between text-lg font-black"><span>Total</span><span>{money(total)}</span></p>
+          <p className="flex justify-between text-lg font-black"><span>Total</span><span>{money(total)}{quote ? " + envío" : ""}</span></p>
+          {quote && <p className="text-xs text-zinc-500">El negocio revisa tu ubicación y te confirma el costo de envío al aceptar tu pedido.{payment === "Mercado Pago" ? " El envío se paga al repartidor." : ""}</p>}
         </div>
 
         {error && <p className="mt-3 text-sm font-bold text-red-600">{error}</p>}
         <button disabled={sending || cart.length === 0} onClick={() => void send()} className="mt-4 w-full rounded-2xl py-4 text-lg font-black text-white disabled:opacity-40" style={{ background: color }}>
-          {sending ? "Enviando..." : `${scheduledFor ? "Programar pedido" : payment === "Mercado Pago" ? "Pedir y pagar" : "Enviar pedido"} · ${money(total)}`}
+          {sending ? "Enviando..." : `${scheduledFor ? "Programar pedido" : payment === "Mercado Pago" ? "Pedir y pagar" : "Enviar pedido"} · ${money(total)}${quote ? " + envío" : ""}`}
         </button>
         <p className="mt-2 text-center text-xs text-zinc-400">Sin comisiones. El negocio confirma tu pedido en unos minutos.</p>
       </div>
@@ -1470,9 +1475,14 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
             </div>
           ))}
           <div className="my-3 border-t border-dashed border-zinc-300" />
-          {d.deliveryFee > 0 && <p className="flex justify-between"><span>Envío</span><span>{money(d.deliveryFee)}</span></p>}
+          {d.deliveryFee > 0 ? (
+            <p className="flex justify-between"><span>Envío{d.deliveryQuote && paidOnline(d) ? " (se paga al repartidor)" : ""}</span><span>{money(d.deliveryFee)}</span></p>
+          ) : d.deliveryQuote ? (
+            <p className="flex justify-between"><span>Envío</span><span>{status.status === "nuevo" || status.status === "aceptando" ? "Por cotizar" : "Sin costo"}</span></p>
+          ) : null}
           {d.coupon && <p className="flex justify-between"><span>Cupón {d.coupon.code}</span><span>-{money(d.coupon.discount)}</span></p>}
-          <p className="flex justify-between font-black"><span>TOTAL</span><span>{money(d.total)}</span></p>
+          <p className="flex justify-between font-black"><span>TOTAL</span><span>{money(d.total)}{d.deliveryQuote && !d.deliveryFee && (status.status === "nuevo" || status.status === "aceptando") ? " + envío" : ""}</span></p>
+          {d.deliveryQuote && !d.deliveryFee && (status.status === "nuevo" || status.status === "aceptando") && <p className="text-xs text-zinc-500">El negocio te confirma el costo de envío al aceptar.</p>}
           <p className="mt-3 text-center text-xs text-zinc-500">Ticket digital · bpos.com.mx</p>
         </div>
 
