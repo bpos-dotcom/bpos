@@ -14,6 +14,9 @@ async function readApiJson(response: Response): Promise<AliasApiResponse> {
   try {
     return JSON.parse(text) as AliasApiResponse;
   } catch {
+    if (response.headers.get("x-vercel-mitigated") === "challenge" || response.status === 403) {
+      return { success: false, error: "Vercel está bloqueando las peticiones de B-POS (verificación de seguridad). Recarga la página; si sigue, desactiva Attack Challenge Mode en Vercel → proyecto → Firewall." };
+    }
     return { success: false, error: `El servidor no respondió bien (código ${response.status}). Revisa tu conexión e inténtalo de nuevo.` };
   }
 }

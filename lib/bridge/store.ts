@@ -27,6 +27,8 @@ export type BridgeStore = {
   addOrder(order: StoredBridgeOrder): Promise<boolean>;
   saveOrder(order: StoredBridgeOrder): Promise<void>;
   clearOrders(): Promise<void>;
+  /** Borra el historial de pedidos finalizados; así un ticket repetido ya no cuenta como duplicado */
+  clearFinishedOrders(): Promise<number>;
   aliases(): Promise<StoredAlias[]>;
   saveAlias(alias: StoredAlias): Promise<void>;
   deleteAlias(id: string): Promise<boolean>;
@@ -84,6 +86,16 @@ function cloudStore(ctx: Extract<BridgeContext, { mode: "cloud" }>): BridgeStore
     async clearOrders() {
       const { error } = await db.from("bpos_bridge_orders").delete().eq("branch_id", branchId);
       fail(error);
+    },
+    async clearFinishedOrders() {
+      const { data, error } = await db
+        .from("bpos_bridge_orders")
+        .delete()
+        .eq("branch_id", branchId)
+        .in("status", ["Finalizado", "Venta creada"])
+        .select("order_key");
+      fail(error);
+      return (data ?? []).length;
     },
     async aliases() {
       const { data, error } = await db
@@ -144,6 +156,14 @@ const diskStore: BridgeStore = {
   async clearOrders() {
     bridgeOrders().splice(0);
     saveBridgeOrders();
+  },
+  async clearFinishedOrders() {
+    const list = bridgeOrders<StoredBridgeOrder>();
+    const keep = list.filter((o) => o.status !== "Finalizado" && o.status !== "Venta creada");
+    const removed = list.length - keep.length;
+    list.splice(0, list.length, ...keep);
+    saveBridgeOrders();
+    return removed;
   },
   async aliases() {
     return readAliasFile();

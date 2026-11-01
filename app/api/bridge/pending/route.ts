@@ -40,6 +40,8 @@ function cleanExternalName(value: string) {
       /\s+(?:MX\$|\$)\s*-?\d[\d,]*(?:\.\d{1,2})?\s*(?:MXN)?\s*$/i,
       ""
     )
+    // "Copiar": texto del botón de DiDi que se cuela al final del nombre
+    .replace(/\s+copiar$/i, "")
     .trim();
 }
 

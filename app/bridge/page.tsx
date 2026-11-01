@@ -32,6 +32,7 @@ type BridgeAlias = {
   platform?: string | null;
   actionType: AliasActionType;
   targets: AliasTarget[];
+  compound?: boolean;
 };
 
 type AgentOrder = {
@@ -96,6 +97,8 @@ function cleanExternalName(value: string) {
       /\s+(?:MX\$|\$)\s*-?\d[\d,]*(?:\.\d{1,2})?\s*(?:MXN)?\s*$/i,
       ""
     )
+    // "Copiar": texto del botón de DiDi que se cuela al final del nombre
+    .replace(/\s+copiar$/i, "")
     .trim();
 }
 
@@ -254,10 +257,12 @@ export default function BridgePage() {
           platform: alias.platform || null,
           actionType: alias.actionType,
           targets: alias.targets,
+          compound: Boolean(alias.compound),
         })),
         products: catalogProducts.map((product) => ({
           id: product.id,
           name: product.name,
+          options: Boolean(product.modifierGroups?.length),
         })),
         ingredients: catalogIngredients.map((ingredient) => ({
           id: ingredient.id,
@@ -657,6 +662,7 @@ export default function BridgePage() {
   const pendingCount = useMemo(
     () =>
       activeOrders.reduce((count, order) => {
+        if (order.interpretation) return count + order.interpretation.pendingCount;
         const platform = normalize(order.platform);
         return (
           count +
@@ -667,6 +673,24 @@ export default function BridgePage() {
       }, 0),
     [activeOrders, aliases]
   );
+
+  const [clearingHistory, setClearingHistory] = useState(false);
+
+  /** Borra finalizados y con venta creada: el mismo ticket puede volver a entrar (pruebas, reimpresión) */
+  async function clearHistory() {
+    if (!window.confirm("¿Borrar el historial de pedidos finalizados? Los pendientes se quedan. Un ticket que vuelva a llegar ya no contará como duplicado.")) return;
+    setClearingHistory(true);
+    try {
+      const response = await bridgeFetch("/api/bridge/orders?finished=1", { method: "DELETE" });
+      const result = (await response.json().catch(() => ({}))) as { success?: boolean; removed?: number; error?: string };
+      if (!response.ok || !result.success) throw new Error(result.error || `No se pudo limpiar (código ${response.status}).`);
+      await loadData();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "No se pudo limpiar el historial.");
+    } finally {
+      setClearingHistory(false);
+    }
+  }
 
   function configureItem(externalName: string, platform: string) {
     setSelection({ externalName, platform, token: Date.now() });
@@ -754,6 +778,15 @@ export default function BridgePage() {
               </button>
               <button
                 type="button"
+                onClick={() => void clearHistory()}
+                disabled={clearingHistory}
+                title="Borra los pedidos finalizados. Un ticket que vuelva a llegar ya no cuenta como duplicado."
+                className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-3 font-black text-white disabled:opacity-50"
+              >
+                {clearingHistory ? "Limpiando…" : "🧹 Limpiar historial"}
+              </button>
+              <button
+                type="button"
                 onClick={() => void loadData()}
                 className="rounded-2xl bg-orange-500 px-5 py-3 font-black text-black"
               >
@@ -774,11 +807,22 @@ export default function BridgePage() {
             activeOrders.map((order) => {
               const platformKey = normalize(order.platform);
               const items = extractQuantifiedItems(order.rawText || "");
+              // Lo que el motor resolvió sin equivalencia (por nombre, opción del combo, opción gratis)
+              const autoOf = (name: string): string | null => {
+                const key = normalize(name);
+                const product = order.interpretation?.products.find((p) => p.auto && normalize(p.externalName) === key);
+                if (product) return `Reconocido por nombre → ${product.productName}${product.compound ? " · 🧩 combo" : ""}`;
+                const ignored = order.interpretation?.ignored.find((i) => normalize(i.externalName) === key && (i.reason === "compound_option" || i.reason === "free_option"));
+                if (ignored?.reason === "compound_option") return "Opción del combo: la elige el combo";
+                if (ignored?.reason === "free_option") return "Opción sin costo: no necesita equivalencia";
+                return null;
+              };
               const resolved = items.map((item) => ({
                 ...item,
                 alias: findAlias(aliases, item.externalName, platformKey),
+                auto: autoOf(item.externalName),
               }));
-              const unresolved = resolved.filter((item) => !item.alias);
+              const unresolved = resolved.filter((item) => !item.alias && !item.auto);
               const saleCreated = Boolean(
                 order.status === "Venta creada" && order.createdOrderId
               );
@@ -898,6 +942,19 @@ export default function BridgePage() {
                                         </p>
                                       ))
                                     )}
+                                  </div>
+                                ) : item.auto ? (
+                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    <p className="rounded-xl border border-sky-900 bg-sky-950/35 px-3 py-2 text-sm font-black text-sky-300">
+                                      {item.auto}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => configureItem(item.externalName, platformKey)}
+                                      className="text-xs font-black text-zinc-500 underline-offset-2 hover:text-orange-400 hover:underline"
+                                    >
+                                      Cambiar
+                                    </button>
                                   </div>
                                 ) : (
                                   <button
