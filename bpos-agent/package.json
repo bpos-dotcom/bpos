@@ -1,6 +1,6 @@
 {
   "name": "bpos-agent",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "description": "B-POS Agent: lee los pedidos de delivery, imprime y se conecta a B-POS en la nube",
   "main": "main.js",
   "author": "B-POS",
