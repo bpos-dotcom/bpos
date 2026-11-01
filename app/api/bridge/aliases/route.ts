@@ -3,6 +3,7 @@ import { bridgeAuth } from "@/lib/bridge/api-guard";
 import { bridgeStore } from "@/lib/bridge/store";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 30;
 
 type AliasActionType =
   | "product"

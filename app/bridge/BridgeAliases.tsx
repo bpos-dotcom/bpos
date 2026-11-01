@@ -8,6 +8,16 @@ import type { Ingredient } from "@/data/inventory";
 import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 
+/** Respuesta de la API; si el servidor contestó con una página (error de Vercel, tiempo agotado), un mensaje claro en vez de "Unexpected token <". */
+async function readApiJson(response: Response): Promise<AliasApiResponse> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as AliasApiResponse;
+  } catch {
+    return { success: false, error: `El servidor no respondió bien (código ${response.status}). Revisa tu conexión e inténtalo de nuevo.` };
+  }
+}
+
 type AliasActionType = "product" | "ingredient" | "bundle" | "ignore";
 
 type AliasTarget = {
@@ -120,7 +130,7 @@ export default function BridgeAliases({
         cache: "no-store",
       });
 
-      const result = (await response.json()) as AliasApiResponse;
+      const result = await readApiJson(response);
 
       if (!response.ok || !result.success) {
         throw new Error(result.error || "No se pudieron cargar las equivalencias.");
@@ -398,7 +408,7 @@ export default function BridgeAliases({
         }),
       });
 
-      const result = (await response.json()) as AliasApiResponse;
+      const result = await readApiJson(response);
 
       if (!response.ok || !result.success) {
         throw new Error(result.error || "No se pudo guardar la equivalencia.");
@@ -445,7 +455,7 @@ export default function BridgeAliases({
         body: JSON.stringify({ id: alias.id }),
       });
 
-      const result = (await response.json()) as AliasApiResponse;
+      const result = await readApiJson(response);
 
       if (!response.ok || !result.success) {
         throw new Error(result.error || "No se pudo eliminar la equivalencia.");

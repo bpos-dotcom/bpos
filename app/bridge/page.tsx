@@ -106,7 +106,7 @@ function extractQuantifiedItems(rawText: string): QuantifiedItem[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line, index) => {
-      const match = line.match(/^\s*(\d{1,4})\s*[xX×]\s*(.+?)\s*$/);
+      const match = line.match(/^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/);
       if (!match) return null;
       const qty = Number(match[1]);
       const externalName = cleanExternalName(match[2]);
