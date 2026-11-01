@@ -3,7 +3,7 @@ import { KioskError, cancelKioskOrder, createKioskOrder, kioskConfigured, kioskF
 
 /**
  * Pedido del kiosco (siempre con la llave de la pantalla en x-kiosk-token).
- *   POST   { lines, eat, name? }   guarda el pedido y enciende la terminal con el total
+ *   POST   { lines, eat, name?, club? }   guarda el pedido (club = teléfono del socio) y enciende la terminal
  *   GET    ?id=<pedido>            cómo va el cobro: esperando · pagado · fallo
  *   PATCH  { id }                  reintentar el cobro (otra orden a la terminal)
  *   DELETE ?id=<pedido>            el cliente canceló: se cancela en la terminal y se borra
@@ -25,7 +25,7 @@ async function kiosk(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const k = await kiosk(request);
-    const body = (await request.json().catch(() => ({}))) as { lines?: unknown; eat?: unknown; name?: unknown };
+    const body = (await request.json().catch(() => ({}))) as { lines?: unknown; eat?: unknown; name?: unknown; club?: unknown };
     return NextResponse.json({ success: true, ...(await createKioskOrder(k, body)) });
   } catch (error) {
     return fail(error);

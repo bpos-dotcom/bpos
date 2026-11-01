@@ -4,14 +4,23 @@
  * o para llevar, toca Pagar y la terminal Point se enciende con el total. La
  * pantalla pregunta cómo va el cobro cada 2 segundos; al aprobarse muestra el
  * número de pedido y vuelve al inicio.
+ *
+ * Si el negocio tiene club (Configuración → Club), el cliente puede poner su
+ * teléfono para que la compra sume a su cuenta; el campo se vacía con cada
+ * pedido.
  */
 import { useEffect, useState } from "react";
 import type { KioskEat, OnlineOrderLine } from "@/lib/digital-menu";
 import { kioskFetch, setKioskBusy, type KioskSession } from "@/lib/kiosk/client";
 
 type Line = OnlineOrderLine & { key: string };
-type Placed = { id: string; folio: string; total: number; status: "esperando" | "pagado" | "fallo"; detail?: string };
+type Placed = { id: string; folio: string; total: number; status: "esperando" | "pagado" | "fallo"; detail?: string; club?: string };
 type Step = "revisar" | "pagando" | "pagado" | "fallo";
+/** Club del negocio (Configuración → Club), si está encendido */
+type Club = { name: string; kind: "puntos" | "sellos" | "cashback" };
+type ClubLookup = { phone: string; member: { name: string; member: boolean } | null };
+
+const CLUB_UNIT: Record<Club["kind"], string> = { puntos: "puntos", sellos: "sellos", cashback: "saldo" };
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 /** Segundos que se muestra el número de pedido antes de volver al inicio */
@@ -41,6 +50,38 @@ export function KioskCheckout({
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [left, setLeft] = useState(DONE_SECONDS);
+  // Club: el número (teléfono) del socio vive solo en esta hoja; al terminar el pedido
+  // la hoja se cierra y el siguiente cliente la ve vacía (de un solo uso)
+  const [club, setClub] = useState<Club | null>(null);
+  const [clubPhone, setClubPhone] = useState("");
+  const [clubLookup, setClubLookup] = useState<ClubLookup | null>(null);
+
+  // ¿El negocio tiene club? Si no, el campo no sale
+  useEffect(() => {
+    let alive = true;
+    kioskFetch<{ club: Club | null }>("/api/kiosco/club")
+      .then((r) => alive && setClub(r.club))
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  // Con los 10 dígitos completos se busca al socio para saludarlo (o avisar que no está)
+  useEffect(() => {
+    if (!club || clubPhone.length !== 10) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      kioskFetch<{ member: ClubLookup["member"] }>(`/api/kiosco/club?phone=${clubPhone}`)
+        .then((r) => alive && setClubLookup({ phone: clubPhone, member: r.member }))
+        .catch(() => {});
+    }, 300);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [club, clubPhone]);
+  const lookup = clubLookup?.phone === clubPhone && clubPhone.length === 10 ? clubLookup : null;
 
   /** Pago aprobado: número de pedido y cuenta regresiva para volver al inicio */
   function finish(r: Placed) {
@@ -103,11 +144,17 @@ export function KioskCheckout({
     if (!cart.length) return setError("Tu pedido está vacío.");
     if (!eat) return setError("Dinos si es para comer aquí o para llevar.");
     if (minOrder > 0 && total < minOrder) return setError(`El pedido mínimo es de ${money(minOrder)}.`);
+    if (clubPhone && clubPhone.length !== 10) return setError(`Tu número del ${club?.name || "club"} son los 10 dígitos de tu teléfono (o déjalo vacío).`);
     setBusy(true);
     try {
       const r = await kioskFetch<Placed>("/api/kiosco/pedido", {
         method: "POST",
-        body: JSON.stringify({ eat, name: name.trim(), lines: cart.map(({ productId, quantity, picks, comment }) => ({ productId, quantity, picks, ...(comment ? { comment } : {}) })) }),
+        body: JSON.stringify({
+          eat,
+          name: name.trim(),
+          ...(club && clubPhone.length === 10 ? { club: clubPhone } : {}),
+          lines: cart.map(({ productId, quantity, picks, comment }) => ({ productId, quantity, picks, ...(comment ? { comment } : {}) })),
+        }),
       });
       setPlaced(r);
       setStep("pagando");
@@ -186,6 +233,11 @@ export function KioskCheckout({
           {eat === "aqui" ? "Toma asiento: te llamamos con tu número cuando esté listo." : "Te llamamos con tu número cuando esté listo para llevar."}
           {name.trim() ? ` Gracias, ${name.trim().split(" ")[0]}.` : ""}
         </p>
+        {placed.club !== undefined && club && (
+          <p className="mt-4 rounded-2xl bg-amber-50 px-4 py-3 text-lg font-bold text-amber-800">
+            ⭐ {club.name}: esta compra suma {CLUB_UNIT[club.kind]} a la cuenta de {placed.club.trim().split(" ")[0] || "tu cuenta"}.
+          </p>
+        )}
         <button onClick={onDone} className={`${big} mt-10`} style={{ background: color }}>
           Listo ({left}s)
         </button>
@@ -260,6 +312,33 @@ export function KioskCheckout({
           Tu nombre <span className="text-sm font-bold text-zinc-500">(opcional, para llamarte)</span>
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} className="mt-1 w-full rounded-2xl border-2 border-zinc-200 px-5 py-4 text-xl" />
         </label>
+
+        {club && (
+          <label className="mt-5 block text-lg font-black">
+            ⭐ Tu número del {club.name} <span className="text-sm font-bold text-zinc-500">(opcional: tu teléfono, para sumar {CLUB_UNIT[club.kind]})</span>
+            <input
+              type="tel"
+              inputMode="numeric"
+              value={clubPhone}
+              onChange={(e) => setClubPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              maxLength={10}
+              placeholder="10 dígitos"
+              autoComplete="off"
+              className="mt-1 w-full rounded-2xl border-2 border-zinc-200 px-5 py-4 text-xl tracking-widest"
+            />
+            {lookup && lookup.member && (
+              <span className="mt-2 block text-base font-bold text-emerald-700">
+                ✅ Hola{lookup.member.name.trim() ? `, ${lookup.member.name.trim().split(" ")[0]}` : ""}.{" "}
+                {lookup.member.member ? `Esta compra suma a tu ${club.name}.` : `Aún no te has unido al ${club.name}: únete desde tu cuenta en el menú digital y la próxima compra ya suma.`}
+              </span>
+            )}
+            {lookup && !lookup.member && (
+              <span className="mt-2 block text-base font-bold text-amber-700">
+                No encontramos ese número. Regístrate en el menú digital de {kiosk.business.name} con tu teléfono para juntar {CLUB_UNIT[club.kind]}. Puedes seguir sin él.
+              </span>
+            )}
+          </label>
+        )}
 
         <div className="mt-6 flex items-center justify-between border-t border-zinc-100 pt-5">
           <span className="text-2xl font-black">Total</span>
