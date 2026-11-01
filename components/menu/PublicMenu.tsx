@@ -724,6 +724,22 @@ function ChoiceSheet({
   const problem = modifierProblem(groups, picks);
   const p = { ...product, modifierGroups: groups };
   const total = Number(product.price) + extrasPrice(buildSelection(p, catalog, { [OWN_OPTIONS]: picks }).modifiers);
+  // Tocar "Agregar" con algo obligatorio sin elegir: ese grupo parpadea en rojo y se desplaza a la vista
+  const [flash, setFlash] = useState("");
+  const groupRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const missing = groups.find((g) => {
+    const n = (picks[g.key] || []).length;
+    return n < g.min || (g.max > 0 && n > g.max);
+  });
+
+  function tryAdd() {
+    if (!problem) return onAdd(picks, comment.trim());
+    if (!missing) return;
+    const el = groupRefs.current[missing.key];
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setFlash("");
+    window.setTimeout(() => setFlash(missing.key), 20);
+  }
 
   function toggle(groupKey: string, optionKey: string, max: number, min: number) {
     setPicks((cur) => {
@@ -737,9 +753,10 @@ function ChoiceSheet({
 
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/50 sm:items-center" onClick={onClose}>
-      <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-t-3xl bg-white sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+      <div className="flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-t-3xl bg-white sm:rounded-3xl" onClick={(e) => e.stopPropagation()}>
+        <div className="min-h-0 flex-1 overflow-y-auto">
         {product.image && <Photo product={product} className="aspect-[16/10] w-full" />}
-        <div className="p-5">
+        <div className="p-5 pb-3">
           <div className="flex items-start gap-3">
             {!product.image && <span className="text-5xl">{product.emoji || "🍽️"}</span>}
             <div className="flex-1">
@@ -753,9 +770,17 @@ function ChoiceSheet({
           {groups.filter((g) => !isAutoGroup(g)).map((g) => {
             const chosen = picks[g.key] || [];
             const extra = extraCount(g, chosen.length);
+            const flashing = flash === g.key;
             return (
-              <div key={g.key} className="mt-5">
-                <p className="font-black">
+              <div
+                key={g.key}
+                ref={(el) => {
+                  groupRefs.current[g.key] = el;
+                }}
+                onAnimationEnd={() => flashing && setFlash("")}
+                className={`mt-5 rounded-2xl ${flashing ? "menu-flash" : ""}`}
+              >
+                <p className={`font-black ${flashing ? "text-red-600" : ""}`}>
                   {g.name}
                   <span className="ml-2 text-xs font-bold text-zinc-500">
                     {g.min > 0 ? `Obligatorio · elige ${g.min}` : "Opcional"}
@@ -792,12 +817,16 @@ function ChoiceSheet({
             <input value={comment} maxLength={140} onChange={(e) => setComment(e.target.value)} placeholder="Ej. sin cebolla" className="mt-1 w-full rounded-xl border border-zinc-200 px-4 py-3" />
           </label>
 
-          {problem && <p className="mt-3 text-sm font-bold text-red-600">{problem.charAt(0).toUpperCase() + problem.slice(1)}</p>}
+        </div>
+        </div>
+        {/* Siempre a la vista: en gris mientras falte algo obligatorio (tocarlo señala lo que falta) */}
+        <div className="shrink-0 border-t border-zinc-100 bg-white px-5 py-3">
+          {problem && <p className={`mb-2 text-sm font-bold ${flash ? "text-red-600" : "text-zinc-500"}`}>{problem.charAt(0).toUpperCase() + problem.slice(1)}</p>}
           <button
-            disabled={Boolean(problem)}
-            onClick={() => onAdd(picks, comment.trim())}
-            className="mt-4 w-full rounded-2xl py-4 text-lg font-black text-white disabled:opacity-40"
-            style={{ background: color }}
+            onClick={tryAdd}
+            aria-disabled={Boolean(problem)}
+            className="w-full rounded-2xl py-4 text-lg font-black text-white"
+            style={problem ? { background: "#a1a1aa" } : { background: color }}
           >
             Agregar · {money(total)}
           </button>
