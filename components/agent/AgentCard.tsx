@@ -85,9 +85,9 @@ export function AgentCard({ className = "" }: { className?: string }) {
         <p className="mt-4 text-sm text-zinc-500">Modo de prueba sin nube: el Agent de esta computadora se usa directo.</p>
       ) : (
         <>
-          {(agents?.filter((a) => a.online).length ?? 0) > 1 && (
+          {(agents?.filter((a) => a.online && !a.kiosk_id).length ?? 0) > 1 && (
             <div className="mt-5 rounded-2xl border border-red-500/60 bg-red-500/10 p-4 text-sm">
-              <p className="font-black text-red-300">⚠️ Hay {agents?.filter((a) => a.online).length} computadoras con B-POS Agent conectadas en esta sucursal.</p>
+              <p className="font-black text-red-300">⚠️ Hay {agents?.filter((a) => a.online && !a.kiosk_id).length} computadoras con B-POS Agent conectadas en esta sucursal.</p>
               <p className="mt-1 text-red-200/80">
                 Los tickets se reparten entre ellas al azar: los que caen en la computadora sin impresoras no salen. Deja vinculada solo la
                 computadora de las impresoras y desvincula las demás aquí abajo.
@@ -104,6 +104,7 @@ export function AgentCard({ className = "" }: { className?: string }) {
                     <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${agent.online ? "bg-green-500" : "bg-red-500"}`} />
                     {agent.name || "B-POS Agent"}
                     <span className="ml-2 text-sm font-bold text-zinc-500">{agent.online ? "Conectado" : `Desconectado · visto ${ago(agent.last_seen_at)}`}</span>
+                    {agent.kiosk_id && <span className="ml-2 rounded-lg bg-sky-500/20 px-2 py-0.5 text-xs font-bold text-sky-300">🖥️ Kiosco: solo imprime el ticket de su pantalla</span>}
                   </p>
                   <p className="mt-1 text-xs text-zinc-500">
                     {agent.version ? `Versión ${agent.version} · ` : ""}

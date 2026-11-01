@@ -14,7 +14,7 @@ import type { KioskEat, OnlineOrderLine } from "@/lib/digital-menu";
 import { kioskFetch, setKioskBusy, type KioskSession } from "@/lib/kiosk/client";
 
 type Line = OnlineOrderLine & { key: string };
-type Placed = { id: string; folio: string; total: number; status: "esperando" | "pagado" | "fallo"; detail?: string; club?: string };
+type Placed = { id: string; folio: string; total: number; status: "esperando" | "pagado" | "fallo"; detail?: string; club?: string; ticket?: boolean };
 type Step = "revisar" | "pagando" | "pagado" | "fallo";
 /** Club del negocio (Configuración → Club), si está encendido */
 type Club = { name: string; kind: "puntos" | "sellos" | "cashback" };
@@ -237,6 +237,7 @@ export function KioskCheckout({
         <h2 className="mt-3 text-4xl font-black">¡Pago aprobado!</h2>
         <p className="mt-6 text-sm font-black uppercase tracking-widest text-zinc-500">Tu número de pedido</p>
         <p className="mt-1 text-8xl font-black tracking-[0.2em]" style={{ color }}>{placed.folio}</p>
+        {placed.ticket && <p className="mt-4 text-xl font-black">🧾 Toma tu ticket de la impresora.</p>}
         <p className="mt-6 text-xl text-zinc-600">
           {eat === "aqui" ? "Toma asiento: te llamamos con tu número cuando esté listo." : "Te llamamos con tu número cuando esté listo para llevar."}
           {name.trim() ? ` Gracias, ${name.trim().split(" ")[0]}.` : ""}

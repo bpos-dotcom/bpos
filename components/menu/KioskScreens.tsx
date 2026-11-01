@@ -15,8 +15,9 @@ import { agentScope } from "@/lib/agent/client";
 import { terminalLabel, type MpTerminal } from "@/lib/mp/client";
 import { PUSH_SERVER as PUBLIC_SITE } from "@/lib/push/rules";
 
-type Kiosk = { id: string; name: string; terminal_id: string; last_seen_at: string | null; created_at: string };
-type Screens = { kiosks: Kiosk[]; terminals: MpTerminal[]; mpLinked: boolean; posTerminal: string | null };
+type Kiosk = { id: string; name: string; terminal_id: string; printer: string; paper_mm: number; last_seen_at: string | null; created_at: string };
+type Agent = { id: string; name: string; kiosk_id: string | null; printers: { name: string; displayName?: string }[]; online: boolean };
+type Screens = { kiosks: Kiosk[]; agents: Agent[]; terminals: MpTerminal[]; mpLinked: boolean; posTerminal: string | null };
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -123,6 +124,13 @@ export function KioskScreens({ published }: { published: boolean }) {
               </li>
               <li>Escribe el correo de tu cuenta de B-POS y el código de abajo.</li>
               <li>Aquí mismo elige qué terminal Point le toca a esa pantalla.</li>
+              <li>
+                ¿Ticket para el cliente? Instala B-POS Agent en la computadora del kiosco y vincúlalo en{" "}
+                <Link href="/configuracion/sistema" className="font-black text-white underline">
+                  Configuración → Sistema
+                </Link>
+                , igual que el de la caja. Luego aquí elige ese Agent y su impresora: ese Agent solo imprime el ticket de su pantalla (no toma comandas).
+              </li>
             </ol>
             {code ? (
               <div className="mt-3 rounded-2xl border border-emerald-500/50 bg-emerald-500/10 p-4 text-center">
@@ -144,7 +152,11 @@ export function KioskScreens({ published }: { published: boolean }) {
 
           {data === undefined && <p className="text-sm text-zinc-500">Cargando pantallas...</p>}
           {data && kiosks.length === 0 && <p className="text-sm text-zinc-500">Todavía no hay pantallas vinculadas en esta sucursal.</p>}
-          {kiosks.map((k) => (
+          {kiosks.map((k) => {
+            const agents = data?.agents || [];
+            const mine = agents.find((a) => a.kiosk_id === k.id) || null;
+            const patch = (body: Record<string, unknown>, ok = "") => run(() => call("/api/kiosco/pantallas", { method: "PATCH", body: JSON.stringify({ id: k.id, ...body }) }), ok);
+            return (
             <div key={k.id} className="grid gap-3 rounded-2xl border border-zinc-800 bg-black p-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
               <label className="block text-sm font-bold text-zinc-300">
                 Nombre
@@ -153,7 +165,7 @@ export function KioskScreens({ published }: { published: boolean }) {
                   maxLength={60}
                   onBlur={(e) => {
                     const name = e.target.value.trim();
-                    if (name && name !== k.name) void run(() => call("/api/kiosco/pantallas", { method: "PATCH", body: JSON.stringify({ id: k.id, name }) }));
+                    if (name && name !== k.name) void patch({ name });
                   }}
                   className={`${input} mt-1`}
                 />
@@ -164,12 +176,7 @@ export function KioskScreens({ published }: { published: boolean }) {
                 <select
                   value={k.terminal_id}
                   disabled={busy || !data?.mpLinked}
-                  onChange={(e) =>
-                    void run(
-                      () => call("/api/kiosco/pantallas", { method: "PATCH", body: JSON.stringify({ id: k.id, terminalId: e.target.value }) }),
-                      e.target.value ? "✅ Listo. Si es la primera vez que la terminal se conecta a B-POS, apágala y vuélvela a prender." : ""
-                    )
-                  }
+                  onChange={(e) => void patch({ terminalId: e.target.value }, e.target.value ? "✅ Listo. Si es la primera vez que la terminal se conecta a B-POS, apágala y vuélvela a prender." : "")}
                   className={`${input} mt-1`}
                 >
                   <option value="">Sin terminal (no puede cobrar)</option>
@@ -187,6 +194,41 @@ export function KioskScreens({ published }: { published: boolean }) {
                   <span className="mt-1 block text-xs font-normal text-zinc-500">No hay terminales en tu cuenta de Mercado Pago. Enciende la terminal e inicia sesión en ella con tu cuenta.</span>
                 )}
               </label>
+              <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
+                <label className="block text-sm font-bold text-zinc-300">
+                  🧾 Computadora del kiosco (B-POS Agent)
+                  <select value={mine?.id || ""} disabled={busy} onChange={(e) => void patch({ agentId: e.target.value }, e.target.value ? "Ahora elige la impresora del ticket." : "")} className={`${input} mt-1`}>
+                    <option value="">Sin ticket impreso (solo el número en pantalla)</option>
+                    {agents.map((a) => (
+                      <option key={a.id} value={a.id} disabled={Boolean(a.kiosk_id && a.kiosk_id !== k.id)}>
+                        {a.online ? "🟢" : "🔴"} {a.name || "B-POS Agent"}
+                        {a.kiosk_id && a.kiosk_id !== k.id ? " · es de otra pantalla" : !a.kiosk_id ? " · hoy imprime las comandas" : ""}
+                      </option>
+                    ))}
+                  </select>
+                  {agents.length === 0 && <span className="mt-1 block text-xs font-normal text-zinc-500">Esta sucursal no tiene ningún B-POS Agent vinculado.</span>}
+                </label>
+                <label className="block text-sm font-bold text-zinc-300">
+                  Impresora del ticket
+                  <select value={k.printer} disabled={busy || !mine} onChange={(e) => void patch({ printer: e.target.value }, e.target.value ? "✅ Listo: el ticket del cliente saldrá ahí al aprobarse el pago." : "")} className={`${input} mt-1`}>
+                    <option value="">Elige la impresora</option>
+                    {(mine?.printers || []).map((p) => (
+                      <option key={p.name} value={p.name}>
+                        {p.displayName || p.name}
+                      </option>
+                    ))}
+                    {k.printer && !(mine?.printers || []).some((p) => p.name === k.printer) && <option value={k.printer}>{k.printer} (no la reporta el Agent)</option>}
+                  </select>
+                  {mine && mine.printers.length === 0 && <span className="mt-1 block text-xs font-normal text-zinc-500">Ese Agent no reporta impresoras: revisa que esté prendido y con la impresora instalada en Windows.</span>}
+                </label>
+                <label className="block text-sm font-bold text-zinc-300">
+                  Papel
+                  <select value={k.paper_mm === 58 ? 58 : 80} disabled={busy || !mine} onChange={(e) => void patch({ paperMm: Number(e.target.value) })} className={`${input} mt-1`}>
+                    <option value={80}>80 mm</option>
+                    <option value={58}>58 mm</option>
+                  </select>
+                </label>
+              </div>
               <button
                 disabled={busy}
                 onClick={() => {
@@ -199,7 +241,8 @@ export function KioskScreens({ published }: { published: boolean }) {
                 Desvincular
               </button>
             </div>
-          ))}
+            );
+          })}
 
           <p className="text-xs text-zinc-500">
             La terminal del kiosco queda en modo conectado (PDV): solo acepta cobros que le mande B-POS. Funciona con Point Smart y Point Pro 2. Para que la
