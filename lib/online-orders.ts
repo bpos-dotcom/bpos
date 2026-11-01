@@ -61,7 +61,7 @@ export async function listOnlineOrders(): Promise<OnlineOrder[]> {
   return (data || []) as OnlineOrder[];
 }
 
-async function setStatus(id: string, patch: Partial<Pick<OnlineOrder, "status" | "sale_order_id" | "eta_minutes" | "reason">>) {
+async function setStatus(id: string, patch: Partial<Pick<OnlineOrder, "status" | "sale_order_id" | "eta_minutes" | "reason" | "data">>) {
   const { error } = await getSupabase()
     .from("bpos_online_orders")
     .update({ ...patch, updated_at: new Date().toISOString() })
@@ -137,7 +137,7 @@ const TYPE_LABEL: Record<OnlineOrderData["type"], string> = {
  * Acepta el pedido: lo "toma" en la nube (para que otro dispositivo no lo
  * acepte también), crea la venta del turno, descuenta inventario e imprime.
  */
-export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, userName = "") {
+export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, userName = "", options: { deliveryFee?: number } = {}) {
   if (!localStorage.getItem("bpos_active_shift")) throw new Error("Abre la caja para aceptar pedidos en línea.");
   if (awaitingOnlinePayment(order.data)) throw new Error("El cliente todavía no termina de pagar con Mercado Pago.");
   if (order.data.mp?.status === "refunded") throw new Error("Ya se le devolvió el pago de este pedido.");
@@ -153,8 +153,10 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
   try {
     const sequence = allocateShiftOrderNumber();
     const orders = readOrders();
-    // El envío va en el total (no es un producto: no pasa por cocina ni inventario)
-    const deliveryFee = order.data.type === "Domicilio" ? Math.max(0, Number(getDigitalMenu().deliveryFee) || 0) : 0;
+    // El envío va en el total (no es un producto: no pasa por cocina ni inventario).
+    // A cotizar: lo que puso el negocio al aceptar; si no, la cuota fija del menú.
+    const deliveryFee =
+      order.data.type !== "Domicilio" ? 0 : order.data.deliveryQuote ? Math.max(0, Number(options.deliveryFee) || 0) : Math.max(0, Number(getDigitalMenu().deliveryFee) || 0);
     const items = cart;
     const discount = coupon?.discount || 0;
     const total = Math.max(0, subtotal + deliveryFee - discount);
@@ -170,7 +172,7 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
         orderType: TYPE_LABEL[order.data.type] || "En línea",
         customerName: [c.name, tableNote].filter(Boolean).join(" · "),
         customerPhone: c.phone || "",
-        customerAddress: [c.address, c.reference, deliveryFee ? `Envío $${deliveryFee.toFixed(2)}` : ""].filter(Boolean).join(" · "),
+        customerAddress: [c.address, c.reference, deliveryFee ? `Envío $${deliveryFee.toFixed(2)}${paidOnline(order.data) ? " (cobrar al entregar)" : ""}` : ""].filter(Boolean).join(" · "),
         // Pagado en línea: entra a la caja como "Mercado Pago" (no es efectivo del cajón)
         paymentMethod: order.data.payment || "Efectivo",
         discount,
@@ -192,7 +194,15 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
     if (order.account_id) void earnLoyalty(order.account_id, total, `online:${order.id}`, userName);
     discountInventoryByOrder(sale.id, cart);
     notifyKdsUpdated(sale.id);
-    await setStatus(order.id, { status: "aceptado", sale_order_id: sale.id, eta_minutes: etaMinutes });
+    await setStatus(order.id, {
+      status: "aceptado",
+      sale_order_id: sale.id,
+      eta_minutes: etaMinutes,
+      // Envío cotizado: el cliente ve el costo y su total actualizado en su liga
+      ...(order.data.deliveryQuote
+        ? { data: { ...order.data, deliveryFee, total: Math.max(0, Number(order.data.subtotal) + deliveryFee - (order.data.coupon?.discount || 0)) } }
+        : {}),
+    });
 
     addAuditEvent({
       category: "Venta",
@@ -220,7 +230,7 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
 export function onlinePaymentShort(data: OnlineOrderData) {
   if (!paidOnline(data) || !data.mp) return "";
   const { subtotal, coupon } = buildOnlineCart(data);
-  const fee = data.type === "Domicilio" ? Math.max(0, Number(getDigitalMenu().deliveryFee) || 0) : 0;
+  const fee = data.type === "Domicilio" && !data.deliveryQuote ? Math.max(0, Number(getDigitalMenu().deliveryFee) || 0) : 0;
   const total = Math.max(0, subtotal + fee - (coupon?.discount || 0));
   return data.mp.amount + 0.5 < total
     ? `El cliente pagó ${data.mp.amount.toFixed(2)} pero con tus precios el pedido es de ${total.toFixed(2)}. Recházalo (se le devuelve su pago) o pídele la diferencia.`

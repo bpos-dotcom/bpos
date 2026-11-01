@@ -38,6 +38,8 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   const [dispatching, setDispatching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  /** Envío a cotizar: lo que cobrará el negocio por llevarlo (se captura antes de aceptar) */
+  const [shipFee, setShipFee] = useState("");
   const d = order.data;
   const short = order.status === "nuevo" ? onlinePaymentShort(d) : "";
   const problems = order.status === "nuevo" ? [...buildOnlineCart(d).problems, ...(short ? [short] : [])] : [];
@@ -62,26 +64,39 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
    * se abre en el mismo clic (si no, el navegador la bloquea) y se llena al
    * terminar; si algo falla, se cierra.
    */
-  async function step(notice: CustomerNotice, action: () => Promise<unknown>, opts: { eta?: number; reason?: string } = {}) {
-    const link = menu.whatsappNotify ? customerWhatsappLink(order, notice, opts) : "";
+  async function step(notice: CustomerNotice, action: () => Promise<unknown>, opts: { eta?: number; reason?: string } = {}, orderForNotice: OnlineOrder = order) {
+    const link = menu.whatsappNotify ? customerWhatsappLink(orderForNotice, notice, opts) : "";
     const w = link ? window.open("", "_blank") : null;
     const ok = await run(action);
     if (ok && w) w.location.href = link;
     else w?.close();
   }
 
+  const quoting = d.type === "Domicilio" && Boolean(d.deliveryQuote);
+
   async function accept() {
     // Programado: el tiempo estimado es lo que falta para su hora
     const etaUse = d.scheduledFor ? Math.max(5, Math.round((Date.parse(d.scheduledFor) - Date.now()) / 60000)) : eta;
+    let fee = 0;
+    let noticeOrder = order;
+    if (quoting) {
+      fee = Number(shipFee.replace(",", "."));
+      if (!shipFee.trim() || !Number.isFinite(fee) || fee < 0) {
+        alert("Pon el costo de envío (puede ser 0). Mira su ubicación en el mapa para cotizarlo.");
+        return;
+      }
+      noticeOrder = { ...order, data: { ...d, deliveryFee: fee, total: Math.max(0, Number(d.subtotal) + fee - (d.coupon?.discount || 0)) } };
+    }
     await step(
       "aceptado",
       async () => {
-        const result = await acceptOnlineOrder(order, etaUse, getCurrentUser()?.name);
+        const result = await acceptOnlineOrder(order, etaUse, getCurrentUser()?.name, quoting ? { deliveryFee: fee } : {});
         if (result.printFailed.length) setMessage(`Aceptado. No se imprimió en: ${result.printFailed.join(", ")}. Reimprime desde Impresiones.`);
         // A domicilio: de una vez elegir quién lo lleva
         if (order.data.type === "Domicilio") setDispatching(true);
       },
-      { eta: etaUse }
+      { eta: etaUse },
+      noticeOrder
     );
   }
 
@@ -142,6 +157,24 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
             🗺️ Ver ubicación en el mapa
           </a>
         )}
+        {quoting && isNew && (
+          <label className="mt-2 block rounded-2xl border border-orange-500/50 bg-orange-500/10 p-3 font-black text-orange-300">
+            🚚 Costo de envío $
+            <input
+              type="number"
+              min={0}
+              inputMode="decimal"
+              value={shipFee}
+              onChange={(e) => setShipFee(e.target.value)}
+              placeholder="0"
+              className="mt-1 w-full rounded-xl border border-zinc-700 bg-black px-3 py-2 text-lg text-white"
+            />
+            <span className="mt-1 block text-xs font-bold text-orange-200/80">
+              El cliente pidió con envío por cotizar: mira el mapa, pon lo que cobrarás y acepta. Se le avisa y su total se actualiza.{paidOnline(d) ? " Ya pagó los productos: el envío se cobra al entregar." : ""}
+            </span>
+          </label>
+        )}
+        {quoting && !isNew && <p className="text-zinc-300">🚚 Envío cotizado: {money(d.deliveryFee || 0)}{paidOnline(d) && d.deliveryFee ? " (cobrar al entregar)" : ""}</p>}
         {paidOnline(d) ? (
           <p className="font-black text-emerald-400">✅ Pagado con Mercado Pago · {money(d.mp?.amount || 0)}</p>
         ) : d.mp?.status === "refunded" ? (
