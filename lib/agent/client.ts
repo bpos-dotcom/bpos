@@ -16,6 +16,8 @@ export type AgentInfo = {
   name: string;
   version: string;
   printers: AgentPrinter[];
+  /** Es el Agent de una pantalla de kiosco: solo imprime el ticket de esa pantalla, no toma comandas */
+  kiosk_id: string | null;
   last_seen_at: string | null;
   created_at: string;
   online: boolean;
@@ -48,7 +50,7 @@ export async function listAgents(): Promise<AgentInfo[]> {
   const account = await agentScope();
   const { data, error } = await getSupabase()
     .from("bpos_agents")
-    .select("id, name, version, printers, last_seen_at, created_at")
+    .select("id, name, version, printers, kiosk_id, last_seen_at, created_at")
     .eq("branch_id", account.branchId)
     .is("revoked_at", null)
     .order("created_at", { ascending: true });
@@ -57,6 +59,7 @@ export async function listAgents(): Promise<AgentInfo[]> {
   return (data ?? []).map((row) => ({
     ...(row as Omit<AgentInfo, "online">),
     printers: Array.isArray(row.printers) ? (row.printers as AgentPrinter[]) : [],
+    kiosk_id: (row as { kiosk_id?: string | null }).kiosk_id || null,
     online: Boolean(row.last_seen_at && now - Date.parse(row.last_seen_at) < ONLINE_MS),
   }));
 }

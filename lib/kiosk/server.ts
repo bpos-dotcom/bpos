@@ -30,6 +30,7 @@ import {
   type OnlineOrderData,
   type OnlineOrderLine,
 } from "@/lib/digital-menu";
+import { kioskTicketHtml, ticketSettings } from "@/lib/kiosk/ticket";
 import { clubName, normalizeLoyalty } from "@/lib/loyalty";
 import { cancelPointOrder, createPointOrder, getPointOrder, listTerminals, merchantToken, setTerminalPdv, type PointOrder } from "@/lib/mp/merchant";
 
@@ -45,12 +46,18 @@ export type Kiosk = {
   branch_id: string;
   name: string;
   terminal_id: string;
+  /** Impresora del ticket del cliente (del Agent de la pantalla) y ancho del papel */
+  printer: string;
+  paper_mm: number;
   last_seen_at: string | null;
   created_at: string;
   revoked_at: string | null;
 };
 
-const KIOSK_COLUMNS = "id, business_id, branch_id, name, terminal_id, last_seen_at, created_at, revoked_at";
+/** B-POS Agent de la sucursal (la computadora de la caja o la de una pantalla). */
+export type KioskAgent = { id: string; name: string; kiosk_id: string | null; printers: { name: string; displayName?: string }[]; online: boolean };
+
+const KIOSK_COLUMNS = "id, business_id, branch_id, name, terminal_id, printer, paper_mm, last_seen_at, created_at, revoked_at";
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
 
 export function kioskConfigured() {
@@ -233,12 +240,38 @@ export async function listKiosks(businessId: string, branchId: string) {
   return (data || []) as Kiosk[];
 }
 
-export async function updateKiosk(businessId: string, id: string, patch: { name?: string; terminalId?: string }) {
+/** Agents de la sucursal, con cuál pantalla está cada uno. */
+export async function listKioskAgents(branchId: string): Promise<KioskAgent[]> {
+  const { data } = await supabaseAdmin().from("bpos_agents").select("id, name, kiosk_id, printers, last_seen_at").eq("branch_id", branchId).is("revoked_at", null).order("created_at");
+  const now = Date.now();
+  return (data || []).map((a) => ({
+    id: a.id,
+    name: String(a.name || ""),
+    kiosk_id: a.kiosk_id || null,
+    printers: Array.isArray(a.printers) ? (a.printers as KioskAgent["printers"]) : [],
+    online: Boolean(a.last_seen_at && now - Date.parse(a.last_seen_at) < 30_000),
+  }));
+}
+
+export async function updateKiosk(businessId: string, id: string, patch: { name?: string; terminalId?: string; agentId?: string; printer?: string; paperMm?: number }) {
   const db = supabaseAdmin();
   const { data: kiosk } = await db.from("bpos_kiosks").select(KIOSK_COLUMNS).eq("id", id).eq("business_id", businessId).maybeSingle();
   if (!kiosk) throw new KioskError("Pantalla no encontrada.", 404);
-  const next: Record<string, string> = {};
+  const next: Record<string, string | number> = {};
   if (patch.name !== undefined) next.name = String(patch.name).trim().slice(0, 60) || kiosk.name;
+  if (patch.agentId !== undefined) {
+    // El Agent de la pantalla: deja de ser el de la caja (ya no toma comandas) y solo imprime lo de su pantalla
+    const agentId = String(patch.agentId);
+    if (agentId) {
+      const { data: agent } = await db.from("bpos_agents").select("id").eq("id", agentId).eq("branch_id", kiosk.branch_id).is("revoked_at", null).maybeSingle();
+      if (!agent) throw new KioskError("Ese Agent no está vinculado a esta sucursal.", 404);
+    }
+    await db.from("bpos_agents").update({ kiosk_id: null }).eq("kiosk_id", id);
+    if (agentId) await db.from("bpos_agents").update({ kiosk_id: id }).eq("id", agentId);
+    if (!agentId) next.printer = "";
+  }
+  if (patch.printer !== undefined) next.printer = String(patch.printer).trim().slice(0, 200);
+  if (patch.paperMm !== undefined) next.paper_mm = Number(patch.paperMm) === 58 ? 58 : 80;
   if (patch.terminalId !== undefined) {
     const terminalId = String(patch.terminalId).slice(0, 120);
     if (terminalId) {
@@ -255,8 +288,35 @@ export async function updateKiosk(businessId: string, id: string, patch: { name?
 }
 
 export async function revokeKiosk(businessId: string, id: string) {
-  const { error } = await supabaseAdmin().from("bpos_kiosks").update({ revoked_at: new Date().toISOString() }).eq("id", id).eq("business_id", businessId);
+  const db = supabaseAdmin();
+  const { error } = await db.from("bpos_kiosks").update({ revoked_at: new Date().toISOString() }).eq("id", id).eq("business_id", businessId);
   if (error) throw new KioskError(error.message, 500);
+  // Su Agent vuelve a ser un Agent normal de la sucursal
+  await db.from("bpos_agents").update({ kiosk_id: null }).eq("kiosk_id", id);
+}
+
+/**
+ * Ticket del cliente en la impresora de la pantalla: un trabajo dirigido al
+ * Agent de esa pantalla (lo imprime en cuanto lo lea). Sin Agent o sin
+ * impresora, no pasa nada: el cliente ve su número en la pantalla.
+ */
+async function printKioskTicket(db: SupabaseClient, kiosk: Kiosk, order: OrderRow) {
+  if (!kiosk.printer) return false;
+  const { data: agent } = await db.from("bpos_agents").select("id").eq("kiosk_id", kiosk.id).is("revoked_at", null).maybeSingle();
+  if (!agent) return false;
+  const [{ data: settingsDoc }, info] = await Promise.all([
+    db.from("sync_records").select("data").eq("business_id", kiosk.business_id).eq("scope", "business").eq("collection", "bpos_business_settings").eq("record_id", "__doc__").maybeSingle(),
+    kioskInfo(kiosk),
+  ]);
+  const html = await kioskTicketHtml(order, ticketSettings(settingsDoc?.data, info.business.name), kiosk.paper_mm === 58 ? 58 : 80);
+  const { error } = await db.from("bpos_agent_jobs").insert({
+    business_id: kiosk.business_id,
+    branch_id: kiosk.branch_id,
+    kind: "print-tickets",
+    payload: { platform: "kiosco", orderId: order.folio, tickets: [{ target: "Caja", html }] },
+    target_agent: agent.id,
+  });
+  return !error;
 }
 
 // ------------------------------------------------------------ pedido y cobro
@@ -398,6 +458,8 @@ export type KioskPaymentStatus = {
   status: "esperando" | "pagado" | "fallo";
   /** Qué pasó cuando falló (cancelado, vencido, tarjeta rechazada) */
   detail?: string;
+  /** Pagado: la pantalla tiene impresora y el ticket del cliente va saliendo */
+  ticket?: boolean;
 };
 
 const FAILED_STATUSES = new Set(["canceled", "cancelled", "expired", "failed", "refunded", "rejected"]);
@@ -413,7 +475,7 @@ function describeFailure(point: PointOrder) {
 }
 
 /** Guarda el pago aprobado en el pedido (igual que el pago en línea del menú). */
-async function markPaid(db: SupabaseClient, order: OrderRow, point: PointOrder) {
+async function markPaid(db: SupabaseClient, kiosk: Kiosk, order: OrderRow, point: PointOrder) {
   if (order.data.mp?.status === "approved") return;
   const payment = point.transactions?.payments?.[0];
   const mp: OnlineMpPayment = {
@@ -424,6 +486,8 @@ async function markPaid(db: SupabaseClient, order: OrderRow, point: PointOrder) 
   };
   await db.from("bpos_online_orders").update({ data: { ...order.data, mp }, updated_at: new Date().toISOString() }).eq("id", order.id);
   await db.from("bpos_mp_charges").update({ status: point.status, updated_at: new Date().toISOString() }).eq("id", point.id);
+  // Ticket del cliente en la impresora de la pantalla (si tiene); si falla, el pedido ya quedó pagado igual
+  await printKioskTicket(db, kiosk, { ...order, data: { ...order.data, mp } }).catch(() => false);
 }
 
 /** La pantalla pregunta cómo va el cobro (cada par de segundos). */
@@ -431,7 +495,8 @@ export async function kioskOrderStatus(kiosk: Kiosk, id: string): Promise<KioskP
   const db = supabaseAdmin();
   const order = await findOrder(db, kiosk, id);
   const base = { id: order.id, folio: order.folio, total: Number(order.data.total) };
-  if (order.data.mp?.status === "approved") return { ...base, status: "pagado" };
+  const ticket = Boolean(kiosk.printer);
+  if (order.data.mp?.status === "approved") return { ...base, status: "pagado", ticket };
   const chargeId = order.data.kiosk?.chargeId;
   if (!chargeId) return { ...base, status: "fallo", detail: "El cobro no llegó a la terminal." };
   const token = await merchantToken(kiosk.business_id);
@@ -439,8 +504,8 @@ export async function kioskOrderStatus(kiosk: Kiosk, id: string): Promise<KioskP
   const point = await getPointOrder(token, chargeId);
   const payment = point.transactions?.payments?.[0];
   if (point.status === "processed" && payment?.status !== "rejected") {
-    await markPaid(db, order, point);
-    return { ...base, status: "pagado" };
+    await markPaid(db, kiosk, order, point);
+    return { ...base, status: "pagado", ticket };
   }
   if (FAILED_STATUSES.has(point.status) || payment?.status === "rejected" || payment?.status === "cancelled") {
     await db.from("bpos_mp_charges").update({ status: point.status, updated_at: new Date().toISOString() }).eq("id", chargeId);
@@ -473,7 +538,7 @@ export async function cancelKioskOrder(kiosk: Kiosk, id: string) {
     // Si justo se pagó mientras se cancelaba, no se borra
     const point = await getPointOrder(token, order.data.kiosk.chargeId).catch(() => null);
     if (point?.status === "processed") {
-      await markPaid(db, order, point);
+      await markPaid(db, kiosk, order, point);
       throw new KioskError("El pago ya se había aprobado: tu pedido sigue.", 409);
     }
   }

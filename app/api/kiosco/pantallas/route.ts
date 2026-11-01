@@ -1,15 +1,15 @@
 import type { NextRequest } from "next/server";
 import { aiPreflight, aiReply } from "@/lib/ai/cloud";
 import { supabaseAdmin } from "@/lib/billing/mercadopago";
-import { KioskError, listKiosks, newKioskCode, revokeKiosk, updateKiosk } from "@/lib/kiosk/server";
+import { KioskError, listKioskAgents, listKiosks, newKioskCode, revokeKiosk, updateKiosk } from "@/lib/kiosk/server";
 import { listTerminals, memberSession, merchantToken } from "@/lib/mp/merchant";
 
 /**
  * Pantallas de kiosco de la sucursal (Configuración → Menú digital, con la
  * sesión del negocio).
- *   GET    ?branch=<id>                       pantallas, terminales de la cuenta y la de caja
+ *   GET    ?branch=<id>                       pantallas, Agents de la sucursal, terminales de la cuenta y la de caja
  *   POST   { branchId }                       código de 6 dígitos para vincular una pantalla
- *   PATCH  { id, name?, terminalId? }         nombre o terminal de la pantalla
+ *   PATCH  { id, name?, terminalId?, agentId?, printer?, paperMm? }   nombre, terminal, Agent e impresora de la pantalla
  *   DELETE ?id=<pantalla>                     desvincular
  */
 export const runtime = "nodejs";
@@ -30,11 +30,10 @@ export async function GET(request: NextRequest) {
   const branch = request.nextUrl.searchParams.get("branch") || "";
   if (!session.branchIds.includes(branch)) return aiReply(request, { success: false, error: "Sucursal no encontrada." }, 404);
   try {
-    const kiosks = await listKiosks(session.businessId, branch);
-    const token = await merchantToken(session.businessId).catch(() => null);
+    const [kiosks, agents, token] = await Promise.all([listKiosks(session.businessId, branch), listKioskAgents(branch), merchantToken(session.businessId).catch(() => null)]);
     const terminals = token ? await listTerminals(token).catch(() => []) : [];
     const { data: pos } = await supabaseAdmin().from("bpos_mp_terminals").select("terminal_id").eq("branch_id", branch).maybeSingle();
-    return aiReply(request, { success: true, kiosks, terminals, mpLinked: Boolean(token), posTerminal: pos?.terminal_id || null });
+    return aiReply(request, { success: true, kiosks, agents, terminals, mpLinked: Boolean(token), posTerminal: pos?.terminal_id || null });
   } catch (error) {
     return fail(request, error);
   }
@@ -63,6 +62,9 @@ export async function PATCH(request: NextRequest) {
     await updateKiosk(session.businessId, id, {
       ...(body?.name !== undefined ? { name: String(body.name) } : {}),
       ...(body?.terminalId !== undefined ? { terminalId: String(body.terminalId) } : {}),
+      ...(body?.agentId !== undefined ? { agentId: String(body.agentId) } : {}),
+      ...(body?.printer !== undefined ? { printer: String(body.printer) } : {}),
+      ...(body?.paperMm !== undefined ? { paperMm: Number(body.paperMm) } : {}),
     });
     return aiReply(request, { success: true });
   } catch (error) {
