@@ -185,6 +185,9 @@ type CartPanelProps = {
   onComment: (lineId: string, comment: string) => void;
   onClear: () => void;
   onCheckout: () => void;
+  /** Cuenta en espera: se manda a cocina ya y se cobra después (domicilio: al regresar el repartidor) */
+  onHold: () => void;
+  orderType?: string;
 };
 
 export function CartPanel({
@@ -197,6 +200,8 @@ export function CartPanel({
   onComment,
   onClear,
   onCheckout,
+  onHold,
+  orderType,
 }: CartPanelProps) {
   const subtotal = items.reduce(
     (total, item) => total + item.price * item.quantity,
@@ -263,13 +268,42 @@ export function CartPanel({
           </span>
         </div>
 
-        <button
-          onClick={onCheckout}
-          disabled={!canCheckout}
-          className="mt-3 w-full rounded-2xl bg-orange-500 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Abrir cobro
-        </button>
+        {orderType === "Domicilio" ? (
+          <>
+            <button
+              onClick={onHold}
+              disabled={!canCheckout}
+              className="mt-3 w-full rounded-2xl bg-orange-500 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ⏳ Mandar a preparar · cobrar al regreso
+            </button>
+            <button
+              onClick={onCheckout}
+              disabled={!canCheckout}
+              className="w-full rounded-2xl border border-orange-500/60 bg-orange-500/10 py-2.5 font-black text-orange-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Cobrar ahora
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={onCheckout}
+              disabled={!canCheckout}
+              className="mt-3 w-full rounded-2xl bg-orange-500 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Abrir cobro
+            </button>
+            <button
+              onClick={onHold}
+              disabled={!canCheckout}
+              title="Se manda a cocina ya y queda en Cuentas en espera para cobrarla después"
+              className="w-full rounded-2xl border border-yellow-500/50 bg-yellow-500/10 py-2.5 font-black text-yellow-200 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              ⏳ Cuenta en espera · cobrar después
+            </button>
+          </>
+        )}
 
         {!canCheckout && (
           <p className="text-center text-xs text-zinc-500">

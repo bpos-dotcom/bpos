@@ -30,6 +30,8 @@ type CheckoutModalProps = {
   }) => void;
   /** Pedido a domicilio: se pide la dirección y el repartidor aquí */
   delivery?: { address: string };
+  /** Cobro de una cuenta en espera: encabezado con su folio */
+  heading?: string;
 };
 
 export function CheckoutModal({
@@ -39,6 +41,7 @@ export function CheckoutModal({
   onClose,
   onConfirm,
   delivery,
+  heading,
 }: CheckoutModalProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [cashReceived, setCashReceived] = useState("");
@@ -188,7 +191,7 @@ export function CheckoutModal({
         <div className="flex items-start justify-between gap-4">
           <div>
             <p className="text-sm font-bold text-orange-500">Cobro</p>
-            <h2 className="text-3xl font-black">Finalizar pedido</h2>
+            <h2 className="text-3xl font-black">{heading || "Finalizar pedido"}</h2>
           </div>
 
           <button
@@ -317,7 +320,7 @@ export function CheckoutModal({
               disabled={missingAddress}
               className="mt-3 w-full rounded-2xl border border-yellow-500/50 bg-yellow-500/10 py-3 font-black text-yellow-200 hover:bg-yellow-500/20 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              ⏳ Mandar a preparar y cobrar cuando regrese el repartidor
+              ⏳ Mandar a preparar · cobrar cuando regrese el repartidor
             </button>
             <p className="mt-1 text-center text-[11px] text-zinc-500">El pedido queda &quot;por cobrar&quot; en el historial hasta que marques que ya pagó.</p>
           </div>

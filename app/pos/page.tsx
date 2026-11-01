@@ -80,6 +80,8 @@ function PosScreen() {
   const [selectedCategory, setSelectedCategory] = useState("Todos");
   const [search, setSearch] = useState("");
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  /** Cuenta en espera que se está cobrando (abre el mismo cobro) */
+  const [payingOrder, setPayingOrder] = useState<SavedOrder | null>(null);
   const [comboToChoose, setComboToChoose] = useState<Product | null>(null);
   const [, setShiftVersion] = useState(0);
   // Terminal Mercado Pago: con tarjeta, el monto se manda solo a la terminal
@@ -318,6 +320,65 @@ function PosScreen() {
     setCheckoutOpen(true);
   }
 
+  /**
+   * Cuenta en espera: se manda a cocina ya y se cobra después. A domicilio
+   * se abre el cobro para capturar dirección y repartidor (ahí está el botón
+   * de mandar a preparar); los demás tipos se guardan directo.
+   */
+  function holdOrder() {
+    if (!localStorage.getItem("bpos_active_shift")) {
+      alert("Primero debes abrir la caja.");
+      window.location.href = "/caja";
+      return;
+    }
+    if (!hasRequiredDetails) {
+      alert(validationMessage);
+      return;
+    }
+    if (details.orderType === "Domicilio") {
+      setCheckoutOpen(true);
+      return;
+    }
+    void confirmCheckout({ paymentMethod: "Por cobrar", cashReceived: 0, cardAmount: 0, transferAmount: 0, discount: 0, pending: true });
+  }
+
+  /** Cobro de una cuenta en espera: mismo cobro del POS (efectivo, tarjeta, mixto, cupón, club) */
+  async function payPending(data: { paymentMethod: PaymentMethod; cashReceived: number; cardAmount: number; transferAmount: number; discount: number; couponCode?: string; pending?: boolean }) {
+    const order = payingOrder;
+    if (!order) return;
+    if (data.pending) {
+      setPayingOrder(null);
+      return;
+    }
+    const discount = Math.max(0, Number(data.discount) || 0);
+    if (discount > 0 && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
+    const total = Math.max(0, order.total - discount);
+    const cardPart = data.paymentMethod === "Tarjeta" ? total : data.paymentMethod === "Mixto" ? Math.min(total, data.cardAmount || 0) : 0;
+    if (cardPart > 0 && (await branchUsesTerminal())) {
+      const result = await terminal.charge(cardPart, `Pedido ${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}`);
+      if (result === "cancelled") return;
+    }
+    const paid: SavedOrder = {
+      ...order,
+      pendingPayment: false,
+      paidAt: new Date().toISOString(),
+      total,
+      details: { ...order.details, paymentMethod: data.paymentMethod, discount: (order.details.discount || 0) + discount, ...(data.couponCode ? { couponCode: data.couponCode } : {}) },
+    };
+    saveOrders(orders.map((o) => (o.id === order.id ? paid : o)));
+    if (data.couponCode) countCouponUse(data.couponCode);
+    if (order.clubAccountId) {
+      void earnLoyalty(order.clubAccountId, total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, currentUser?.name || "").catch((e) =>
+        alert(`Cobrado, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`)
+      );
+    }
+    addAuditEvent({ category: "Venta", action: "sale.paid", description: `${currentUser?.name || "Usuario"} cobró la cuenta en espera Pedido #${formatOrderNumber(paid as SavedOrder & { localOrderNumber?: number })} (${total.toFixed(2)}, ${data.paymentMethod})`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { total, paymentMethod: data.paymentMethod, discount } });
+    // Ticket del cliente ya con el pago
+    void printSale(paid, { stations: [], customer: true }, true).catch(() => undefined);
+    setPayingOrder(null);
+    alert(`Pedido #${formatOrderNumber(paid as SavedOrder & { localOrderNumber?: number })} cobrado correctamente.`);
+  }
+
   function nextGlobalOrderId() {
     return orders.reduce(
       (max, order) => Math.max(max, Number(order.id) || 0),
@@ -419,7 +480,7 @@ function PosScreen() {
       .catch(() => alert("Pedido cobrado, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Impresiones."));
     addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por $${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
 
-    alert(data.pending ? `Pedido #${formatOrderNumber(newOrder)} mandado a preparar. Se cobra cuando regrese el repartidor (Historial → "Ya pagó").` : `Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);
+    alert(data.pending ? `Pedido #${formatOrderNumber(newOrder)} mandado a cocina. Queda en Cuentas en espera para cobrarlo${nextDetails.orderType === "Domicilio" ? " cuando regrese el repartidor" : ""}.` : `Pedido #${formatOrderNumber(newOrder)} cobrado correctamente.`);
 
     if (nextDetails.orderType === "Domicilio") {
       const info: DispatchInfo = {
@@ -596,7 +657,7 @@ function PosScreen() {
             <strong>-${order.details.discount.toFixed(2)}</strong>
           </div>
           ${order.details.deliveryFee ? `<div class="line"><span>Envío</span><strong>${order.details.deliveryFee.toFixed(2)}</strong></div>` : ""}
-          ${order.pendingPayment ? `<div class="line"><strong>POR COBRAR AL ENTREGAR</strong></div>` : ""}
+          ${order.pendingPayment ? `<div class="line"><strong>POR COBRAR</strong></div>` : ""}
 
           <div class="line total">
             <span>TOTAL</span>
@@ -670,12 +731,16 @@ Gracias por pedir en ${businessName} 🚀`;
   return (
     <main className="min-h-screen bg-black text-white">
       <CheckoutModal
-        isOpen={checkoutOpen}
-        total={subtotal}
-        clubCashback={clubMember?.member && getLoyalty().kind === "cashback" ? clubMember.cashback : 0}
-        onClose={() => setCheckoutOpen(false)}
-        onConfirm={confirmCheckout}
-        delivery={details.orderType === "Domicilio" ? { address: details.customerAddress } : undefined}
+        isOpen={checkoutOpen || Boolean(payingOrder)}
+        total={payingOrder ? payingOrder.total : subtotal}
+        clubCashback={!payingOrder && clubMember?.member && getLoyalty().kind === "cashback" ? clubMember.cashback : 0}
+        onClose={() => {
+          setCheckoutOpen(false);
+          setPayingOrder(null);
+        }}
+        onConfirm={payingOrder ? payPending : confirmCheckout}
+        delivery={!payingOrder && details.orderType === "Domicilio" ? { address: details.customerAddress } : undefined}
+        heading={payingOrder ? `Cobrar cuenta en espera · Pedido #${formatOrderNumber(payingOrder as SavedOrder & { localOrderNumber?: number })}` : undefined}
       />
       {terminal.modal}
       {dispatch && <DispatchModal info={dispatch.info} saleId={dispatch.saleId} onClose={() => setDispatch(null)} />}
@@ -793,6 +858,8 @@ Gracias por pedir en ${businessName} 🚀`;
               onComment={setLineComment}
               onClear={clearCart}
               onCheckout={openCheckout}
+              onHold={holdOrder}
+              orderType={details.orderType}
             />
             </div>
           </section>
@@ -810,6 +877,43 @@ Gracias por pedir en ${businessName} 🚀`;
         )}
 
         <div className="px-3 pb-24 sm:px-6 md:pb-6">
+
+          {orders.some((order) => order.pendingPayment && !order.cancelled) && (
+            <section className="mb-6 rounded-3xl border border-yellow-500/40 bg-yellow-500/5 p-5 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-xl font-black text-yellow-200">⏳ Cuentas en espera</h2>
+                <p className="text-sm text-zinc-400">Ya están en cocina. Toca Cobrar cuando paguen.</p>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {[...orders]
+                  .filter((order) => order.pendingPayment && !order.cancelled)
+                  .reverse()
+                  .map((order) => {
+                    const minutes = Math.max(0, Math.round((Date.now() - Date.parse(order.createdAt)) / 60000));
+                    return (
+                      <div key={order.id} className="flex items-center justify-between gap-3 rounded-2xl border border-yellow-500/30 bg-black p-4">
+                        <div className="min-w-0">
+                          <p className="font-black text-white">Pedido #{formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}</p>
+                          <p className="truncate text-sm text-zinc-400">
+                            {order.details.orderType}
+                            {order.details.customerName ? ` · ${order.details.customerName}` : ""}
+                            {" · "}
+                            {minutes < 1 ? "ahora" : `hace ${minutes} min`}
+                          </p>
+                          <p className="truncate text-xs text-zinc-500">{order.items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</p>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-2">
+                          <p className="text-xl font-black text-yellow-200">${order.total.toFixed(2)}</p>
+                          <button onClick={() => setPayingOrder(order)} className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-black text-black">
+                            💵 Cobrar
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+              </div>
+            </section>
+          )}
 
           {orders.some((order) => Boolean((order as SavedOrder & { externalOrderNumber?: string }).externalOrderNumber)) && (
             <section className="mb-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">

@@ -97,7 +97,7 @@ export function OrderHistoryPanel({
                   </p>
                   {order.pendingPayment && !order.cancelled && (
                     <div className="flex flex-wrap items-center gap-2 rounded-xl border border-yellow-500/40 bg-yellow-500/10 p-2">
-                      <span className="text-sm font-black text-yellow-200">⏳ Por cobrar al regreso</span>
+                      <span className="text-sm font-black text-yellow-200">⏳ Cuenta en espera · por cobrar</span>
                       {onMarkPaid &&
                         ["Efectivo", "Transferencia", "Tarjeta"].map((m) => (
                           <button key={m} onClick={() => onMarkPaid(order, m)} className="rounded-lg bg-yellow-400 px-3 py-1 text-xs font-black text-black">
