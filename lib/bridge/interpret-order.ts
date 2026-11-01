@@ -161,7 +161,7 @@ export function extractQuantifiedSourceLines(rawText: string): QuantifiedSourceL
     .map((line, index) => ({ line: line.trim(), index }))
     .filter(({ line }) => Boolean(line))
     .map(({ line, index }) => {
-      const match = line.match(/^\s*(\d{1,4})\s*[xX×]\s*(.+?)\s*$/);
+      const match = line.match(/^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/);
       if (!match) return null;
 
       const quantity = Number(match[1]);

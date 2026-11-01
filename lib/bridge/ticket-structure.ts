@@ -7,7 +7,7 @@ export type KdsTicketLine = {
   quantity?: number;
 };
 
-const QUANTITY_LINE = /^\s*(\d{1,4})\s*[xX×]\s+(.+?)\s*$/;
+const QUANTITY_LINE = /^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/;
 
 const END_MARKERS = [
   /^subtotal\b/i,
