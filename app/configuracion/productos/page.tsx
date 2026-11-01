@@ -59,11 +59,15 @@ export default function ProductosAdminPage() {
   const recipeOf = (list: RecipeItem[], productId: number | undefined) =>
     list.filter((r) => Number(r.productId) === Number(productId)).map((r) => ({ ingredientId: Number(r.ingredientId), quantity: Number(r.quantity) }));
 
+  /**
+   * Lista actual guardada (puede traer cambios de otro dispositivo o pestaña).
+   * Cada guardado parte de esta lista y no de la copia en memoria, para no
+   * pisar lo que se editó en otro lado desde que se abrió la página.
+   */
+  const freshProducts = () => getAdminProducts().map((product) => ({ ...product, station: product.station || "Cocina" }));
+
   useEffect(() => {
-    const savedProducts = getAdminProducts().map((product) => ({
-      ...product,
-      station: product.station || "Cocina",
-    }));
+    const savedProducts = freshProducts();
 
     const savedRecipes = getAdminRecipes();
     setProducts(savedProducts);
@@ -72,6 +76,18 @@ export default function ProductosAdminPage() {
     setSelectedId(savedProducts[0]?.id ?? null);
     setDraft(savedProducts[0] ?? null);
     setRecipeDraft(recipeOf(savedRecipes, savedProducts[0]?.id));
+  }, []);
+
+  // Cambios que llegan de la nube (otro dispositivo) o de otra pestaña: se
+  // refresca la lista; lo que se está editando se conserva.
+  useEffect(() => {
+    const sync = (event: StorageEvent) => {
+      if (event.key && event.key !== "bpos_products" && event.key !== "bpos_recipes") return;
+      setProducts(freshProducts());
+      setRecipes(getAdminRecipes());
+    };
+    window.addEventListener("storage", sync);
+    return () => window.removeEventListener("storage", sync);
   }, []);
 
   function selectProduct(product: Product) {
@@ -120,16 +136,17 @@ export default function ProductosAdminPage() {
     const schedule = saveSchedule(saved.saleSchedule);
     if (schedule) saved.saleSchedule = schedule;
     else delete saved.saleSchedule;
-    const nextProducts = products.map((product) =>
-      product.id === draft.id ? saved : product
-    );
+    const current = freshProducts();
+    const nextProducts = current.some((p) => p.id === draft.id)
+      ? current.map((product) => (product.id === draft.id ? saved : product))
+      : [...current, saved];
 
     setProducts(nextProducts);
     saveAdminProducts(nextProducts);
 
     // Receta: se reemplaza la de este producto (sin renglones en cero)
     const nextRecipes = [
-      ...recipes.filter((r) => Number(r.productId) !== Number(draft.id)),
+      ...getAdminRecipes().filter((r) => Number(r.productId) !== Number(draft.id)),
       ...recipeDraft.filter((l) => l.quantity > 0).map((l) => ({ productId: draft.id, ingredientId: l.ingredientId, quantity: l.quantity })),
     ];
     setRecipes(nextRecipes);
@@ -153,7 +170,7 @@ export default function ProductosAdminPage() {
     const id = draft.id;
 
     // Opciones enlazadas en otros productos
-    const nextProducts = products
+    const nextProducts = freshProducts()
       .filter((p) => p.id !== id)
       .map((p) => {
         if (!p.modifierGroups?.some((g) => g.options.some((o) => o.productId === id))) return p;
@@ -193,7 +210,7 @@ export default function ProductosAdminPage() {
       }
     }
 
-    const nextRecipes = recipes.filter((r) => Number(r.productId) !== id);
+    const nextRecipes = getAdminRecipes().filter((r) => Number(r.productId) !== id);
     setProducts(nextProducts);
     saveAdminProducts(nextProducts);
     setRecipes(nextRecipes);
@@ -220,8 +237,8 @@ export default function ProductosAdminPage() {
         o.key = `${g.key}o${oi}`;
       });
     });
-    const nextProducts = [...products, clone];
-    const nextRecipes = [...recipes, ...recipeOf(recipes, original.id).map((l) => ({ productId: clone.id, ingredientId: l.ingredientId, quantity: l.quantity }))];
+    const nextProducts = [...freshProducts(), clone];
+    const nextRecipes = [...getAdminRecipes(), ...recipeOf(recipes, original.id).map((l) => ({ productId: clone.id, ingredientId: l.ingredientId, quantity: l.quantity }))];
     setProducts(nextProducts);
     saveAdminProducts(nextProducts);
     setRecipes(nextRecipes);
@@ -243,7 +260,7 @@ export default function ProductosAdminPage() {
       station: "Cocina",
     };
 
-    const nextProducts = [...products, newProduct];
+    const nextProducts = [...freshProducts(), newProduct];
     setProducts(nextProducts);
     saveAdminProducts(nextProducts);
     setSelectedId(newProduct.id);
