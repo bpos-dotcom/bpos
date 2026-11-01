@@ -205,3 +205,34 @@ html.theme-light .bpos-scroll:hover::-webkit-scrollbar-thumb {
     animation-duration: 0.01s;
   }
 }
+
+/* =============================================================
+   Menú digital y kiosco en modo oscuro (.menu-dark): el menú está
+   escrito en claro (fondo crema, tarjetas blancas); aquí se cambian
+   esas utilidades a tonos oscuros. El color de marca no cambia.
+   ============================================================= */
+.menu-dark { background: #0c0c0e; color: #f4f4f5; }
+.menu-dark .bg-\[\#fff8f1\] { background-color: #0c0c0e; }
+.menu-dark .bg-white { background-color: #18181b; }
+.menu-dark .bg-white\/95 { background-color: rgba(24, 24, 27, 0.95); }
+.menu-dark .bg-white\/70, .menu-dark .bg-white\/55 { background-color: rgba(24, 24, 27, 0.7); }
+.menu-dark .bg-orange-50, .menu-dark .bg-zinc-50, .menu-dark .bg-zinc-100 { background-color: #27272a; }
+.menu-dark .bg-zinc-200 { background-color: #3f3f46; }
+.menu-dark .from-white { --tw-gradient-from: #0c0c0e; }
+.menu-dark .to-orange-50 { --tw-gradient-to: #1c1917; }
+.menu-dark .from-white\/90 { --tw-gradient-from: rgba(12, 12, 14, 0.9); }
+.menu-dark .via-white\/50 { --tw-gradient-via: rgba(12, 12, 14, 0.5); }
+.menu-dark .border-orange-100, .menu-dark .border-zinc-100, .menu-dark .border-zinc-200, .menu-dark .border-zinc-300 { border-color: #3f3f46; }
+.menu-dark .text-zinc-900, .menu-dark .text-zinc-800, .menu-dark .text-zinc-700 { color: #f4f4f5; }
+.menu-dark .text-zinc-600 { color: #d4d4d8; }
+.menu-dark .text-zinc-500 { color: #a1a1aa; }
+.menu-dark .text-zinc-400 { color: #71717a; }
+.menu-dark .shadow-sm, .menu-dark .shadow-md, .menu-dark .shadow-xl, .menu-dark .shadow-lg { --tw-shadow-color: rgba(0, 0, 0, 0.6); }
+.menu-dark input, .menu-dark textarea, .menu-dark select { background-color: #09090b; color: #f4f4f5; }
+.menu-dark input::placeholder, .menu-dark textarea::placeholder { color: #71717a; }
+.menu-dark .bg-emerald-50 { background-color: rgba(16, 185, 129, 0.15); }
+.menu-dark .bg-sky-50 { background-color: rgba(14, 165, 233, 0.15); }
+.menu-dark .bg-amber-50 { background-color: rgba(245, 158, 11, 0.15); }
+.menu-dark .text-emerald-800, .menu-dark .text-emerald-700 { color: #6ee7b7; }
+.menu-dark .text-sky-800 { color: #7dd3fc; }
+.menu-dark .text-amber-800, .menu-dark .text-amber-700 { color: #fcd34d; }

@@ -28,8 +28,11 @@ export type ChannelLink = { on: boolean; url: string };
  */
 /** De qué lado van los textos y botones encima de una imagen */
 export type Align = "left" | "center" | "right";
+/** Colores del menú digital (y del kiosco): claro o oscuro */
+export type MenuTheme = "light" | "dark";
 
 export type MenuDesign = {
+  theme: MenuTheme;
   topBar: { on: boolean; text: string; city: string };
   hero: { on: boolean; image: string; eyebrow: string; title: string; highlight: string; text: string; badges: string[]; button: string; align: Align };
   featured: { on: boolean; productId: number | null; image: string; eyebrow: string; text: string; badge: string };
@@ -50,6 +53,7 @@ export type MenuDesign = {
 };
 
 export const DEFAULT_DESIGN: MenuDesign = {
+  theme: "light",
   topBar: { on: true, text: "", city: "" },
   hero: { on: true, image: "", eyebrow: "", title: "", highlight: "", text: "", badges: ["", "", ""], button: "Ver menú", align: "left" },
   featured: { on: true, productId: null, image: "", eyebrow: "Combo destacado", text: "", badge: "El favorito" },
@@ -161,6 +165,7 @@ export function normalizeDesign(raw: unknown): MenuDesign {
   const d = DEFAULT_DESIGN;
   const badges = Array.isArray(r.hero?.badges) ? r.hero.badges : d.hero.badges;
   return {
+    theme: r.theme === "dark" ? "dark" : "light",
     topBar: { on: bool(r.topBar?.on, d.topBar.on), text: str(r.topBar?.text, "", 90), city: str(r.topBar?.city, "", 60) },
     hero: {
       on: bool(r.hero?.on, d.hero.on),

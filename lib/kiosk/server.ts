@@ -161,11 +161,13 @@ export async function kioskFromRequest(request: Request): Promise<Kiosk> {
 /** Estado para la pantalla: liga del menú, si tiene terminal y datos del negocio. */
 export async function kioskStatus(kiosk: Kiosk) {
   const db = supabaseAdmin();
-  const [{ data: link }, info, mp] = await Promise.all([
+  const [{ data: link }, info, mp, { data: menuDoc }] = await Promise.all([
     db.from("bpos_menu_links").select("slug").eq("branch_id", kiosk.branch_id).maybeSingle(),
     kioskInfo(kiosk),
     merchantToken(kiosk.business_id).catch(() => null),
+    db.from("sync_records").select("data").eq("business_id", kiosk.business_id).eq("scope", kiosk.branch_id).eq("collection", "bpos_digital_menu").eq("record_id", "__doc__").maybeSingle(),
   ]);
+  const design = (menuDoc?.data as { design?: { theme?: string } } | null)?.design;
   return {
     kioskId: kiosk.id,
     name: kiosk.name,
@@ -174,6 +176,8 @@ export async function kioskStatus(kiosk: Kiosk) {
     branch: info.branch,
     /** Puede cobrar: Mercado Pago vinculado y terminal asignada */
     terminal: Boolean(mp && kiosk.terminal_id),
+    /** Colores del menú (Configuración → Menú digital → Diseño): la pantalla de inicio los sigue */
+    theme: design?.theme === "dark" ? "dark" : "light",
   };
 }
 
