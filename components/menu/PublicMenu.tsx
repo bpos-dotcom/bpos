@@ -32,6 +32,7 @@ import {
   type OnlineOrderData,
   type OnlineOrderLine,
   type OnlineOrderType,
+  type MenuTheme,
 } from "@/lib/digital-menu";
 import { couponDiscount } from "@/lib/coupons";
 import { isOnSale, scheduleLabel } from "@/lib/sale-schedule";
@@ -41,6 +42,7 @@ import { AccountSheet, useCustomer, type Customer, type CustomerOrder } from "@/
 import { InstallApp } from "@/components/menu/InstallApp";
 import { KioskCheckout } from "@/components/menu/KioskCheckout";
 import type { KioskSession } from "@/lib/kiosk/client";
+import { readThemeChoice, saveThemeChoice } from "@/lib/menu-theme";
 
 type PublicMenu = {
   slug: string;
@@ -235,6 +237,18 @@ function Menu({
   }, []);
 
   const open = isOpenNow(menu, now);
+  // ☀️/🌙: lo que eligió quien ve la pantalla manda sobre el tema del negocio
+  const [themeChoice, setThemeChoice] = useState<MenuTheme | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- se lee del navegador al cargar
+    setThemeChoice(readThemeChoice());
+  }, []);
+  const dark = (themeChoice ?? design.theme) === "dark";
+  const toggleTheme = () => {
+    const next: MenuTheme = dark ? "light" : "dark";
+    saveThemeChoice(next);
+    setThemeChoice(next);
+  };
   const canOrderNow = menu.acceptOrders && open;
   // Cerrado pero con pedidos programados: se puede armar el pedido y programarlo para cuando abra
   const canSchedule = menu.acceptOrders && !open && menu.scheduling.enabled && !table && !kiosk;
@@ -372,7 +386,7 @@ function Menu({
   );
 
   return (
-    <Shell dark={design.theme === "dark"}>
+    <Shell dark={dark}>
       {design.topBar.on && (design.topBar.text || design.topBar.city || hoursText) && (
         <div className="px-4 py-2 text-xs font-semibold text-white" style={{ background: color }}>
           <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-2">
@@ -399,6 +413,14 @@ function Menu({
           <span className={`hidden rounded-full px-3 py-1 text-xs font-black sm:inline ${canOrderNow ? "bg-emerald-100 text-emerald-700" : "bg-zinc-200 text-zinc-600"}`}>
             {canOrderNow ? "Abierto" : menu.acceptOrders ? "Cerrado" : "Solo menú"}
           </span>
+          <button
+            onClick={toggleTheme}
+            aria-label={dark ? "Modo claro" : "Modo oscuro"}
+            title={dark ? "Modo claro" : "Modo oscuro"}
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-orange-100 bg-white text-lg shadow-sm"
+          >
+            {dark ? "☀️" : "🌙"}
+          </button>
           {!kiosk && (
             <button
               onClick={() => setAccountOpen(true)}
