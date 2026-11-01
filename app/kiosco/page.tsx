@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PublicMenu } from "@/components/menu/PublicMenu";
+import { saveThemeChoice } from "@/lib/menu-theme";
 import { TouchKeyboard } from "@/components/menu/TouchKeyboard";
 import { KIOSK_BUSY_EVENT, kioskFetch, readKioskSession, saveKioskSession, type KioskSession } from "@/lib/kiosk/client";
 
@@ -149,6 +150,8 @@ function Kiosk({ session, status }: { session: KioskSession; status: Status | nu
   const color = session.business.color || "#f97316";
 
   const goIdle = useCallback(() => {
+    // El siguiente cliente empieza con el tema del negocio (no con el ☀️/🌙 que eligió el anterior)
+    saveThemeChoice(null);
     setIdle(true);
     setRound((n) => n + 1);
   }, []);

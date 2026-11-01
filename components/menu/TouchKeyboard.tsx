@@ -4,6 +4,8 @@
  * Aparece abajo cuando se toca un campo de texto y escribe en ese campo
  * (como si fuera el teclado real: React se entera por el evento "input").
  * Campos numéricos (inputMode="numeric") muestran solo números.
+ * ⇧ un toque: mayúscula solo para la siguiente letra; dos toques seguidos:
+ * mayúsculas fijas (como en Android) hasta volver a tocarla.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -22,6 +24,9 @@ const ROWS_NUMERIC = [
   ["", "0", ""],
 ];
 const ACCENTS: Record<string, string> = { a: "á", e: "é", i: "í", o: "ó", u: "ú" };
+/** Dos toques en ⇧ dentro de este tiempo = mayúsculas fijas */
+const DOUBLE_TAP_MS = 500;
+type Shift = false | "once" | "lock";
 
 function isTextField(el: Element | null): el is Field {
   if (!el) return false;
@@ -41,9 +46,21 @@ function setValue(field: Field, next: string) {
 
 export function TouchKeyboard() {
   const [field, setField] = useState<Field | null>(null);
-  const [shift, setShift] = useState(false);
+  const [shift, setShift] = useState<Shift>(false);
   const [accent, setAccent] = useState(false);
   const boxRef = useRef<HTMLDivElement>(null);
+  const lastShiftTap = useRef(0);
+
+  function tapShift() {
+    const now = Date.now();
+    const double = now - lastShiftTap.current < DOUBLE_TAP_MS;
+    lastShiftTap.current = now;
+    setShift((cur) => {
+      if (cur === "lock") return false; // fijas → se quitan por completo
+      if (double) return "lock"; // dos toques seguidos → fijas
+      return cur === "once" ? false : "once";
+    });
+  }
 
   useEffect(() => {
     const onFocus = (e: FocusEvent) => {
@@ -121,7 +138,7 @@ export function TouchKeyboard() {
         if (accent && ACCENTS[ch]) ch = ACCENTS[ch];
         if (shift) ch = ch.toUpperCase();
         next = value + ch;
-        if (shift) setShift(false);
+        if (shift === "once") setShift(false);
         if (accent) setAccent(false);
       }
       if (next.length > max) next = next.slice(0, max);
@@ -157,8 +174,13 @@ export function TouchKeyboard() {
         ))}
         {!numeric && (
           <div className="flex gap-2">
-            <button type="button" onClick={() => setShift((v) => !v)} className={`${wideCls} ${shift ? "bg-orange-400" : ""}`}>
-              ⇧
+            <button
+              type="button"
+              onClick={tapShift}
+              aria-label={shift === "lock" ? "Mayúsculas fijas (toca para quitar)" : shift ? "Mayúscula" : "Mayúsculas"}
+              className={`${wideCls} relative ${shift === "lock" ? "bg-orange-500 text-white" : shift ? "bg-orange-400" : ""}`}
+            >
+              ⇧{shift === "lock" && <span className="absolute bottom-1.5 left-1/2 h-1 w-6 -translate-x-1/2 rounded-full bg-white" />}
             </button>
             <button type="button" onClick={() => setAccent((v) => !v)} className={`${wideCls} ${accent ? "bg-orange-400" : ""}`} aria-label="Acento">
               ´
