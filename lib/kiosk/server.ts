@@ -240,9 +240,9 @@ export async function listKiosks(businessId: string, branchId: string) {
   return (data || []) as Kiosk[];
 }
 
-/** Agents de la sucursal, con cuál pantalla está cada uno. */
+/** Agents exclusivos de las pantallas de la sucursal (vinculados con su propio código). */
 export async function listKioskAgents(branchId: string): Promise<KioskAgent[]> {
-  const { data } = await supabaseAdmin().from("bpos_agents").select("id, name, kiosk_id, printers, last_seen_at").eq("branch_id", branchId).is("revoked_at", null).order("created_at");
+  const { data } = await supabaseAdmin().from("bpos_agents").select("id, name, kiosk_id, printers, last_seen_at").eq("branch_id", branchId).not("kiosk_id", "is", null).is("revoked_at", null).order("created_at");
   const now = Date.now();
   return (data || []).map((a) => ({
     id: a.id,
@@ -253,23 +253,42 @@ export async function listKioskAgents(branchId: string): Promise<KioskAgent[]> {
   }));
 }
 
-export async function updateKiosk(businessId: string, id: string, patch: { name?: string; terminalId?: string; agentId?: string; printer?: string; paperMm?: number }) {
+const AGENT_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+
+/**
+ * Código de 8 letras para vincular el B-POS Agent de la computadora del
+ * kiosco (como el de Configuración → Sistema, pero ligado a la pantalla:
+ * ese Agent solo imprime el ticket del kiosco y nunca toma comandas).
+ */
+export async function newKioskAgentCode(businessId: string, kioskId: string, userId: string) {
+  const db = supabaseAdmin();
+  const { data: kiosk } = await db.from("bpos_kiosks").select(KIOSK_COLUMNS).eq("id", kioskId).eq("business_id", businessId).is("revoked_at", null).maybeSingle();
+  if (!kiosk) throw new KioskError("Pantalla no encontrada.", 404);
+  const expiresAt = new Date(Date.now() + 15 * 60_000).toISOString();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const code = Array.from({ length: 8 }, () => AGENT_CODE_ALPHABET[randomInt(0, AGENT_CODE_ALPHABET.length)]).join("");
+    const { error } = await db.from("bpos_agent_codes").insert({ code, business_id: businessId, branch_id: kiosk.branch_id, created_by: userId, expires_at: expiresAt, kiosk_id: kioskId });
+    if (!error) return { code, expiresAt };
+    if (!/duplicate|unique/i.test(error.message)) throw new KioskError(error.message, 500);
+  }
+  throw new KioskError("No se pudo generar el código. Intenta de nuevo.", 500);
+}
+
+/** Desvincula el Agent de la pantalla (deja de imprimir; la pantalla sigue funcionando). */
+export async function unlinkKioskAgent(businessId: string, kioskId: string) {
+  const db = supabaseAdmin();
+  const { data: kiosk } = await db.from("bpos_kiosks").select("id").eq("id", kioskId).eq("business_id", businessId).maybeSingle();
+  if (!kiosk) throw new KioskError("Pantalla no encontrada.", 404);
+  await db.from("bpos_agents").update({ revoked_at: new Date().toISOString() }).eq("kiosk_id", kioskId).is("revoked_at", null);
+  await db.from("bpos_kiosks").update({ printer: "" }).eq("id", kioskId);
+}
+
+export async function updateKiosk(businessId: string, id: string, patch: { name?: string; terminalId?: string; printer?: string; paperMm?: number }) {
   const db = supabaseAdmin();
   const { data: kiosk } = await db.from("bpos_kiosks").select(KIOSK_COLUMNS).eq("id", id).eq("business_id", businessId).maybeSingle();
   if (!kiosk) throw new KioskError("Pantalla no encontrada.", 404);
   const next: Record<string, string | number> = {};
   if (patch.name !== undefined) next.name = String(patch.name).trim().slice(0, 60) || kiosk.name;
-  if (patch.agentId !== undefined) {
-    // El Agent de la pantalla: deja de ser el de la caja (ya no toma comandas) y solo imprime lo de su pantalla
-    const agentId = String(patch.agentId);
-    if (agentId) {
-      const { data: agent } = await db.from("bpos_agents").select("id").eq("id", agentId).eq("branch_id", kiosk.branch_id).is("revoked_at", null).maybeSingle();
-      if (!agent) throw new KioskError("Ese Agent no está vinculado a esta sucursal.", 404);
-    }
-    await db.from("bpos_agents").update({ kiosk_id: null }).eq("kiosk_id", id);
-    if (agentId) await db.from("bpos_agents").update({ kiosk_id: id }).eq("id", agentId);
-    if (!agentId) next.printer = "";
-  }
   if (patch.printer !== undefined) next.printer = String(patch.printer).trim().slice(0, 200);
   if (patch.paperMm !== undefined) next.paper_mm = Number(patch.paperMm) === 58 ? 58 : 80;
   if (patch.terminalId !== undefined) {
@@ -291,8 +310,8 @@ export async function revokeKiosk(businessId: string, id: string) {
   const db = supabaseAdmin();
   const { error } = await db.from("bpos_kiosks").update({ revoked_at: new Date().toISOString() }).eq("id", id).eq("business_id", businessId);
   if (error) throw new KioskError(error.message, 500);
-  // Su Agent vuelve a ser un Agent normal de la sucursal
-  await db.from("bpos_agents").update({ kiosk_id: null }).eq("kiosk_id", id);
+  // Su Agent (exclusivo del kiosco) también queda desvinculado
+  await db.from("bpos_agents").update({ revoked_at: new Date().toISOString() }).eq("kiosk_id", id).is("revoked_at", null);
 }
 
 /**

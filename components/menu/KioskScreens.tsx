@@ -40,6 +40,8 @@ const seen = (iso: string | null) => {
 export function KioskScreens({ published }: { published: boolean }) {
   const [data, setData] = useState<Screens | null | undefined>(undefined);
   const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null);
+  /** Código para el Agent de una pantalla (id de la pantalla → código) */
+  const [agentCode, setAgentCode] = useState<{ kioskId: string; code: string; expiresAt: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
   const [open, setOpen] = useState(false);
@@ -125,11 +127,8 @@ export function KioskScreens({ published }: { published: boolean }) {
               <li>Escribe el correo de tu cuenta de B-POS y el código de abajo.</li>
               <li>Aquí mismo elige qué terminal Point le toca a esa pantalla.</li>
               <li>
-                ¿Ticket para el cliente? Instala B-POS Agent en la computadora del kiosco y vincúlalo en{" "}
-                <Link href="/configuracion/sistema" className="font-black text-white underline">
-                  Configuración → Sistema
-                </Link>
-                , igual que el de la caja. Luego aquí elige ese Agent y su impresora. Puede ser la misma computadora de la caja: entonces imprime las comandas y además el ticket del kiosco. Si es otra computadora, solo imprime el ticket del kiosco mientras la de la caja esté conectada.
+                ¿Ticket impreso para el cliente? En cada pantalla de abajo genera el código de su B-POS Agent, instálalo en la computadora del kiosco y vincúlalo
+                con ese código. Ese Agent es solo del kiosco: imprime el ticket de su pantalla y nunca toma comandas de la cocina.
               </li>
             </ol>
             {code ? (
@@ -194,40 +193,87 @@ export function KioskScreens({ published }: { published: boolean }) {
                   <span className="mt-1 block text-xs font-normal text-zinc-500">No hay terminales en tu cuenta de Mercado Pago. Enciende la terminal e inicia sesión en ella con tu cuenta.</span>
                 )}
               </label>
-              <div className="grid gap-3 md:col-span-2 md:grid-cols-[1fr_1fr_auto] md:items-end">
-                <label className="block text-sm font-bold text-zinc-300">
-                  🧾 Computadora del kiosco (B-POS Agent)
-                  <select value={mine?.id || ""} disabled={busy} onChange={(e) => void patch({ agentId: e.target.value }, e.target.value ? "Ahora elige la impresora del ticket." : "")} className={`${input} mt-1`}>
-                    <option value="">Sin ticket impreso (solo el número en pantalla)</option>
-                    {agents.map((a) => (
-                      <option key={a.id} value={a.id} disabled={Boolean(a.kiosk_id && a.kiosk_id !== k.id)}>
-                        {a.online ? "🟢" : "🔴"} {a.name || "B-POS Agent"}
-                        {a.kiosk_id && a.kiosk_id !== k.id ? " · es de otra pantalla" : !a.kiosk_id ? " · la de la caja" : ""}
-                      </option>
-                    ))}
-                  </select>
-                  {agents.length === 0 && <span className="mt-1 block text-xs font-normal text-zinc-500">Esta sucursal no tiene ningún B-POS Agent vinculado.</span>}
-                </label>
-                <label className="block text-sm font-bold text-zinc-300">
-                  Impresora del ticket
-                  <select value={k.printer} disabled={busy || !mine} onChange={(e) => void patch({ printer: e.target.value }, e.target.value ? "✅ Listo: el ticket del cliente saldrá ahí al aprobarse el pago." : "")} className={`${input} mt-1`}>
-                    <option value="">Elige la impresora</option>
-                    {(mine?.printers || []).map((p) => (
-                      <option key={p.name} value={p.name}>
-                        {p.displayName || p.name}
-                      </option>
-                    ))}
-                    {k.printer && !(mine?.printers || []).some((p) => p.name === k.printer) && <option value={k.printer}>{k.printer} (no la reporta el Agent)</option>}
-                  </select>
-                  {mine && mine.printers.length === 0 && <span className="mt-1 block text-xs font-normal text-zinc-500">Ese Agent no reporta impresoras: revisa que esté prendido y con la impresora instalada en Windows.</span>}
-                </label>
-                <label className="block text-sm font-bold text-zinc-300">
-                  Papel
-                  <select value={k.paper_mm === 58 ? 58 : 80} disabled={busy || !mine} onChange={(e) => void patch({ paperMm: Number(e.target.value) })} className={`${input} mt-1`}>
-                    <option value={80}>80 mm</option>
-                    <option value={58}>58 mm</option>
-                  </select>
-                </label>
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-950 p-3 md:col-span-3">
+                <p className="text-sm font-black text-zinc-300">🧾 Ticket impreso para el cliente</p>
+                {!mine ? (
+                  <div className="mt-2">
+                    <p className="text-xs text-zinc-500">
+                      Sin Agent: el cliente solo ve su número en la pantalla. Para imprimirle su ticket, instala B-POS Agent en la computadora del kiosco y
+                      vincúlalo con este código (es exclusivo de esta pantalla: nunca toma comandas de la cocina).
+                    </p>
+                    {agentCode?.kioskId === k.id ? (
+                      <div className="mt-2 rounded-2xl border border-orange-500/50 bg-orange-500/10 p-4">
+                        <p className="text-xs font-bold text-orange-200">Código para el Agent del kiosco (vence en 15 minutos):</p>
+                        <p className="mt-1 select-all font-mono text-3xl font-black tracking-[0.2em] text-orange-400">
+                          {agentCode.code.slice(0, 4)}-{agentCode.code.slice(4)}
+                        </p>
+                        <ol className="mt-2 list-decimal space-y-1 pl-5 text-xs text-zinc-300">
+                          <li>
+                            En la computadora del kiosco descarga e instala B-POS Agent (
+                            <Link href="/configuracion/sistema" className="underline">
+                              descarga en Sistema
+                            </Link>
+                            ), o ábrelo si ya lo tienes.
+                          </li>
+                          <li>En la ventana de B-POS Agent escribe este código y toca &quot;Vincular&quot;.</li>
+                          <li>Aquí aparecerá solo; luego elige la impresora del ticket.</li>
+                        </ol>
+                      </div>
+                    ) : (
+                      <button
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            const r = await call<{ code: string; expiresAt: string }>("/api/kiosco/pantallas", { method: "POST", body: JSON.stringify({ kioskId: k.id }) });
+                            setAgentCode({ kioskId: k.id, code: r.code, expiresAt: r.expiresAt });
+                          })
+                        }
+                        className="mt-2 rounded-2xl bg-orange-500 px-4 py-2 text-sm font-black text-black disabled:opacity-50"
+                      >
+                        Generar código para el Agent del kiosco
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="mt-2 grid gap-3 md:grid-cols-[1fr_1fr_auto_auto] md:items-end">
+                    <p className="text-sm text-zinc-300">
+                      <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${mine.online ? "bg-green-500" : "bg-red-500"}`} />
+                      <b>{mine.name || "B-POS Agent"}</b>
+                      <span className="ml-2 text-xs text-zinc-500">{mine.online ? "Conectado" : "Desconectado"} · solo imprime el ticket de esta pantalla</span>
+                    </p>
+                    <label className="block text-sm font-bold text-zinc-300">
+                      Impresora del ticket
+                      <select value={k.printer} disabled={busy} onChange={(e) => void patch({ printer: e.target.value }, e.target.value ? "✅ Listo: el ticket del cliente saldrá ahí al aprobarse el pago." : "")} className={`${input} mt-1`}>
+                        <option value="">Elige la impresora</option>
+                        {mine.printers.map((p) => (
+                          <option key={p.name} value={p.name}>
+                            {p.displayName || p.name}
+                          </option>
+                        ))}
+                        {k.printer && !mine.printers.some((p) => p.name === k.printer) && <option value={k.printer}>{k.printer} (no la reporta el Agent)</option>}
+                      </select>
+                      {mine.printers.length === 0 && <span className="mt-1 block text-xs font-normal text-zinc-500">El Agent no reporta impresoras: revisa que esté prendido y con la impresora instalada en Windows.</span>}
+                    </label>
+                    <label className="block text-sm font-bold text-zinc-300">
+                      Papel
+                      <select value={k.paper_mm === 58 ? 58 : 80} disabled={busy} onChange={(e) => void patch({ paperMm: Number(e.target.value) })} className={`${input} mt-1`}>
+                        <option value={80}>80 mm</option>
+                        <option value={58}>58 mm</option>
+                      </select>
+                    </label>
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        if (confirm("¿Desvincular el Agent de esta pantalla? Dejará de imprimir el ticket del kiosco.")) {
+                          void run(() => call(`/api/kiosco/pantallas?agentOf=${encodeURIComponent(k.id)}`, { method: "DELETE" }), "Agent desvinculado.");
+                        }
+                      }}
+                      className="rounded-2xl border border-zinc-700 px-3 py-3 text-xs font-black text-zinc-300 disabled:opacity-50"
+                    >
+                      Desvincular Agent
+                    </button>
+                  </div>
+                )}
               </div>
               <button
                 disabled={busy}

@@ -97,14 +97,13 @@ export function AgentCard({ className = "" }: { className?: string }) {
           <ul className="mt-5 space-y-2">
             {agents === null && !error && <li className="text-sm text-zinc-500">Revisando...</li>}
             {agents?.length === 0 && <li className="text-sm text-zinc-400">Esta sucursal todavía no tiene una computadora vinculada.</li>}
-            {agents?.map((agent) => (
+            {agents?.filter((agent) => !agent.kiosk_id).map((agent) => (
               <li key={agent.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-black px-4 py-3">
                 <div>
                   <p className="font-black">
                     <span className={`mr-2 inline-block h-2.5 w-2.5 rounded-full ${agent.online ? "bg-green-500" : "bg-red-500"}`} />
                     {agent.name || "B-POS Agent"}
                     <span className="ml-2 text-sm font-bold text-zinc-500">{agent.online ? "Conectado" : `Desconectado · visto ${ago(agent.last_seen_at)}`}</span>
-                    {agent.kiosk_id && <span className="ml-2 rounded-lg bg-sky-500/20 px-2 py-0.5 text-xs font-bold text-sky-300">🖥️ Imprime el ticket del kiosco</span>}
                   </p>
                   <p className="mt-1 text-xs text-zinc-500">
                     {agent.version ? `Versión ${agent.version} · ` : ""}
