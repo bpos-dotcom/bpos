@@ -51,10 +51,12 @@ async function imageToEscPos(dataUrl, widthMm) {
   return Buffer.concat(parts);
 }
 
-// Envío RAW por la cola de Windows (winspool) desde PowerShell, sin módulos nativos
+// Envío RAW por la cola de Windows (winspool) desde PowerShell, sin módulos nativos.
+// El código C# se compila UNA vez (Add-Type tarda 2-4 s) y queda guardado como
+// DLL en %APPDATA%\B-POS\cache; los demás tickets solo lo cargan.
 const PS_SCRIPT = `
 $ErrorActionPreference = 'Stop'
-Add-Type -TypeDefinition @"
+$src = @"
 using System;
 using System.ComponentModel;
 using System.Runtime.InteropServices;
@@ -86,25 +88,95 @@ public class BposRaw {
   }
 }
 "@
+$dll = Join-Path $env:BPOS_RAW_CACHE 'BposRaw-v1.dll'
+if (-not (Test-Path $dll)) {
+  New-Item -ItemType Directory -Force -Path $env:BPOS_RAW_CACHE | Out-Null
+  $tmp = "$dll.$PID.tmp"
+  Add-Type -TypeDefinition $src -OutputAssembly $tmp
+  try { Move-Item -Path $tmp -Destination $dll -Force -ErrorAction Stop } catch { Remove-Item $tmp -Force -ErrorAction SilentlyContinue }
+}
+try { Add-Type -Path $dll } catch { Add-Type -TypeDefinition $src }
 [BposRaw]::Send($env:BPOS_RAW_PRINTER, [IO.File]::ReadAllBytes($env:BPOS_RAW_FILE))
 `;
 const ENCODED = Buffer.from(PS_SCRIPT, "utf16le").toString("base64");
 
-function sendRaw(printerName, bytes) {
-  const file = path.join(os.tmpdir(), `bpos-raw-${crypto.randomBytes(6).toString("hex")}.bin`);
-  fs.writeFileSync(file, bytes);
+const CACHE_DIR = path.join(process.env.APPDATA || os.tmpdir(), "B-POS", "bpos-raw");
+
+/**
+ * PowerShell sin consola escribe sus errores serializados ("#< CLIXML ...
+ * <S S="Error">texto</S>"); aquí se saca el texto legible.
+ */
+function decodePowerShellError(stderr, fallback) {
+  const raw = String(stderr || "");
+  const unescape = (v) =>
+    v
+      .replace(/_x000D_/g, "")
+      .replace(/_x000A_/g, "\n")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&apos;/g, "'")
+      .replace(/&amp;/g, "&");
+  const parts = [...raw.matchAll(/<S S="Error">([\s\S]*?)<\/S>/g)].map((m) => unescape(m[1]));
+  const text = (parts.length ? parts.join("") : raw.replace(/^#< CLIXML\s*/i, ""))
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l && !/^(En l[ií]nea|At line|\+ |\+ CategoryInfo|\+ FullyQualifiedErrorId|\s*~+)/.test(l));
+  return (text[0] || fallback || "error desconocido").slice(0, 300);
+}
+
+/**
+ * Texto de la consola de Windows: la salida de PowerShell va en la página de
+ * códigos OEM (850 en español), que Node no trae; aquí van sus letras con acento.
+ */
+const CP850 = { 0x80: "Ç", 0x81: "ü", 0x82: "é", 0x83: "â", 0x84: "ä", 0x85: "à", 0x86: "å", 0x87: "ç", 0x88: "ê", 0x89: "ë", 0x8a: "è", 0x8b: "ï", 0x8c: "î", 0x8d: "ì", 0x8e: "Ä", 0x8f: "Å", 0x90: "É", 0x91: "æ", 0x92: "Æ", 0x93: "ô", 0x94: "ö", 0x95: "ò", 0x96: "û", 0x97: "ù", 0x98: "ÿ", 0x99: "Ö", 0x9a: "Ü", 0x9b: "ø", 0x9c: "£", 0x9d: "Ø", 0x9e: "×", 0x9f: "ƒ", 0xa0: "á", 0xa1: "í", 0xa2: "ó", 0xa3: "ú", 0xa4: "ñ", 0xa5: "Ñ", 0xa6: "ª", 0xa7: "º", 0xa8: "¿", 0xad: "¡", 0xb5: "Á", 0xb6: "Â", 0xb7: "À", 0xc6: "ã", 0xc7: "Ã", 0xd0: "ð", 0xd1: "Ð", 0xd2: "Ê", 0xd3: "Ë", 0xd4: "È", 0xd6: "Í", 0xd7: "Î", 0xd8: "Ï", 0xe0: "Ó", 0xe1: "ß", 0xe2: "Ô", 0xe3: "Ò", 0xe4: "õ", 0xe5: "Õ", 0xe9: "Ú", 0xea: "Û", 0xeb: "Ù", 0xec: "ý", 0xed: "Ý", 0xf8: "°" };
+function decodeConsole(buffer) {
+  if (!buffer || !buffer.length) return "";
+  let out = "";
+  for (const byte of buffer) out += byte < 0x80 ? String.fromCharCode(byte) : CP850[byte] || "?";
+  return out;
+}
+
+function runPowerShell(printerName, file) {
   return new Promise((resolve, reject) => {
     execFile(
       "powershell.exe",
       ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", ENCODED],
-      { windowsHide: true, timeout: 60000, env: { ...process.env, BPOS_RAW_PRINTER: printerName, BPOS_RAW_FILE: file } },
+      {
+        windowsHide: true,
+        timeout: 60000,
+        maxBuffer: 4 * 1024 * 1024,
+        encoding: "buffer", // PowerShell escribe en la página de códigos de Windows, no en UTF-8
+        env: { ...process.env, BPOS_RAW_PRINTER: printerName, BPOS_RAW_FILE: file, BPOS_RAW_CACHE: CACHE_DIR },
+      },
       (error, stdout, stderr) => {
-        fs.rm(file, { force: true }, () => {});
-        if (error) reject(new Error(`La impresora no aceptó el ticket: ${String(stderr || error.message).split("\n")[0].trim()}`));
-        else resolve();
+        if (!error) return resolve();
+        const message = decodePowerShellError(decodeConsole(stderr), error.killed ? "PowerShell tardó más de 60 s" : error.message);
+        console.error(`[raw-printer] "${printerName}": ${message}`);
+        reject(new Error(message));
       }
     );
   });
+}
+
+async function sendRaw(printerName, bytes) {
+  const file = path.join(os.tmpdir(), `bpos-raw-${crypto.randomBytes(6).toString("hex")}.bin`);
+  fs.writeFileSync(file, bytes);
+  try {
+    try {
+      await runPowerShell(printerName, file);
+    } catch (first) {
+      // Un fallo pasajero (cola ocupada, antivirus revisando el DLL recién creado): un reintento
+      await new Promise((r) => setTimeout(r, 1500));
+      try {
+        await runPowerShell(printerName, file);
+      } catch {
+        throw new Error(`La impresora "${printerName}" no aceptó el ticket: ${first.message}`);
+      }
+    }
+  } finally {
+    fs.rm(file, { force: true }, () => {});
+  }
 }
 
 /** Imprime una imagen de ticket en una térmica ESC/POS. */
@@ -112,4 +184,4 @@ async function printImageEscPos(image, printerName, widthMm) {
   await sendRaw(printerName, await imageToEscPos(image.dataUrl, widthMm));
 }
 
-module.exports = { printImageEscPos, imageToEscPos, sendRaw };
+module.exports = { printImageEscPos, imageToEscPos, sendRaw, decodePowerShellError };
