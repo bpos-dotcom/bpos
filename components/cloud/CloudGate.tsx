@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
@@ -51,12 +52,13 @@ type GateState =
  * Conecta este dispositivo a la nube antes de mostrar B-POS.
  * Si no hay Supabase configurado, muestra B-POS directo (modo local).
  */
-/** Páginas que cualquiera puede ver sin cuenta (página de ventas de B-POS) */
-export const PUBLIC_PATHS = ["/bpos", "/m", "/fidelidad", "/kiosco"];
+/** Páginas que cualquiera puede ver sin cuenta (la portada de B-POS en "/", menús, club y kiosco) */
+export const PUBLIC_PATHS = ["/m", "/fidelidad", "/kiosco"];
+export const isPublicPath = (pathname: string) => pathname === "/" || PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 export function CloudGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
-  const isPublic = PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+  const isPublic = isPublicPath(pathname);
   const [state, setState] = useState<GateState>({ step: "loading", text: "Conectando con la nube..." });
 
   const begin = useCallback(async (account: ReadyAccount) => {
@@ -236,9 +238,9 @@ function AccountForm({ onDone }: { onDone: () => void }) {
         <p className="mt-3 text-center text-sm text-orange-300">¿Negocio nuevo? Crea tu cuenta: {TRIAL_DAYS} días gratis de B-POS, sin tarjeta.</p>
       )}
       <p className="mt-2 text-center text-sm">
-        <a href="/bpos" className="font-bold text-zinc-400 underline hover:text-orange-400">
-          ¿Qué es B-POS? Ver planes y descargar
-        </a>
+        <Link href="/" className="font-bold text-zinc-400 underline hover:text-orange-400">
+          ¿Qué es B-POS? Ver planes
+        </Link>
       </p>
 
       <div className="mt-8 grid grid-cols-2 gap-2 rounded-2xl border border-zinc-800 bg-black p-1">

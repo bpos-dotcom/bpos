@@ -17,9 +17,11 @@ const nextConfig: NextConfig = {
   },
   // La dirección de antes (bpos-alpha.vercel.app) lleva a www.bpos.com.mx.
   // /api se queda igual: el webhook de Mercado Pago aún llega por ahí.
+  // La portada vivía en /bpos; ahora es la raíz.
   async redirects() {
     const oldHost = [{ type: "host" as const, value: "bpos-alpha.vercel.app" }];
     return [
+      { source: "/bpos", destination: "/", permanent: false },
       { source: "/", has: oldHost, destination: "https://www.bpos.com.mx/", permanent: false },
       { source: "/:path((?!api/).+)", has: oldHost, destination: "https://www.bpos.com.mx/:path", permanent: false },
     ];

@@ -269,7 +269,7 @@ function OwnerApp() {
           </div>
           <div className="flex items-center gap-2">
             <ThemeToggle className="px-2 py-2 text-xs" />
-            <Link href="/" className="rounded-xl border border-zinc-800 px-3 py-2 text-xs font-black text-zinc-300">
+            <Link href="/dashboard" className="rounded-xl border border-zinc-800 px-3 py-2 text-xs font-black text-zinc-300">
               B-POS completo
             </Link>
           </div>
