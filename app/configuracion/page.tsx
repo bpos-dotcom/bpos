@@ -95,6 +95,12 @@ const adminModules = [
     description: "Empleados, PIN, roles y permisos.",
   },
   {
+    title: "Asistencia",
+    href: "/configuracion/asistencia",
+    icon: "⏱️",
+    description: "Checador de entrada y salida con PIN (bpos.com.mx/checador) y horas trabajadas por empleado.",
+  },
+  {
     title: "Proveedores",
     href: "/compras",
     icon: "🏪",
