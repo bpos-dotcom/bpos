@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 import RequireRole from "@/components/auth/RequireRole";
+import WalletCardSettings from "@/components/club/WalletCardSettings";
 import { AppShell } from "@/components/layout/AppShell";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { DIGITAL_MENU_EVENT, getDigitalMenu } from "@/lib/digital-menu";
@@ -62,7 +63,8 @@ export default function ClubPage() {
   const [qr, setQr] = useState("");
   const [rewardName, setRewardName] = useState("");
   const [rewardPoints, setRewardPoints] = useState("");
-  const business = getBusinessSettings().businessName || "tu restaurante";
+  const settings = getBusinessSettings();
+  const business = settings.businessName || "tu restaurante";
   const link = slug ? `${PUBLIC_SITE}/fidelidad/${slug}` : "";
 
   useEffect(() => {
@@ -226,6 +228,8 @@ export default function ClubPage() {
               <textarea value={c.terms} maxLength={500} rows={3} placeholder="Los puntos vencen al año. No acumulable con otras promociones." onChange={(e) => update({ terms: e.target.value })} className={`${input} mt-1`} />
             </label>
           </section>
+
+          <WalletCardSettings c={c} update={update} business={business} brandColor={settings.brandColor || "#f97316"} brandLogo={settings.brandLogo || ""} slug={slug} />
 
           <section className={card}>
             <h2 className="text-lg font-black">🔳 QR para tu restaurante</h2>

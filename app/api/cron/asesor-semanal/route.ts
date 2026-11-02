@@ -112,6 +112,7 @@ export async function GET(request: NextRequest) {
         headers: { Authorization: `Bearer ${resendKey}`, "Content-Type": "application/json" },
         body: JSON.stringify({
           from: "Asesor B-POS <asesor@bpos.com.mx>",
+          reply_to: "equipo@bpos.com.mx",
           to: [row.email],
           subject: `✨ Tu resumen de la semana · ${business}`,
           html: emailHtml(business, r.data),
