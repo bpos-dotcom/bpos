@@ -269,6 +269,31 @@ export default function MenuDigitalPage() {
                 </div>
               )}
             </div>
+            <div className="mt-4 rounded-2xl border border-zinc-800 bg-black p-4">
+              <label className="flex cursor-pointer items-start gap-3">
+                <input type="checkbox" checked={menu.reservations.enabled} onChange={(e) => update({ reservations: { ...menu.reservations, enabled: e.target.checked } })} className="mt-1 h-5 w-5 accent-orange-500" />
+                <span>
+                  <span className="font-black">🍽️ Reservaciones de mesa</span>
+                  <span className="mt-1 block text-xs text-zinc-500">En el menú aparece &quot;Reservar mesa&quot;: nombre, WhatsApp, día, hora y personas. Las confirmas o rechazas en Pedidos en línea → Reservaciones y le avisas al cliente por WhatsApp. Necesita la migración 0024 en la nube.</span>
+                </span>
+              </label>
+              {menu.reservations.enabled && (
+                <div className="mt-3 grid gap-3 md:grid-cols-3">
+                  <label className={label}>
+                    Máximo de personas por reservación
+                    <input type="number" min={1} max={100} value={menu.reservations.maxPeople} onChange={(e) => update({ reservations: { ...menu.reservations, maxPeople: Number(e.target.value) || 12 } })} className={`${input} mt-1`} />
+                  </label>
+                  <label className={label}>
+                    Hasta cuántos días antes
+                    <input type="number" min={1} max={180} value={menu.reservations.maxDays} onChange={(e) => update({ reservations: { ...menu.reservations, maxDays: Number(e.target.value) || 30 } })} className={`${input} mt-1`} />
+                  </label>
+                  <label className={label}>
+                    Aviso para el cliente
+                    <input value={menu.reservations.note} onChange={(e) => update({ reservations: { ...menu.reservations, note: e.target.value } })} maxLength={200} placeholder="Ej. Te guardamos la mesa 15 minutos" className={`${input} mt-1`} />
+                  </label>
+                </div>
+              )}
+            </div>
             <div className="mt-4 grid gap-4 md:grid-cols-4">
               <label className={label}>
                 Envío

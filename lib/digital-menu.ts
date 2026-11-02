@@ -109,6 +109,8 @@ export type DigitalMenuSettings = {
   scheduling: { enabled: boolean; minMinutes: number; maxDays: number; leadMinutes: number };
   /** Liga para dejar reseña en Google (se ofrece a quien califica con 4 o 5 estrellas) */
   googleReviewUrl: string;
+  /** Reservar mesa desde el menú: hasta cuántas personas, cuántos días antes y un aviso ("Llega 10 min antes") */
+  reservations: { enabled: boolean; maxPeople: number; maxDays: number; note: string };
   /**
    * Orden de las categorías en el menú digital y en el POS, como lo acomoda
    * el negocio. Las que no estén aquí van después, en el orden del catálogo.
@@ -142,6 +144,7 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   whatsappNotify: true,
   scheduling: { enabled: true, minMinutes: 60, maxDays: 3, leadMinutes: 30 },
   googleReviewUrl: "",
+  reservations: { enabled: false, maxPeople: 12, maxDays: 30, note: "" },
   categoryOrder: [],
   hidden: [],
   soldOut: {},
@@ -282,6 +285,12 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
       leadMinutes: Math.round(num(r.scheduling?.leadMinutes, 30, 5, 180)),
     },
     googleReviewUrl: /^https:\/\/\S+$/i.test(String(r.googleReviewUrl || "").trim()) ? String(r.googleReviewUrl).trim().slice(0, 300) : "",
+    reservations: {
+      enabled: r.reservations?.enabled === true,
+      maxPeople: Math.round(num(r.reservations?.maxPeople, 12, 1, 100)),
+      maxDays: Math.round(num(r.reservations?.maxDays, 30, 1, 180)),
+      note: str(r.reservations?.note, "", 200),
+    },
     categoryOrder: Array.isArray(r.categoryOrder)
       ? Array.from(new Set(r.categoryOrder.filter((c): c is string => typeof c === "string").map((c) => c.trim().slice(0, 60)).filter(Boolean))).slice(0, 100)
       : [],
