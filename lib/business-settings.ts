@@ -29,6 +29,9 @@ export type BusinessSettings = {
   ticketLogoSize: TicketSize;
   ticketShowCustomer: boolean;
   ticketShowChoices: boolean; // elecciones ("Elige tu...: Kansas city") y notas ("Sin cebolla")
+  /** Propinas al cobrar (opcional): se preguntan en el cobro con estos porcentajes sugeridos */
+  tipsEnabled: boolean;
+  tipSuggestions: number[];
 };
 
 export type TicketSize = "normal" | "grande" | "extra";
@@ -57,6 +60,8 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   ticketLogoSize: "grande",
   ticketShowCustomer: true,
   ticketShowChoices: true,
+  tipsEnabled: false,
+  tipSuggestions: [10, 15, 20],
 };
 
 function normalizePhone(value: string) {
@@ -87,6 +92,10 @@ function normalize(parsed: Partial<BusinessSettings>): BusinessSettings {
     ticketLogoSize: SIZES.includes(parsed.ticketLogoSize as TicketSize) ? (parsed.ticketLogoSize as TicketSize) : DEFAULT_SETTINGS.ticketLogoSize,
     ticketShowCustomer: parsed.ticketShowCustomer !== false,
     ticketShowChoices: parsed.ticketShowChoices !== false,
+    tipsEnabled: parsed.tipsEnabled === true,
+    tipSuggestions: Array.isArray(parsed.tipSuggestions)
+      ? Array.from(new Set(parsed.tipSuggestions.map((n) => Math.round(Number(n))).filter((n) => n > 0 && n <= 100))).sort((a, b) => a - b).slice(0, 4)
+      : DEFAULT_SETTINGS.tipSuggestions,
   };
 }
 

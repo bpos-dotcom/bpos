@@ -24,7 +24,8 @@ type KdsItem = SavedOrder["items"][number] & {
 };
 
 // Los combos se ven separados: cada parte en su estación
-const itemsOf = (order: { items: KdsItem[] }) => kitchenItems(order.items);
+// Cuentas de mesa: lo de rondas anteriores ya se preparó (kdsDone) y no se vuelve a mostrar
+const itemsOf = (order: { items: KdsItem[] }) => kitchenItems(order.items.filter((item) => !(item as { kdsDone?: boolean }).kdsDone));
 
 type KdsOrder = Omit<SavedOrder, "items"> & {
   items: KdsItem[];

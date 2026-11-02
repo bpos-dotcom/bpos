@@ -190,6 +190,18 @@ export function buildShoppingListMessage() {
   return `📦 *B-POS · LISTA DE FALTANTES*\n\n${lines}\n\n🕒 ${new Date().toLocaleString()}`;
 }
 
+/**
+ * Marca una venta como ya descontada sin tocar el inventario: para la parte
+ * de una cuenta dividida por productos (sus ingredientes ya se descontaron
+ * cuando se mandó a cocina la cuenta original).
+ */
+export function markInventoryApplied(orderId: number | string) {
+  if (typeof window === "undefined") return;
+  const applied = new Set(readJson<string[]>(APPLIED_KEY, []));
+  applied.add(`order:${orderId}`);
+  writeJson(APPLIED_KEY, Array.from(applied));
+}
+
 export function applyInventoryForOrder(order: InventoryOrderLike): InventoryApplicationResult {
   if (typeof window === "undefined") return { success: false, duplicate: false, movements: [], lowStock: [], error: "Disponible solo en navegador." };
   const key = applicationKey(order);

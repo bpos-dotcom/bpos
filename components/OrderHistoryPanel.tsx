@@ -16,6 +16,15 @@ export type SavedOrder = {
   paidAt?: string;
   /** Socio del club al que se le suma la venta cuando se cobre */
   clubAccountId?: string;
+  /** Cuenta de mesa: rondas que se han mandado a cocina */
+  rounds?: number;
+  /** Propina (aparte del total de la venta) y con qué se pagó */
+  tip?: number;
+  tipPayments?: Record<string, number>;
+  /** Cuenta dividida entre personas: lo que ya pagó cada quien (hasta completar el total) */
+  partialPayments?: { amount: number; tip: number; method: string; payments: Record<string, number>; tipPayments: Record<string, number>; at: string; by?: string }[];
+  /** Parte de una cuenta dividida por productos: de qué pedido salió */
+  splitFrom?: number;
 };
 
 type OrderHistoryPanelProps = {

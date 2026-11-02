@@ -47,6 +47,12 @@ const adminModules = [
     description: "Sonido, veces, color y parpadeo de cada aviso: pedidos en línea, equivalencias, inventario y errores.",
   },
   {
+    title: "Mesas",
+    href: "/configuracion/mesas",
+    icon: "🪑",
+    description: "Las mesas de tu restaurante por zona (salón, terraza...): en el POS eliges la mesa, mandas rondas a cocina, sacas la precuenta y cobras.",
+  },
+  {
     title: "Reparto",
     href: "/configuracion/reparto",
     icon: "🛵",

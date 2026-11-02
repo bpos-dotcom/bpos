@@ -11,6 +11,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { saveCashCloseRecord } from "@/lib/cash-history";
 import { isCancelled } from "@/lib/sale-cancel";
+import { paidWith, tipOf, tipPaidWith } from "@/lib/sale-payments";
 
 type CashMovement = {
   id: number;
@@ -37,9 +38,12 @@ type SavedOrder = {
   shiftSessionId?: string;
   createdAt: string;
   total: number;
+  tip?: number;
+  tipPayments?: Record<string, number>;
   details: {
     paymentMethod: string;
     orderType?: string;
+    payments?: Record<string, number>;
   };
 };
 
@@ -113,22 +117,15 @@ export default function CajaPage() {
 
   const totalSales = shiftOrders.reduce((sum, order) => sum + order.total, 0);
 
-  const cashSales = shiftOrders
-    .filter((order) => order.details.paymentMethod === "Efectivo")
-    .reduce((sum, order) => sum + order.total, 0);
-
-  const cardSales = shiftOrders
-    .filter((order) => order.details.paymentMethod === "Tarjeta")
-    .reduce((sum, order) => sum + order.total, 0);
-
-  const transferSales = shiftOrders
-    .filter((order) => order.details.paymentMethod === "Transferencia")
-    .reduce((sum, order) => sum + order.total, 0);
-
+  // Por método, contando cada parte de los pagos mixtos y las cuentas divididas
+  const cashSales = shiftOrders.reduce((sum, order) => sum + paidWith(order, "Efectivo"), 0);
+  const cardSales = shiftOrders.reduce((sum, order) => sum + paidWith(order, "Tarjeta"), 0);
+  const transferSales = shiftOrders.reduce((sum, order) => sum + paidWith(order, "Transferencia"), 0);
   // Pedidos del menú digital pagados en línea (el dinero ya está en Mercado Pago)
-  const mpSales = shiftOrders
-    .filter((order) => order.details.paymentMethod === "Mercado Pago")
-    .reduce((sum, order) => sum + order.total, 0);
+  const mpSales = shiftOrders.reduce((sum, order) => sum + paidWith(order, "Mercado Pago"), 0);
+  // Propinas (aparte de las ventas): las de efectivo están en el cajón
+  const tipsTotal = shiftOrders.reduce((sum, order) => sum + tipOf(order), 0);
+  const tipsCash = shiftOrders.reduce((sum, order) => sum + tipPaidWith(order, "Efectivo"), 0);
 
   const cashOut = (shift?.movements || [])
     .filter((movement) => movement.type === "Gasto" || movement.type === "Retiro")
@@ -138,7 +135,7 @@ export default function CajaPage() {
     .filter((movement) => movement.type === "Ingreso extra")
     .reduce((sum, movement) => sum + movement.amount, 0);
 
-  const expectedCash = (shift?.openingCash || 0) + cashSales + cashIn - cashOut;
+  const expectedCash = (shift?.openingCash || 0) + cashSales + tipsCash + cashIn - cashOut;
   const difference = Number(cashCounted || 0) - expectedCash;
 
 
@@ -359,7 +356,7 @@ export default function CajaPage() {
 💳 Tarjeta: $${cardSales.toFixed(2)}
 🏦 Transferencia: ${transferSales.toFixed(2)}${mpSales ? `\n📲 Mercado Pago en línea: ${mpSales.toFixed(2)}` : ""}
 
-📈 Total ventas: $${totalSales.toFixed(2)}
+📈 Total ventas: $${totalSales.toFixed(2)}${tipsTotal ? `\n💛 Propinas: $${tipsTotal.toFixed(2)} (en efectivo $${tipsCash.toFixed(2)})` : ""}
 
 ──────────────
 *VENTAS POR CANAL*
@@ -427,6 +424,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
     totalSales,
     orderCount: shiftOrders.length,
     salesByPayment: { cash: cashSales, card: cardSales, transfer: transferSales, ...(mpSales ? { mercadopago: mpSales } : {}) },
+    ...(tipsTotal ? { tips: tipsTotal, tipsCash } : {}),
     salesByChannel: { counter: counterSales, whatsapp: whatsappSales, uber: uberSales, didi: didiSales, other: otherSales },
     cashIn,
     cashOut,
@@ -524,6 +522,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
               value={`${transferSales.toFixed(2)}`}
             />
             {mpSales > 0 && <Metric title="Mercado Pago en línea" value={`${mpSales.toFixed(2)}`} />}
+            {tipsTotal > 0 && <Metric title="Propinas" value={`$${tipsTotal.toFixed(2)}`} />}
           </div>
 
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">

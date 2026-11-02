@@ -53,6 +53,7 @@ const BUSINESS_KEYS = new Set([
   "bpos_ingredient_cost_history",
   "bpos_notification_settings",
   "bpos_drivers",
+  "bpos_tables",
   "bpos_coupons",
   "bpos_customers",
   "bpos_loyalty",
