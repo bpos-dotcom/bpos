@@ -6,6 +6,9 @@ const BUSINESS_SETTINGS_KEY = "bpos_business_settings";
 
 export type BusinessSettings = {
   businessName: string;
+  /** Dirección y correo del negocio (se capturan al crear la cuenta) */
+  address: string;
+  businessEmail: string;
   ownerWhatsapp: string;
   /** Logo del negocio en el menú lateral (data URL a color, "" = logo de B-POS) */
   brandLogo: string;
@@ -36,6 +39,8 @@ export const DEFAULT_TICKET_NOTICE =
 
 const DEFAULT_SETTINGS: BusinessSettings = {
   businessName: "Mi negocio",
+  address: "",
+  businessEmail: "",
   ownerWhatsapp: "",
   brandLogo: "",
   brandColor: "#f97316",
@@ -64,6 +69,8 @@ function normalize(parsed: Partial<BusinessSettings>): BusinessSettings {
   const text = (value: unknown, fallback: string) => (typeof value === "string" ? value : fallback);
   return {
     businessName: String(parsed.businessName || DEFAULT_SETTINGS.businessName).trim(),
+    address: text(parsed.address, "").trim().slice(0, 200),
+    businessEmail: text(parsed.businessEmail, "").trim().toLowerCase().slice(0, 120),
     ownerWhatsapp: normalizePhone(String(parsed.ownerWhatsapp || "")),
     brandLogo: text(parsed.brandLogo, "").startsWith("data:image/") ? text(parsed.brandLogo, "") : "",
     brandColor: /^#[0-9a-f]{6}$/i.test(text(parsed.brandColor, "")) ? text(parsed.brandColor, "") : DEFAULT_SETTINGS.brandColor,

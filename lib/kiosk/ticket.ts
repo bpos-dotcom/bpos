@@ -20,6 +20,8 @@ export function ticketSettings(raw: unknown, businessName: string): BusinessSett
   const dataImage = (v: unknown) => (text(v, "").startsWith("data:image/") ? text(v, "") : "");
   return {
     businessName: String(r.businessName || businessName || "Mi negocio").trim(),
+    address: text(r.address, "").trim(),
+    businessEmail: text(r.businessEmail, "").trim(),
     ownerWhatsapp: "",
     brandLogo: dataImage(r.brandLogo),
     brandColor: "#f97316",

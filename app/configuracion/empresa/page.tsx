@@ -204,6 +204,16 @@ export default function EmpresaConfigPage() {
               </div>
 
               <label>
+                <span className={label}>Dirección del negocio</span>
+                <input value={settings.address} onChange={(e) => set({ address: e.target.value })} className={input} placeholder="Calle, número, colonia y ciudad" maxLength={200} />
+              </label>
+
+              <label>
+                <span className={label}>Correo del negocio</span>
+                <input value={settings.businessEmail} onChange={(e) => set({ businessEmail: e.target.value })} className={input} placeholder="correo@negocio.com" type="email" />
+              </label>
+
+              <label>
                 <span className={label}>Teléfono para pedidos directos</span>
                 <input value={settings.ticketPhone} onChange={(e) => set({ ticketPhone: e.target.value })} className={input} placeholder="Ej. 871 123 4567" />
               </label>
