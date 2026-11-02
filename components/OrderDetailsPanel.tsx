@@ -12,6 +12,9 @@ export type OrderDetails = {
   couponCode?: string;
   /** Costo de envío a domicilio (se suma al total) */
   deliveryFee?: number;
+  /** Pedido de mesa (comer aquí): la mesa elegida y cuántas personas */
+  table?: { id: string; name: string; zone: string };
+  diners?: number;
 };
 
 type OrderDetailsPanelProps = {
@@ -27,10 +30,13 @@ export function OrderDetailsPanel({
   onChange,
 }: OrderDetailsPanelProps) {
   function updateField(key: keyof OrderDetails, value: string | number) {
-    onChange({
-      ...details,
-      [key]: value,
-    });
+    const next = { ...details, [key]: value };
+    // Si deja de ser pedido de mesa, se suelta la mesa
+    if (key === "orderType" && value !== "Mesa") {
+      delete next.table;
+      delete next.diners;
+    }
+    onChange(next);
   }
 
   return (
@@ -43,6 +49,7 @@ export function OrderDetailsPanel({
             className={input}
           >
             <option>Mostrador</option>
+            {details.table && <option>Mesa</option>}
             <option>Para llevar</option>
             <option>Domicilio</option>
             <option>WhatsApp</option>

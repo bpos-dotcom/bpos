@@ -16,6 +16,8 @@ export type SavedOrder = {
   paidAt?: string;
   /** Socio del club al que se le suma la venta cuando se cobre */
   clubAccountId?: string;
+  /** Cuenta de mesa: rondas que se han mandado a cocina */
+  rounds?: number;
 };
 
 type OrderHistoryPanelProps = {

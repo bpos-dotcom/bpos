@@ -21,7 +21,7 @@ export type SaleForTickets = {
   localOrderNumber?: number;
   createdAt: string;
   items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean; comment?: string; extraStations?: ExtraStation[] }[];
-  details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number };
+  details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number; table?: { name: string }; diners?: number; precuenta?: boolean };
   subtotal?: number;
   total: number;
   externalPlatform?: string;
@@ -43,7 +43,12 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
   const subtotal = Number(sale.subtotal ?? sale.items.reduce((s, i) => s + i.price * i.quantity, 0));
   return {
     kind: delivery ? "delivery" : "mostrador",
-    platform: delivery ? platformLabel(sale.externalPlatform) : sale.details?.orderType || "Mostrador",
+    // Mesa: "Mesa 4 · 3 personas" (y "PRECUENTA" cuando se imprime antes de cobrar)
+    platform: delivery
+      ? platformLabel(sale.externalPlatform)
+      : sale.details?.table
+        ? `${sale.details.precuenta ? "PRECUENTA · " : ""}Mesa ${sale.details.table.name}${sale.details.diners ? ` · ${sale.details.diners} pers.` : ""}`
+        : sale.details?.orderType || "Mostrador",
     orderId: delivery && sale.externalOrderNumber ? String(sale.externalOrderNumber) : formatOrderNumber(sale),
     customer: realCustomerName(sale.details?.customerName),
     receivedAt: sale.createdAt,

@@ -22,6 +22,9 @@ export type CartItem = Product & {
   comment?: string;
   /** Multidestino: otras estaciones que preparan una parte */
   extraStations?: ExtraStation[];
+  /** Cuenta de mesa: en qué ronda se pidió y si cocina ya lo preparó (no se vuelve a mostrar en el KDS) */
+  round?: number;
+  kdsDone?: boolean;
 };
 
 export const cartLineId = (item: CartItem) => item.lineId || String(item.id);
@@ -188,6 +191,8 @@ type CartPanelProps = {
   /** Cuenta en espera: se manda a cocina ya y se cobra después (domicilio: al regresar el repartidor) */
   onHold: () => void;
   orderType?: string;
+  /** Pedido de mesa: su nombre, para el botón de mandar a cocina */
+  tableName?: string;
 };
 
 export function CartPanel({
@@ -202,6 +207,7 @@ export function CartPanel({
   onCheckout,
   onHold,
   orderType,
+  tableName,
 }: CartPanelProps) {
   const subtotal = items.reduce(
     (total, item) => total + item.price * item.quantity,
@@ -268,7 +274,25 @@ export function CartPanel({
           </span>
         </div>
 
-        {orderType === "Domicilio" ? (
+        {orderType === "Mesa" ? (
+          <>
+            <button
+              onClick={onHold}
+              disabled={!canCheckout}
+              title="Se manda a cocina y la cuenta queda abierta en la mesa; se cobra cuando pidan la cuenta"
+              className="mt-3 w-full rounded-2xl bg-orange-500 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              🍽️ Mandar a cocina{tableName ? ` · Mesa ${tableName}` : ""}
+            </button>
+            <button
+              onClick={onCheckout}
+              disabled={!canCheckout}
+              className="w-full rounded-2xl border border-orange-500/60 bg-orange-500/10 py-2.5 font-black text-orange-300 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Cobrar ahora
+            </button>
+          </>
+        ) : orderType === "Domicilio" ? (
           <>
             <button
               onClick={onHold}
