@@ -25,7 +25,7 @@ import { syncAdvisorSnapshot } from "@/lib/advisor-sync";
 import { UpdateNotice } from "@/components/layout/UpdateNotice";
 
 const navItems = [
-  { label: "Dashboard", href: "/", icon: "📊" },
+  { label: "Dashboard", href: "/dashboard", icon: "📊" },
   { label: "POS", href: "/pos", icon: "🛒" },
   { label: "Pedidos en línea", href: "/pedidos-en-linea", icon: "🌐" },
   { label: "B-POS Bridge", href: "/bridge", icon: "🌉" },
