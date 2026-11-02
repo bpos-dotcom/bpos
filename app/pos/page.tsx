@@ -310,6 +310,7 @@ function PosScreen() {
   }
 
   const openTables = tables.filter((t) => t.active && openTableOrder(orders, t.id)).length;
+  const pendingCount = orders.filter((order) => order.pendingPayment && !order.cancelled).length;
 
   function authorizeAdmin(action: string) {
     return requirePermissionOrAdmin(currentUser, "pos.discount", action);
@@ -1092,6 +1093,14 @@ Gracias por pedir en ${businessName} 🚀`;
               tableName={details.table?.name}
             />
             </div>
+            {/* Cuentas en espera (mesas, domicilio por cobrar, pedidos del menú que pagan al recoger) */}
+            <button
+              onClick={() => document.getElementById("cuentas-en-espera")?.scrollIntoView({ behavior: "smooth", block: "start" })}
+              disabled={pendingCount === 0}
+              className={`mt-3 w-full rounded-2xl border py-3 text-sm font-black ${pendingCount > 0 ? "border-yellow-500/60 bg-yellow-500/10 text-yellow-200 hover:bg-yellow-500/20" : "border-zinc-800 bg-black text-zinc-500"}`}
+            >
+              ⏳ Cuentas en espera ({pendingCount}){pendingCount > 0 ? " · ver y cobrar ↓" : ""}
+            </button>
           </section>
         </div>
 
@@ -1108,8 +1117,8 @@ Gracias por pedir en ${businessName} 🚀`;
 
         <div className="px-3 pb-24 sm:px-6 md:pb-6">
 
-          {orders.some((order) => order.pendingPayment && !order.cancelled) && (
-            <section className="mb-6 rounded-3xl border border-yellow-500/40 bg-yellow-500/5 p-5 sm:p-6">
+          {pendingCount > 0 && (
+            <section id="cuentas-en-espera" className="mb-6 scroll-mt-3 rounded-3xl border border-yellow-500/40 bg-yellow-500/5 p-5 sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <h2 className="text-xl font-black text-yellow-200">⏳ Cuentas en espera</h2>
                 <p className="text-sm text-zinc-400">Ya están en cocina. Toca Cobrar cuando paguen.</p>
