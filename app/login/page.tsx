@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { setCurrentUser } from "@/lib/auth";
 import { addAuditEvent } from "@/lib/audit";
@@ -100,6 +101,11 @@ export default function LoginPage() {
                 No hay usuarios activos.
               </div>
             )}
+            <p className="mt-6 text-center text-sm">
+              <Link href="/checador" className="font-bold text-zinc-500 underline hover:text-orange-400">
+                ⏱️ Checador de entrada y salida
+              </Link>
+            </p>
           </>
         ) : (
           <>
