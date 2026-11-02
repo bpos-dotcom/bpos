@@ -25,6 +25,8 @@ import {
   type OnlineOrder,
 } from "@/lib/online-orders";
 
+import { ReservationsPanel } from "@/components/menu/ReservationsPanel";
+
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 const ago = (iso: string) => {
   const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
@@ -319,6 +321,8 @@ export default function PedidosEnLineaPage() {
         )}
         {error && <p className="text-sm text-red-300">{error}</p>}
         {orders === null && !error && <p className="text-zinc-500">Cargando...</p>}
+
+        <ReservationsPanel />
 
         <div className="grid gap-6 xl:grid-cols-3">
           <section>

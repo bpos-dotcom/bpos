@@ -41,6 +41,7 @@ import { AddressMap } from "@/components/menu/AddressMap";
 import { AccountSheet, useCustomer, type Customer, type CustomerOrder } from "@/components/menu/CustomerAccount";
 import { InstallApp } from "@/components/menu/InstallApp";
 import { KioskCheckout } from "@/components/menu/KioskCheckout";
+import { ReservationSheet } from "@/components/menu/ReservationSheet";
 import type { KioskSession } from "@/lib/kiosk/client";
 import { readThemeChoice, saveThemeChoice } from "@/lib/menu-theme";
 
@@ -213,6 +214,9 @@ function Menu({
   const [choosing, setChoosing] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartLine[]>([]);
   const [checkout, setCheckout] = useState(false);
+  /** Reservar mesa (si el negocio lo activó; no en el kiosco) */
+  const [reserving, setReserving] = useState(false);
+  const canReserve = !kiosk && menu.reservations.enabled;
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountStart, setAccountStart] = useState<"entrar" | "registro">("entrar");
   const [reorderNote, setReorderNote] = useState("");
@@ -440,6 +444,15 @@ function Menu({
 
       <main className="mx-auto max-w-6xl px-4 pb-32">
         {menu.notice && <p className="mt-4 rounded-2xl px-4 py-3 text-sm font-bold text-white" style={{ background: color }}>{menu.notice}</p>}
+        {canReserve && (
+          <button onClick={() => setReserving(true)} className="mt-4 flex w-full items-center justify-between rounded-2xl border-2 bg-white px-4 py-3 text-left font-black text-zinc-900 shadow-sm" style={{ borderColor: color }}>
+            <span>📅 Reservar mesa</span>
+            <span className="text-sm" style={{ color }}>
+              Elegir día y hora →
+            </span>
+          </button>
+        )}
+        {reserving && <ReservationSheet slug={data.slug} settings={menu.reservations} color={color} onClose={() => setReserving(false)} />}
         {!canOrderNow && menu.acceptOrders && (
           <p className="mt-4 rounded-2xl bg-zinc-200 px-4 py-3 text-sm text-zinc-700">
             {canSchedule
