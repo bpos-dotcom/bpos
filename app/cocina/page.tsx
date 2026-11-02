@@ -4,6 +4,7 @@ import { realCustomerName } from "@/lib/bridge/delivery-ticket";
 import { kitchenItems, modifiersText } from "@/lib/compound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { PlanGate } from "@/components/cloud/PlanGate";
 import { SavedOrder } from "@/components/OrderHistoryPanel";
 import { KitchenStation } from "@/data/products";
 import { KDS_ORDERS_KEY, KdsStatus } from "@/lib/kds";
@@ -100,7 +101,16 @@ function playStationNotification() {
   }
 }
 
+/** Cocina en pantalla: incluida en Pro y Max (la prueba gratis incluye todo) */
 export default function CocinaPage() {
+  return (
+    <PlanGate feature="kds" title="Cocina KDS">
+      <CocinaScreen />
+    </PlanGate>
+  );
+}
+
+function CocinaScreen() {
   const [orders, setOrders] = useState<KdsOrder[]>([]);
   const [now, setNow] = useState(() => new Date());
   const [stationConfig, setStationConfig] = useState<KdsStationConfig[]>(

@@ -10,21 +10,31 @@ export const PLANS: Record<PlanId, { name: string; price: number; features: stri
     name: "Basic",
     price: 399,
     ai: false,
-    features: ["POS, caja y cortes", "Cocina (KDS) e impresoras por estación", "Inventario y recetas", "Reportes", "App del dueño"],
+    features: ["POS, caja y cortes", "Impresoras por estación", "Menú digital con QR y pedidos sin comisión", "Inventario, recetas y reportes", "Club de clientes y app del dueño"],
   },
   pro: {
     name: "Pro",
     price: 599,
     ai: false,
-    features: ["Todo lo de Basic", "B-POS Bridge: Rappi, Uber Eats y DiDi Food", "Combos, opciones y multidestino", "Avisos al celular"],
+    features: ["Todo lo de Basic", "Cocina en pantalla (KDS)", "B-POS Bridge: Rappi, Uber Eats y DiDi Food", "Combos, opciones y multidestino"],
   },
   max: {
     name: "Max",
     price: 899,
     ai: true,
-    features: ["Todo lo de Pro", "🤖 Subir menú con IA", "🤖 Equivalencias de delivery con IA"],
+    features: ["Todo lo de Pro", "🤖 Subir menú con IA", "🤖 Compras con foto del ticket", "🤖 Asesor semanal"],
   },
 };
+
+/** Qué incluye cada plan además de lo básico (la prueba gratis incluye todo) */
+export type PlanFeature = "kds" | "delivery" | "ai";
+const FEATURES: Record<PlanId, PlanFeature[]> = { basic: [], pro: ["kds", "delivery"], max: ["kds", "delivery", "ai"] };
+
+export function planIncludes(state: Pick<PlanState, "plan" | "plan_status"> | null | undefined, feature: PlanFeature) {
+  if (!state) return true; // sin dato (sin internet, nube sin configurar): no se bloquea
+  if (state.plan_status === "trial") return true;
+  return (FEATURES[(state.plan as PlanId) || "basic"] || []).includes(feature);
+}
 
 export const TRIAL_DAYS = 14;
 

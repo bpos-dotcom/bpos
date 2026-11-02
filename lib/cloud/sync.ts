@@ -22,6 +22,7 @@ import { friendlyError, getSupabase } from "@/lib/supabase/client";
 const DEVICE_LOCAL_KEYS = new Set([
   "bpos_current_user",
   "bpos_device_id",
+  "bpos_plan",
   "bpos_branch_id",
   "bpos_bridge_pending_ack",
   "bpos_bridge_pending_signature",

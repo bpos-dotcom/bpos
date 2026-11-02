@@ -2,6 +2,8 @@ import { createHash, randomInt } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { supabaseAdmin } from "@/lib/billing/mercadopago";
 import { TRIAL_DAYS } from "@/lib/plans";
+import { emailConfigured, sendEmail } from "@/lib/email/send";
+import { welcomeEmail } from "@/lib/email/welcome";
 
 /**
  * Crear cuenta de un negocio nuevo en B-POS, con el correo verificado por
@@ -30,16 +32,8 @@ const sha = (v: string) => createHash("sha256").update(v).digest("hex");
 const cleanEmail = (v: unknown) => String(v || "").trim().toLowerCase();
 const validEmail = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 
-/** Remitente: la dirección de RESEND_FROM (dominio verificado) con el nombre B-POS */
-function sender() {
-  const configured = process.env.RESEND_FROM || "";
-  const address = configured.match(/<([^>]+)>/)?.[1] || (configured.includes("@") ? configured : "no-responder@bpos.com.mx");
-  return `B-POS <${address}>`;
-}
-
 async function sendCode(email: string, code: string) {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) throw new Friendly("El envío de correos aún no está configurado. Escríbenos a soporte@bpos.com.mx.", 503);
+  if (!emailConfigured()) throw new Friendly("El envío de correos aún no está configurado. Escríbenos a soporte@bpos.com.mx.", 503);
   const html = `<div style="font-family:Arial,sans-serif;max-width:420px;margin:auto;padding:24px;color:#18181b">
   <h2 style="margin:0 0 8px">B-POS</h2>
   <p>Tu código para crear la cuenta de tu negocio es:</p>
@@ -47,22 +41,13 @@ async function sendCode(email: string, code: string) {
   <p style="color:#71717a;font-size:13px">Vence en ${CODE_MINUTES} minutos. Si tú no lo pediste, ignora este correo.</p>
   <p style="color:#a1a1aa;font-size:12px;margin-top:24px">B-POS · Punto de venta para restaurantes · bpos.com.mx</p>
 </div>`;
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      from: sender(),
-      reply_to: "soporte@bpos.com.mx",
-      to: [email],
-      subject: `${code} es tu código para crear tu cuenta en B-POS`,
-      html,
-      text: `Tu código para crear la cuenta de tu negocio en B-POS es ${code}. Vence en ${CODE_MINUTES} minutos.`,
-    }),
+  const ok = await sendEmail({
+    to: email,
+    subject: `${code} es tu código para crear tu cuenta en B-POS`,
+    html,
+    text: `Tu código para crear la cuenta de tu negocio en B-POS es ${code}. Vence en ${CODE_MINUTES} minutos.`,
   });
-  if (!res.ok) {
-    console.error("[B-POS] Resend registro:", res.status, await res.text().catch(() => ""));
-    throw new Friendly("No pudimos mandar el correo. Revisa que esté bien escrito e intenta otra vez.", 502);
-  }
+  if (!ok) throw new Friendly("No pudimos mandar el correo. Revisa que esté bien escrito e intenta otra vez.", 502);
 }
 
 export async function POST(request: NextRequest) {
@@ -131,6 +116,8 @@ export async function POST(request: NextRequest) {
         throw new Error(error.message);
       }
       await db.from("bpos_signup_codes").update({ used_at: new Date().toISOString() }).eq("id", row.id);
+      // Bienvenida con los primeros pasos (si no sale, la cuenta ya quedó creada igual)
+      await sendEmail({ to: email, ...welcomeEmail({ businessName, address, phone }) }).catch(() => false);
       return NextResponse.json({ success: true, trialDays: TRIAL_DAYS });
     }
 
