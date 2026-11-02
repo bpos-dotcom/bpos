@@ -7,7 +7,7 @@ import { buildDeliveryTicket, ticketStations, type DeliveryTicket } from "@/lib/
 import { stationsByLine } from "@/lib/bridge/station-routing";
 import { bagTicketHtml, stationTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
 
-export type OrderTicket = { target: KitchenStation | "Caja"; html: string };
+export type OrderTicket = { target: KitchenStation | "Caja"; html: string; /** Cobro en efectivo: el Agent abre el cajón de dinero de la impresora de Caja */ drawer?: boolean };
 
 /** Ancho del papel configurado en Configuración → Impresoras (58 u 80 mm). */
 export function paperWidth(): PaperWidth {

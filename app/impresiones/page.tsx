@@ -132,7 +132,7 @@ function ReprintDialog({ sale, onClose }: { sale: SaleForTickets; onClose: () =>
     }
     setBusy(true);
     try {
-      const failed = await printSale(sale, { stations, customer, original }, true);
+      const failed = await printSale(sale, { stations, customer, original, drawer: false }, true);
       const user = getCurrentUser();
       const what = [stations.length ? `comandas (${stations.join(", ")})` : "", customer ? "ticket del cliente" : "", original ? "ticket original" : ""].filter(Boolean).join(", ");
       addAuditEvent({

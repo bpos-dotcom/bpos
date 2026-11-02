@@ -184,4 +184,13 @@ async function printImageEscPos(image, printerName, widthMm) {
   await sendRaw(printerName, await imageToEscPos(image.dataUrl, widthMm));
 }
 
-module.exports = { printImageEscPos, imageToEscPos, sendRaw, decodePowerShellError };
+/**
+ * Abre el cajón de dinero conectado a la impresora (ESC p: pulso al conector
+ * RJ11, en los dos pines porque hay cajones cableados a cualquiera).
+ * Una impresora sin cajón ignora el comando.
+ */
+async function openCashDrawer(printerName) {
+  await sendRaw(printerName, Buffer.from([0x1b, 0x70, 0x00, 0x19, 0xfa, 0x1b, 0x70, 0x01, 0x19, 0xfa]));
+}
+
+module.exports = { printImageEscPos, imageToEscPos, openCashDrawer, sendRaw, decodePowerShellError };

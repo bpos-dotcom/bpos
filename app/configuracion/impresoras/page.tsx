@@ -24,7 +24,7 @@ type Station = (typeof STATIONS)[number];
 
 const STORAGE_KEY = "bpos_station_printers";
 
-type SavedConfig = Record<Station, string> & { paperWidthMm?: 58 | 80; printMode?: "escpos" | "windows" };
+type SavedConfig = Record<Station, string> & { paperWidthMm?: 58 | 80; printMode?: "escpos" | "windows"; openDrawer?: boolean };
 
 export default function PrinterSettingsPage() {
   const [printers, setPrinters] = useState<Printer[]>([]);
@@ -174,6 +174,19 @@ export default function PrinterSettingsPage() {
             <p className="mt-2 text-xs text-zinc-500">
               Las térmicas (XP-58, EPSON, etc.) reciben el ticket directo en su idioma (ESC/POS). Si un ticket sale en blanco, revisa que aquí diga Térmica.
             </p>
+          </div>
+
+          <div className="rounded-2xl border border-zinc-800 bg-black p-5">
+            <p className="mb-3 text-lg font-black text-orange-500">Cajón de dinero</p>
+            <label className="flex cursor-pointer items-start gap-3">
+              <input type="checkbox" checked={config.openDrawer !== false} onChange={(e) => setConfig({ ...config, openDrawer: e.target.checked })} className="mt-1 h-5 w-5 accent-orange-500" />
+              <span>
+                <span className="font-black">Abrir el cajón al cobrar en efectivo</span>
+                <span className="mt-1 block text-xs text-zinc-500">
+                  El cajón va conectado a la impresora de Caja (cable RJ11). Se abre al imprimir el ticket de un cobro con efectivo o mixto; no con tarjeta, precuentas ni cuentas por cobrar. Necesita B-POS Agent 2.0.5 o más nuevo.
+                </span>
+              </span>
+            </label>
           </div>
         </div>
 

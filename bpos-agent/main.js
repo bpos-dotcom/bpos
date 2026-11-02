@@ -274,7 +274,7 @@ async function printTicketsJob(body) {
   if (!platform || !orderId || !Array.isArray(tickets) || !tickets.length) throw new Error("Faltan pedido o tickets.");
   const clean = tickets
     .filter((t) => t && typeof t.html === "string" && typeof t.target === "string")
-    .map((t) => ({ target: t.target, html: t.html }));
+    .map((t) => ({ target: t.target, html: t.html, drawer: t.drawer === true }));
   const result = await stationPrinter.printTickets({ platform, orderId, tickets: clean, force: Boolean(force) });
   return { success: true, ...result };
 }
