@@ -28,6 +28,7 @@ import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { ClubPanel } from "@/components/club/ClubPanel";
 import { getLoyalty } from "@/lib/loyalty";
 import { earnLoyalty, findMembers, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
+import { BackButton } from "@/components/layout/BackButton";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { TopCorner } from "@/components/layout/TopCorner";
 import RequirePermission from "@/components/auth/RequirePermission";
@@ -759,11 +760,12 @@ Gracias por pedir en ${businessName} 🚀`;
 
       <Sidebar />
 
-      <section className="bpos-main">
-        {/* Barra delgada: datos del turno a la izquierda, tema/hora/logo a la derecha. No se queda fija: se va al bajar. */}
+      <section className="bpos-main overflow-x-hidden">
+        {/* Barra delgada: Volver y datos del turno a la izquierda, tema/hora/logo a la derecha. No se queda fija: se va al bajar. */}
         <header className="border-b border-zinc-800 bg-black px-3 py-1.5 sm:px-6">
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:items-center">
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+              <BackButton className="h-10 w-10 text-xl" />
               <TopStatus title="Caja" value="Abierta" detail="Fondo $1,500.00" />
               <TopStatus title="Usuario" value={currentUser?.name || "Sin usuario"} detail={currentUser?.role || "Sin rol"} />
               <TopStatus

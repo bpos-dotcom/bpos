@@ -58,7 +58,8 @@ export function TopCorner({ compact = false }: { compact?: boolean }) {
 
   return (
     <div className="flex shrink-0 items-center gap-3">
-      <div className={compact ? "flex items-center gap-2" : "flex flex-col items-stretch gap-1.5"}>
+      {/* En celular (pantalla chica) no caben: solo queda el logo. El tema también se cambia en Configuración → Sistema. */}
+      <div className={compact ? "hidden items-center gap-2 sm:flex" : "hidden flex-col items-stretch gap-1.5 sm:flex"}>
         <ThemeToggle />
         <Clock />
       </div>
