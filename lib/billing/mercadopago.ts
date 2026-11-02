@@ -13,6 +13,8 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL } from "@/lib/supabase/client";
 import { PLANS, type PlanId } from "@/lib/plans";
+import { sendEmail } from "@/lib/email/send";
+import { planActiveEmail } from "@/lib/email/welcome";
 import { PUSH_SERVER as CLOUD_SERVER } from "@/lib/push/rules";
 
 const MP_API = "https://api.mercadopago.com";
@@ -89,7 +91,7 @@ export async function applyPreapproval(pre: Preapproval) {
   const { businessId, plan, branches } = parseReference(pre.external_reference);
   if (!businessId) throw new Error("La suscripción no trae el negocio.");
   const admin = supabaseAdmin();
-  const { data: current } = await admin.from("businesses").select("mp_preapproval_id").eq("id", businessId).maybeSingle();
+  const { data: current } = await admin.from("businesses").select("mp_preapproval_id, plan, plan_status, name, owner_id").eq("id", businessId).maybeSingle();
   const previous = (current?.mp_preapproval_id as string | null) || null;
   const isCurrent = !previous || previous === pre.id;
 
@@ -116,5 +118,18 @@ export async function applyPreapproval(pre: Preapproval) {
   }
   const { error } = await admin.from("businesses").update(update).eq("id", businessId);
   if (error) throw new Error(error.message);
+
+  // Plan recién activado o cambiado: correo al dueño con lo que incluye (y a qué puede subir)
+  const activated = pre.status === "authorized" && (current?.plan_status !== "active" || current?.plan !== plan);
+  if (activated) {
+    try {
+      const ownerId = (current?.owner_id as string | null) || null;
+      const owner = ownerId ? await admin.auth.admin.getUserById(ownerId) : null;
+      const to = owner?.data.user?.email || pre.payer_email || "";
+      if (to) await sendEmail({ to, ...planActiveEmail({ businessName: String(current?.name || "tu negocio"), plan }) });
+    } catch (e) {
+      console.error("[B-POS] Correo de plan activado:", e instanceof Error ? e.message : e);
+    }
+  }
   return { businessId, status: pre.status };
 }

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
+import { PlanGate } from "@/components/cloud/PlanGate";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes } from "@/lib/admin";
 import { buildOrderTickets } from "@/lib/bridge/order-tickets";
 import { buildDeliveryTicket } from "@/lib/bridge/delivery-ticket";
@@ -153,7 +154,16 @@ function platformLabel(value: unknown) {
   return "Externa";
 }
 
+/** Delivery automático: incluido en Pro y Max (la prueba gratis incluye todo) */
 export default function BridgePage() {
+  return (
+    <PlanGate feature="delivery" title="B-POS Bridge">
+      <BridgeScreen />
+    </PlanGate>
+  );
+}
+
+function BridgeScreen() {
   const [orders, setOrders] = useState<AgentOrder[]>([]);
   const [aliases, setAliases] = useState<BridgeAlias[]>([]);
   const [selection, setSelection] = useState<AliasSelection | null>(null);
