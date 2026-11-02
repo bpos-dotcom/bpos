@@ -67,8 +67,8 @@ export function Sidebar() {
   const [criticalSignature, setCriticalSignature] = useState("");
   const [warningSignature, setWarningSignature] = useState("");
   const [mobileOpen, setMobileOpen] = useState(false);
-  // Menú lateral (a la derecha): se contrae solo (solo íconos) y se abre encima al pasar el
-  // cursor o tocar «; se vuelve a contraer al salir el cursor o tras 10 s sin
+  // Menú lateral (a la izquierda): se contrae solo (solo íconos) y se abre encima al pasar el
+  // cursor o tocar »; se vuelve a contraer al salir el cursor o tras 10 s sin
   // usarlo. "📌 Fijar abierto" lo deja abierto (se recuerda en este dispositivo).
   const [pinned, setPinned] = useState(false);
   // Pedidos del menú digital esperando que alguien los acepte
@@ -248,7 +248,7 @@ export function Sidebar() {
       onMouseLeave={() => !pinned && scheduleClose(300)}
       onPointerMove={() => floating && scheduleClose()}
       onScroll={() => floating && scheduleClose()}
-      className={`bpos-scroll bpos-sidebar fixed right-0 top-0 z-50 h-screen w-72 overflow-y-auto overflow-x-hidden border-l border-zinc-800 bg-zinc-950 lg:block ${floating ? "is-open lg:z-50 shadow-[-12px_0_40px_rgba(0,0,0,0.6)]" : "lg:z-auto"} ${slim ? "p-2" : "p-4"} ${mobileOpen ? "block" : "hidden"}`}
+      className={`bpos-scroll bpos-sidebar fixed left-0 top-0 z-50 h-screen w-72 overflow-y-auto overflow-x-hidden border-r border-zinc-800 bg-zinc-950 lg:block ${floating ? "is-open lg:z-50 shadow-[12px_0_40px_rgba(0,0,0,0.6)]" : "lg:z-auto"} ${slim ? "p-2" : "p-4"} ${mobileOpen ? "block" : "hidden"}`}
     >
       <button
         type="button"
@@ -257,15 +257,15 @@ export function Sidebar() {
         title={slim ? "Abrir menú" : pinned ? "Que se contraiga solo" : "Dejar el menú abierto"}
         aria-label={slim ? "Abrir menú" : pinned ? "Que se contraiga solo" : "Dejar el menú abierto"}
       >
-        {slim ? "«" : pinned ? (
+        {slim ? "»" : pinned ? (
           <>
-            <span>»</span>
             <span>Contraer solo</span>
+            <span>«</span>
           </>
         ) : (
           <>
-            <span>»</span>
             <span>📌 Fijar abierto</span>
+            <span>«</span>
           </>
         )}
       </button>
