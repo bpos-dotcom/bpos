@@ -38,6 +38,8 @@ export type LoyaltyConfig = {
   cardColor: string;
   cardBarcode: BarcodeType;
   cardNote: string;
+  /** Avisar al socio en su tarjeta (notificación) cada vez que suma o canjea */
+  cardNotify: boolean;
 };
 
 export type BarcodeType = "QR_CODE" | "AZTEC" | "PDF_417" | "CODE_128";
@@ -77,6 +79,7 @@ export const DEFAULT_LOYALTY: LoyaltyConfig = {
   cardColor: "",
   cardBarcode: "QR_CODE",
   cardNote: "",
+  cardNotify: true,
 };
 
 const num = (v: unknown, fallback: number, min = 0, max = 1_000_000) => {
@@ -117,6 +120,7 @@ export function normalizeLoyalty(raw: unknown): LoyaltyConfig {
     cardColor: /^#[0-9a-f]{6}$/i.test(String(r.cardColor || "")) ? String(r.cardColor).toLowerCase() : "",
     cardBarcode: BARCODES.some((b) => b.type === r.cardBarcode) ? (r.cardBarcode as BarcodeType) : "QR_CODE",
     cardNote: str(r.cardNote, 200),
+    cardNotify: r.cardNotify !== false,
   };
 }
 
@@ -150,6 +154,47 @@ export function balanceLabel(c: LoyaltyConfig, m: { points: number; stamps: numb
   if (c.kind === "sellos") return `${m.stamps} de ${c.stampsGoal} sellos`;
   if (c.kind === "cashback") return `${money(m.cashback)} de saldo`;
   return `${Math.floor(m.points)} puntos`;
+}
+
+/** Lo que pasó en la caja: lo que sumó o lo que canjeó (en la unidad del club) */
+export type LoyaltyMovement = { tipo: "suma" | "canje"; points: number; stamps: number; cashback: number; note?: string };
+
+/**
+ * Aviso para la tarjeta del socio después de un movimiento, según el tipo
+ * de club: título corto y una línea con el saldo y lo que le falta.
+ */
+export function movementMessage(c: LoyaltyConfig, mv: LoyaltyMovement, m: { points: number; stamps: number; cashback: number }): { header: string; body: string } | null {
+  const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+  if (c.kind === "sellos") {
+    if (mv.tipo === "suma") {
+      if (mv.stamps <= 0) return null;
+      const left = c.stampsGoal - m.stamps;
+      return {
+        header: `¡Sumaste ${plural(mv.stamps, "sello", "sellos")}!`,
+        body:
+          left > 0
+            ? `Llevas ${m.stamps} de ${c.stampsGoal}. Te ${left === 1 ? "falta" : "faltan"} ${plural(left, "sello", "sellos")} para ${c.stampReward || "tu premio"}.`
+            : `¡Completaste tus ${c.stampsGoal} sellos! Pide ${c.stampReward || "tu premio"} en tu siguiente visita.`,
+      };
+    }
+    return { header: `Canjeaste ${mv.note || "tu premio"}`, body: `Llevas ${m.stamps} de ${c.stampsGoal} sellos. ¡Gracias por venir!` };
+  }
+  if (c.kind === "cashback") {
+    if (mv.tipo === "suma") {
+      if (mv.cashback <= 0) return null;
+      return { header: `¡Ganaste ${money(mv.cashback)} de saldo!`, body: `Ya tienes ${money(m.cashback)} para tus siguientes compras.` };
+    }
+    return { header: `Usaste ${money(mv.cashback)} de saldo`, body: `Te quedan ${money(m.cashback)}. ¡Gracias por venir!` };
+  }
+  if (mv.tipo === "suma") {
+    if (mv.points <= 0) return null;
+    const pts = Math.floor(m.points);
+    const next = [...c.rewards].sort((a, b) => a.points - b.points).find((r) => r.points > pts);
+    const ready = c.rewards.filter((r) => r.points <= pts).sort((a, b) => b.points - a.points)[0];
+    const tail = ready ? `Ya puedes canjear ${ready.name}.` : next ? `Te faltan ${next.points - pts} para ${next.name}.` : "";
+    return { header: `¡Sumaste ${plural(Math.floor(mv.points), "punto", "puntos")}!`, body: `Ya tienes ${plural(pts, "punto", "puntos")}. ${tail}`.trim() };
+  }
+  return { header: `Canjeaste ${mv.note || "tu premio"}`, body: `Te quedan ${plural(Math.floor(m.points), "punto", "puntos")}. ¡Gracias por venir!` };
 }
 
 // ------------------------------------------------------------ en B-POS

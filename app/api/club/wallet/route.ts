@@ -2,14 +2,15 @@ import { createClient } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
 import { aiPreflight, aiReply } from "@/lib/ai/cloud";
 import { supabaseAdmin } from "@/lib/billing/mercadopago";
-import { WalletApiError, notifyWalletClass, syncWalletClass, syncWalletMember, walletReady, type WalletBusiness } from "@/lib/customer-accounts/wallet";
-import { normalizeLoyalty } from "@/lib/loyalty";
+import { WalletApiError, notifyWalletClass, notifyWalletMember, syncWalletClass, syncWalletMember, walletReady, type WalletBusiness } from "@/lib/customer-accounts/wallet";
+import { movementMessage, normalizeLoyalty, type LoyaltyMovement } from "@/lib/loyalty";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 
 /**
  * Tarjetas del club en Google Wallet, desde B-POS (con la sesión del negocio):
  *   POST { accion: "clase", config }            manda el diseño de la tarjeta a Google (al guardar Configuración → Club)
- *   POST { accion: "socio", accountId }          actualiza saldo y nombre en la tarjeta del socio (al sumar o canjear)
+ *   POST { accion: "socio", accountId, mov? }     actualiza saldo y nombre en la tarjeta del socio; con `mov` (lo que
+ *                                                sumó o canjeó) le manda aviso si el club lo tiene activado
  *   POST { accion: "aviso", header, body }       notificación a todas las tarjetas del negocio (3 al día)
  *   GET                                          { ready, saved } cuántos socios tienen la tarjeta
  */
@@ -64,7 +65,7 @@ export async function POST(request: NextRequest) {
   const session = await businessSession(request);
   if (!session) return aiReply(request, { success: false, error: "Inicia sesión con la cuenta del negocio." }, 401);
   if (!walletReady()) return aiReply(request, { success: false, code: "setup", error: "Google Wallet todavía no está activado en B-POS." }, 503);
-  const body = (await request.json().catch(() => ({}))) as { accion?: string; config?: unknown; accountId?: string; header?: string; body?: string };
+  const body = (await request.json().catch(() => ({}))) as { accion?: string; config?: unknown; accountId?: string; header?: string; body?: string; mov?: Partial<LoyaltyMovement> };
   try {
     switch (body.accion) {
       case "clase": {
@@ -84,15 +85,16 @@ export async function POST(request: NextRequest) {
         if (!member || !acc) return aiReply(request, { success: true, synced: false });
         if (!member.wallet_saved) return aiReply(request, { success: true, synced: false });
         const b = await walletBusiness(session.businessId);
-        const synced = await syncWalletMember(b, {
-          accountId,
-          customerName: String(acc.name || ""),
-          code: String(member.code),
-          points: Number(member.points),
-          stamps: Number(member.stamps),
-          cashback: Number(member.cashback),
-        });
-        return aiReply(request, { success: true, synced });
+        const balance = { points: Number(member.points), stamps: Number(member.stamps), cashback: Number(member.cashback) };
+        const synced = await syncWalletMember(b, { accountId, customerName: String(acc.name || ""), code: String(member.code), ...balance });
+        let notified = false;
+        if (synced && b.config.cardNotify && body.mov && (body.mov.tipo === "suma" || body.mov.tipo === "canje")) {
+          const mv: LoyaltyMovement = { tipo: body.mov.tipo, points: Number(body.mov.points) || 0, stamps: Number(body.mov.stamps) || 0, cashback: Number(body.mov.cashback) || 0, note: String(body.mov.note || "").slice(0, 60) };
+          const msg = movementMessage(b.config, mv, balance);
+          // Si Google ya no deja más avisos hoy (3 por tarjeta), el saldo igual quedó actualizado
+          if (msg) notified = await notifyWalletMember(accountId, msg.header, msg.body).then(() => true, () => false);
+        }
+        return aiReply(request, { success: true, synced, notified });
       }
       case "aviso": {
         const header = String(body.header || "").trim();

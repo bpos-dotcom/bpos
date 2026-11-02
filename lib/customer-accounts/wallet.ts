@@ -9,6 +9,7 @@
  *  · syncWalletMember()   actualiza en el celular del socio su saldo y nombre.
  *  · notifyWalletClass()  manda un aviso (notificación) a todas las tarjetas
  *                         del negocio; Google permite 3 al día.
+ *  · notifyWalletMember() aviso a la tarjeta de un socio (al sumar o canjear).
  *
  * Para activarlo (una vez, en la consola de Google Pay & Wallet):
  *   GOOGLE_WALLET_ISSUER_ID         número de emisor
@@ -186,5 +187,13 @@ export async function notifyWalletClass(businessId: string, header: string, body
   const id = walletClassId(businessId);
   await walletCall("POST", `/loyaltyClass/${encodeURIComponent(id)}/addMessage`, {
     message: { id: `aviso-${Date.now().toString(36)}`, header: header.slice(0, 40), body: body.slice(0, 300), messageType: "TEXT_AND_NOTIFY" },
+  });
+}
+
+/** Aviso a la tarjeta de un solo socio (notificación; Google permite 3 al día por tarjeta) */
+export async function notifyWalletMember(accountId: string, header: string, body: string) {
+  const id = walletObjectId(accountId);
+  await walletCall("POST", `/loyaltyObject/${encodeURIComponent(id)}/addMessage`, {
+    message: { id: `mov-${Date.now().toString(36)}`, header: header.slice(0, 40), body: body.slice(0, 300), messageType: "TEXT_AND_NOTIFY" },
   });
 }
