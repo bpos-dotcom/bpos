@@ -448,7 +448,7 @@ export default function ProductosAdminPage() {
                     </div>
                   </div>
 
-                  <div className="flex gap-3">
+                  <div className="flex flex-wrap gap-3">
                     <button
                       onClick={duplicateProduct}
                       title="Crea una copia con todo (opciones, estaciones, receta) para solo cambiarle el nombre"
