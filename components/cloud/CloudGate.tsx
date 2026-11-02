@@ -53,7 +53,7 @@ type GateState =
  * Si no hay Supabase configurado, muestra B-POS directo (modo local).
  */
 /** Páginas que cualquiera puede ver sin cuenta (la portada de B-POS en "/", menús, club y kiosco) */
-export const PUBLIC_PATHS = ["/m", "/fidelidad", "/kiosco"];
+export const PUBLIC_PATHS = ["/demo", "/m", "/fidelidad", "/kiosco"];
 export const isPublicPath = (pathname: string) => pathname === "/" || PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 export function CloudGate({ children }: { children: React.ReactNode }) {
