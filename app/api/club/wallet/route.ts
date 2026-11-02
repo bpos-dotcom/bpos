@@ -4,6 +4,7 @@ import { aiPreflight, aiReply } from "@/lib/ai/cloud";
 import { supabaseAdmin } from "@/lib/billing/mercadopago";
 import { WalletApiError, notifyWalletClass, syncWalletClass, syncWalletMember, walletReady, type WalletBusiness } from "@/lib/customer-accounts/wallet";
 import { normalizeLoyalty } from "@/lib/loyalty";
+import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 
 /**
  * Tarjetas del club en Google Wallet, desde B-POS (con la sesión del negocio):
@@ -14,9 +15,6 @@ import { normalizeLoyalty } from "@/lib/loyalty";
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL || "";
-const SUPABASE_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "";
 
 export function OPTIONS(request: NextRequest) {
   return aiPreflight(request);
