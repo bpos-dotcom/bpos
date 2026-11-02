@@ -253,3 +253,28 @@ html.kb-open .fixed.inset-0 > div { max-height: 100%; }
   50% { background-color: rgba(220, 38, 38, 0.12); box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.7); }
 }
 .menu-flash { animation: menu-flash 0.45s ease-in-out 3; }
+
+/* Demo guiada (/demo): aparece una línea nueva / un aviso nuevo */
+@keyframes demo-slide {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes demo-pop {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.15);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
