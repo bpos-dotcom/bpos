@@ -14,7 +14,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const { createCanvas } = require("@napi-rs/canvas");
-const { printImageEscPos } = require("./raw-printer");
+const { printImageEscPos, openCashDrawer } = require("./raw-printer");
 
 const VIRTUAL_PRINTER = "B-POS Agent Virtual Printer";
 const FALLBACK_MS = 45_000;
@@ -54,7 +54,8 @@ function setConfig(next) {
   const width = Number(next?.paperWidthMm);
   // escpos: directo a la térmica (recomendado). windows: por el controlador (impresoras de hoja)
   const printMode = next?.printMode === "windows" ? "windows" : "escpos";
-  config = { printers, paperWidthMm: width === 58 ? 58 : 80, printMode };
+  // openDrawer: abrir el cajón de dinero (conectado a la impresora de Caja) al imprimir el ticket de un cobro en efectivo
+  config = { printers, paperWidthMm: width === 58 ? 58 : 80, printMode, openDrawer: next?.openDrawer !== false };
   fs.writeFileSync(configFile(), JSON.stringify(config, null, 2));
   return config;
 }
@@ -246,6 +247,10 @@ async function printTickets(req) {
       await printImage(await renderHtmlTicket(ticket.html), printer);
       results.push({ target: ticket.target, printer, ok: true });
       console.log(`Ticket ${key} (${ticket.target}) impreso en "${printer}"`);
+      // Cobro en efectivo en Caja: se abre el cajón de dinero (si está activado en Impresoras)
+      if (ticket.drawer === true && ticket.target === "Caja" && getConfig().openDrawer !== false) {
+        await openCashDrawer(printer).catch((error) => console.warn(`No se pudo abrir el cajón en "${printer}":`, error.message));
+      }
     } catch (error) {
       results.push({ target: ticket.target, printer, ok: false, error: error.message });
       console.error(`No se pudo imprimir ${key} (${ticket.target}) en "${printer}":`, error.message);

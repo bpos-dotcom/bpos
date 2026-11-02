@@ -219,6 +219,7 @@ function toStationConfig(saved) {
     printers: { Parrilla: pick("Parrilla"), Freidora: pick("Freidora"), Barra: pick("Barra"), Cocina: pick("Cocina"), Caja: pick("Caja") },
     paperWidthMm: Number(saved?.paperWidthMm) === 58 ? 58 : 80,
     printMode: saved?.printMode === "windows" ? "windows" : "escpos",
+    openDrawer: saved?.openDrawer !== false,
   };
 }
 

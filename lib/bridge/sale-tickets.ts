@@ -21,7 +21,10 @@ export type SaleForTickets = {
   localOrderNumber?: number;
   createdAt: string;
   items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean; comment?: string; extraStations?: ExtraStation[] }[];
-  details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number; table?: { name: string }; diners?: number; precuenta?: boolean };
+  details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number; payments?: Record<string, number>; table?: { name: string }; diners?: number; precuenta?: boolean };
+  /** En espera (por cobrar): todavía no entra dinero */
+  pendingPayment?: boolean;
+  tipPayments?: Record<string, number>;
   subtotal?: number;
   total: number;
   externalPlatform?: string;
@@ -99,15 +102,24 @@ export function saleStations(sale: SaleForTickets): KitchenStation[] {
 }
 
 /** Arma los tickets elegidos: comandas de esas estaciones y/o el ticket del cliente (Caja). */
-export async function buildSaleTickets(sale: SaleForTickets, choice: { stations: KitchenStation[]; customer: boolean }): Promise<OrderTicket[]> {
+export async function buildSaleTickets(sale: SaleForTickets, choice: { stations: KitchenStation[]; customer: boolean; drawer?: boolean }): Promise<OrderTicket[]> {
   const settings = getBusinessSettings();
   const paper = paperWidth();
   const ticket = saleTicket(sale);
   const tickets: OrderTicket[] = choice.stations
     .filter((station) => ticket.items.some((i) => i.stations.includes(station)))
     .map((station) => ({ target: station, html: stationTicketHtml(ticket, station, settings, paper) }));
-  if (choice.customer) tickets.push({ target: "Caja", html: bagTicketHtml(ticket, settings, await qrSvg(settings.ticketQrText), paper) });
+  if (choice.customer) tickets.push({ target: "Caja", html: bagTicketHtml(ticket, settings, await qrSvg(settings.ticketQrText), paper), drawer: choice.drawer !== false && paysCash(sale) });
   return tickets;
+}
+
+/** ¿Entró efectivo con este cobro? (abre el cajón de dinero; no en precuentas ni en cuentas por cobrar) */
+export function paysCash(sale: SaleForTickets) {
+  if (sale.pendingPayment || sale.details?.precuenta) return false;
+  const payments = sale.details?.payments;
+  if (payments && Object.keys(payments).length) return (payments.Efectivo || 0) > 0 || (sale.tipPayments?.Efectivo || 0) > 0;
+  const method = sale.details?.paymentMethod || "";
+  return method === "Efectivo" || method === "Mixto";
 }
 
 /** Clave del pedido para el Agent (no repetir, reimprimir). */
@@ -121,7 +133,7 @@ function saleKey(sale: SaleForTickets) {
  */
 export async function printSale(
   sale: SaleForTickets,
-  choice: { stations: KitchenStation[]; customer: boolean; original?: boolean },
+  choice: { stations: KitchenStation[]; customer: boolean; original?: boolean; /** false: reimpresión, no abre el cajón */ drawer?: boolean },
   force: boolean
 ): Promise<string[]> {
   const failed: string[] = [];
