@@ -38,6 +38,8 @@ export function ticketSettings(raw: unknown, businessName: string): BusinessSett
     ticketLogoSize: size(r.ticketLogoSize, "grande"),
     ticketShowCustomer: r.ticketShowCustomer !== false,
     ticketShowChoices: r.ticketShowChoices !== false,
+    tipsEnabled: false,
+    tipSuggestions: [],
   };
 }
 

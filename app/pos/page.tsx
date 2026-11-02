@@ -6,7 +6,9 @@ import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
 import { buildSelection, extrasPrice, lineIdFor, needsChoices } from "@/lib/compound";
 import { getBusinessSettings } from "@/lib/business-settings";
-import { CheckoutModal, PaymentMethod } from "@/components/CheckoutModal";
+import { CheckoutModal, type CheckoutResult, type SplitLine } from "@/components/CheckoutModal";
+import { methodLabel, sumPayments } from "@/lib/sale-payments";
+import { markInventoryApplied } from "@/lib/inventory";
 import {
   OrderDetails,
   OrderDetailsPanel,
@@ -39,7 +41,7 @@ import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import { useTerminalCharge } from "@/components/payments/TerminalCharge";
 import { branchUsesTerminal } from "@/lib/mp/client";
 import { DispatchModal } from "@/components/delivery/DispatchModal";
-import { assignDriverToSale, driverWhatsappLink, type DispatchInfo, type Driver } from "@/lib/drivers";
+import { assignDriverToSale, driverWhatsappLink, type DispatchInfo } from "@/lib/drivers";
 import {
   allocateShiftOrderNumber,
   formatOrderNumber,
@@ -434,11 +436,49 @@ function PosScreen() {
         return;
       }
     }
-    void confirmCheckout({ paymentMethod: "Por cobrar", cashReceived: 0, cardAmount: 0, transferAmount: 0, discount: 0, pending: true });
+    void confirmCheckout({ paymentMethod: "Por cobrar", cashReceived: 0, cardAmount: 0, transferAmount: 0, discount: 0, pending: true, payments: {}, tip: 0, tipPayments: {} });
   }
 
-  /** Cobro de una cuenta en espera: mismo cobro del POS (efectivo, tarjeta, mixto, cupón, club) */
-  async function payPending(data: { paymentMethod: PaymentMethod; cashReceived: number; cardAmount: number; transferAmount: number; discount: number; couponCode?: string; pending?: boolean }) {
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+  const money = (n: number) => `$${n.toFixed(2)}`;
+  const folio = (o: SavedOrder) => formatOrderNumber(o as SavedOrder & { localOrderNumber?: number });
+  const nameOf = (o: SavedOrder) => (o.details.table ? tableLabel(o.details.table, o.details.diners) : `Pedido #${folio(o)}`);
+  /** Lo que falta por pagar de una cuenta en espera (ya descontado lo que pagaron entre personas) */
+  const remainingOf = (o: SavedOrder) => Math.max(0, round2(o.total - (o.partialPayments || []).reduce((s, p) => s + p.amount, 0)));
+  /** Renglones de la cuenta para dividir por productos */
+  const splitLinesOf = (o: SavedOrder): SplitLine[] => o.items.map((item, i) => ({ key: item.lineId || `${item.id}-${i}`, name: item.name, price: item.price, quantity: item.quantity }));
+
+  /** Cierra una cuenta en espera como pagada: ticket, club, bitácora */
+  function finalizePending(order: SavedOrder, pay: { payments: Record<string, number>; tip: number; tipPayments: Record<string, number>; partialPayments?: SavedOrder["partialPayments"]; couponCode?: string }) {
+    const paid: SavedOrder = {
+      ...order,
+      pendingPayment: false,
+      paidAt: new Date().toISOString(),
+      tip: pay.tip,
+      tipPayments: pay.tipPayments,
+      ...(pay.partialPayments ? { partialPayments: pay.partialPayments } : {}),
+      details: { ...order.details, paymentMethod: methodLabel(pay.payments), payments: pay.payments, ...(pay.couponCode ? { couponCode: pay.couponCode } : {}) },
+    };
+    saveOrders(orders.map((o) => (o.id === order.id ? paid : o)));
+    if (pay.couponCode) countCouponUse(pay.couponCode);
+    if (order.clubAccountId) {
+      void earnLoyalty(order.clubAccountId, paid.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, currentUser?.name || "").catch((e) =>
+        alert(`Cobrado, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`)
+      );
+    }
+    addAuditEvent({ category: "Venta", action: "sale.paid", description: `${currentUser?.name || "Usuario"} cobró ${nameOf(paid)} (Pedido #${folio(paid)}: ${money(paid.total)}, ${paid.details.paymentMethod}${pay.tip > 0 ? `, propina ${money(pay.tip)}` : ""})`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { total: paid.total, paymentMethod: paid.details.paymentMethod, payments: pay.payments, tip: pay.tip } });
+    // Ticket del cliente ya con el pago
+    void printSale(paid, { stations: [], customer: true }, true).catch(() => undefined);
+    setPayingOrder(null);
+    alert(`${nameOf(paid)} cobrada: ${money(paid.total)}${pay.tip > 0 ? ` + ${money(pay.tip)} de propina` : ""}.`);
+  }
+
+  /**
+   * Cobro de una cuenta en espera o de mesa: completa, por productos (cada
+   * parte es su propia venta) o entre personas (se va juntando hasta cubrir
+   * el total). Mismo cobro del POS: efectivo, tarjeta, mixto, cupón, club, propina.
+   */
+  async function payPending(data: CheckoutResult) {
     const order = payingOrder;
     if (!order) return;
     if (data.pending) {
@@ -447,31 +487,97 @@ function PosScreen() {
     }
     const discount = Math.max(0, Number(data.discount) || 0);
     if (discount > 0 && !(await requirePermissionOrAdmin(currentUser, "pos.discount", "aplicar descuento"))) return;
-    const total = Math.max(0, order.total - discount);
-    const cardPart = data.paymentMethod === "Tarjeta" ? total : data.paymentMethod === "Mixto" ? Math.min(total, data.cardAmount || 0) : 0;
+    const cardPart = round2((data.payments.Tarjeta || 0) + (data.tipPayments.Tarjeta || 0));
     if (cardPart > 0 && (await branchUsesTerminal())) {
-      const result = await terminal.charge(cardPart, `Pedido ${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}`);
+      const result = await terminal.charge(cardPart, `Pedido ${folio(order)}`);
       if (result === "cancelled") return;
     }
-    const paid: SavedOrder = {
-      ...order,
-      pendingPayment: false,
-      paidAt: new Date().toISOString(),
-      total,
-      details: { ...order.details, paymentMethod: data.paymentMethod, discount: (order.details.discount || 0) + discount, ...(data.couponCode ? { couponCode: data.couponCode } : {}) },
-    };
-    saveOrders(orders.map((o) => (o.id === order.id ? paid : o)));
-    if (data.couponCode) countCouponUse(data.couponCode);
-    if (order.clubAccountId) {
-      void earnLoyalty(order.clubAccountId, total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, currentUser?.name || "").catch((e) =>
-        alert(`Cobrado, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`)
-      );
+    const now = new Date().toISOString();
+    const by = currentUser?.name || "";
+
+    // --- Por productos: lo marcado se cobra como una venta aparte; el resto sigue en la cuenta ---
+    if (data.splitItems?.length) {
+      const wanted = new Map(data.splitItems.map((s) => [s.key, s.quantity]));
+      const taken: CartItem[] = [];
+      const left: CartItem[] = [];
+      splitLinesOf(order).forEach((line, i) => {
+        const item = order.items[i];
+        const q = Math.min(item.quantity, wanted.get(line.key) || 0);
+        if (q > 0) taken.push({ ...item, quantity: q });
+        if (item.quantity - q > 0) left.push({ ...item, quantity: item.quantity - q });
+      });
+      if (left.length > 0 && taken.length > 0) {
+        let sequence;
+        try {
+          sequence = allocateShiftOrderNumber();
+        } catch (error) {
+          alert(error instanceof Error ? error.message : "No se pudo generar el folio del turno.");
+          return;
+        }
+        const partSubtotal = round2(taken.reduce((s, i) => s + i.price * i.quantity, 0));
+        const part = {
+          id: nextGlobalOrderId(),
+          localOrderNumber: sequence.localOrderNumber,
+          shiftSessionId: sequence.shiftSessionId,
+          createdAt: now,
+          items: taken,
+          details: { ...order.details, paymentMethod: methodLabel(data.payments), payments: data.payments, discount, ...(data.couponCode ? { couponCode: data.couponCode } : {}) },
+          subtotal: partSubtotal,
+          total: Math.max(0, round2(partSubtotal - discount)),
+          paidAt: now,
+          splitFrom: order.id,
+          tip: data.tip,
+          tipPayments: data.tipPayments,
+          // Ya se preparó con la cuenta original: no vuelve a cocina ni descuenta inventario
+          kdsCompleted: true,
+        } as SavedOrder;
+        markInventoryApplied(part.id);
+        const leftSubtotal = round2(left.reduce((s, i) => s + i.price * i.quantity, 0));
+        const rest: SavedOrder = { ...order, items: left, subtotal: leftSubtotal, total: Math.max(0, round2(leftSubtotal - (order.details.discount || 0) + (order.details.deliveryFee || 0))) };
+        saveOrders([...orders.map((o) => (o.id === order.id ? rest : o)), part]);
+        if (data.couponCode) countCouponUse(data.couponCode);
+        addAuditEvent({ category: "Venta", action: "sale.paid", description: `${by || "Usuario"} cobró parte de ${nameOf(order)} como Pedido #${folio(part)} (${money(part.total)}, ${part.details.paymentMethod}): ${taken.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: by, entityId: String(part.id), metadata: { splitFrom: order.id, total: part.total, payments: data.payments, tip: data.tip } });
+        void printSale(part, { stations: [], customer: true }, true).catch(() => undefined);
+        setPayingOrder(rest);
+        alert(`Cobrados ${money(part.total)}${data.tip > 0 ? ` + ${money(data.tip)} de propina` : ""} (Pedido #${folio(part)}). Quedan ${money(rest.total)} en ${nameOf(rest)}.`);
+        return;
+      }
+      // Marcó todo: es el cobro completo
     }
-    addAuditEvent({ category: "Venta", action: "sale.paid", description: `${currentUser?.name || "Usuario"} cobró la cuenta en espera Pedido #${formatOrderNumber(paid as SavedOrder & { localOrderNumber?: number })} (${total.toFixed(2)}, ${data.paymentMethod})`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { total, paymentMethod: data.paymentMethod, discount } });
-    // Ticket del cliente ya con el pago
-    void printSale(paid, { stations: [], customer: true }, true).catch(() => undefined);
-    setPayingOrder(null);
-    alert(`Pedido #${formatOrderNumber(paid as SavedOrder & { localOrderNumber?: number })} cobrado correctamente.`);
+
+    const withDiscount: SavedOrder = {
+      ...order,
+      total: Math.max(0, round2(order.total - discount)),
+      details: { ...order.details, discount: (order.details.discount || 0) + discount },
+    };
+
+    // --- Entre personas: se junta parte por parte hasta cubrir el total ---
+    const previous = order.partialPayments || [];
+    if (data.splitAmount !== undefined || previous.length) {
+      const amount = round2(Object.values(data.payments).reduce((s, v) => s + v, 0));
+      const partials = [...previous, { amount, tip: data.tip, method: methodLabel(data.payments), payments: data.payments, tipPayments: data.tipPayments, at: now, by }];
+      const paidSum = round2(partials.reduce((s, p) => s + p.amount, 0));
+      if (paidSum < withDiscount.total - 0.01) {
+        const updated: SavedOrder = { ...withDiscount, partialPayments: partials, ...(data.couponCode ? { details: { ...withDiscount.details, couponCode: data.couponCode } } : {}) };
+        saveOrders(orders.map((o) => (o.id === order.id ? updated : o)));
+        if (data.couponCode) countCouponUse(data.couponCode);
+        addAuditEvent({ category: "Venta", action: "sale.paid", description: `${by || "Usuario"} cobró la parte ${partials.length} de ${nameOf(order)}: ${money(amount)} (${data.paymentMethod}). Faltan ${money(withDiscount.total - paidSum)}.`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: by, entityId: String(order.id), metadata: { part: partials.length, amount, payments: data.payments, tip: data.tip } });
+        setPayingOrder(updated);
+        alert(`Parte ${partials.length} cobrada: ${money(amount)}${data.tip > 0 ? ` + ${money(data.tip)} de propina` : ""}. Faltan ${money(withDiscount.total - paidSum)}.`);
+        return;
+      }
+      finalizePending(withDiscount, {
+        payments: sumPayments(partials.map((p) => p.payments)),
+        tip: round2(partials.reduce((s, p) => s + p.tip, 0)),
+        tipPayments: sumPayments(partials.map((p) => p.tipPayments)),
+        partialPayments: partials,
+        couponCode: data.couponCode,
+      });
+      return;
+    }
+
+    // --- Todo de una vez ---
+    finalizePending(withDiscount, { payments: data.payments, tip: data.tip, tipPayments: data.tipPayments, couponCode: data.couponCode });
   }
 
   function nextGlobalOrderId() {
@@ -481,21 +587,7 @@ function PosScreen() {
     ) + 1;
   }
 
-  async function confirmCheckout(data: {
-    paymentMethod: PaymentMethod;
-    cashReceived: number;
-    cardAmount: number;
-    transferAmount: number;
-    discount: number;
-    couponCode?: string;
-    clubCashback?: number;
-    /** A domicilio: dirección y repartidor elegidos al cobrar */
-    address?: string;
-    driver?: Driver;
-    deliveryFee?: number;
-    /** En espera: se prepara ya y se cobra cuando regrese el repartidor */
-    pending?: boolean;
-  }) {
+  async function confirmCheckout(data: CheckoutResult) {
     // El descuento de un cupón vigente no pide autorización (se revisa otra vez aquí)
     const coupon = data.couponCode ? checkCoupon(data.couponCode, subtotal, "pos") : null;
     if (coupon && !coupon.ok) {
@@ -511,8 +603,8 @@ function PosScreen() {
     const deliveryFee = Math.max(0, data.deliveryFee || 0);
     const total = Math.max(subtotal - data.discount, 0) + deliveryFee;
 
-    // Con terminal vinculada, la parte con tarjeta se cobra primero en la terminal
-    const cardPart = data.paymentMethod === "Tarjeta" ? total : data.paymentMethod === "Mixto" ? Math.min(total, data.cardAmount || 0) : 0;
+    // Con terminal vinculada, la parte con tarjeta (venta + propina) se cobra primero en la terminal
+    const cardPart = round2((data.payments.Tarjeta || 0) + (data.tipPayments.Tarjeta || 0));
     if (!data.pending && cardPart > 0 && (await branchUsesTerminal())) {
       const result = await terminal.charge(cardPart, `Pedido ${getNextShiftOrderNumberPreview()}`);
       if (result === "cancelled") return;
@@ -525,6 +617,8 @@ function PosScreen() {
       ...(data.address !== undefined ? { customerAddress: data.address } : {}),
       ...(deliveryFee > 0 ? { deliveryFee } : {}),
       ...(byCoupon && data.couponCode ? { couponCode: data.couponCode } : {}),
+      // Cuánto entró con cada método (pago mixto); en espera todavía no hay pago
+      ...(!data.pending && Object.keys(data.payments).length ? { payments: data.payments } : {}),
       // Con socio del club: sus datos quedan en la venta (Clientes)
       ...(clubMember && !details.customerName ? { customerName: clubMember.name } : {}),
       ...(clubMember && !details.customerPhone ? { customerPhone: clubMember.phone } : {}),
@@ -548,7 +642,7 @@ function PosScreen() {
       subtotal,
       total,
       // En espera: queda "por cobrar"; el club se le suma cuando pague
-      ...(data.pending ? { pendingPayment: true, ...(clubMember?.member ? { clubAccountId: clubMember.account_id } : {}) } : {}),
+      ...(data.pending ? { pendingPayment: true, ...(clubMember?.member ? { clubAccountId: clubMember.account_id } : {}) } : { paidAt: new Date().toISOString(), tip: data.tip, tipPayments: data.tipPayments }),
       ...(nextDetails.table ? { rounds: 1 } : {}),
     } as SavedOrder & { localOrderNumber: number; shiftSessionId: string };
 
@@ -834,7 +928,8 @@ Gracias por pedir en ${businessName} 🚀`;
     <main className="min-h-screen bg-black text-white">
       <CheckoutModal
         isOpen={checkoutOpen || Boolean(payingOrder)}
-        total={payingOrder ? payingOrder.total : subtotal}
+        total={payingOrder ? remainingOf(payingOrder) : subtotal}
+        split={payingOrder ? { lines: splitLinesOf(payingOrder), fullTotal: payingOrder.total, partsPaid: (payingOrder.partialPayments || []).length } : undefined}
         clubCashback={!payingOrder && clubMember?.member && getLoyalty().kind === "cashback" ? clubMember.cashback : 0}
         onClose={() => {
           setCheckoutOpen(false);
@@ -842,7 +937,7 @@ Gracias por pedir en ${businessName} 🚀`;
         }}
         onConfirm={payingOrder ? payPending : confirmCheckout}
         delivery={!payingOrder && details.orderType === "Domicilio" ? { address: details.customerAddress } : undefined}
-        heading={payingOrder ? `Cobrar ${payingOrder.details.table ? tableLabel(payingOrder.details.table, payingOrder.details.diners) : "cuenta en espera"} · Pedido #${formatOrderNumber(payingOrder as SavedOrder & { localOrderNumber?: number })}` : undefined}
+        heading={payingOrder ? `Cobrar ${payingOrder.details.table ? tableLabel(payingOrder.details.table, payingOrder.details.diners) : "cuenta en espera"} · #${folio(payingOrder)}` : undefined}
       />
       {terminal.modal}
       {dispatch && <DispatchModal info={dispatch.info} saleId={dispatch.saleId} onClose={() => setDispatch(null)} />}

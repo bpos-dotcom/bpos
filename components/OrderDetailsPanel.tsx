@@ -12,6 +12,8 @@ export type OrderDetails = {
   couponCode?: string;
   /** Costo de envío a domicilio (se suma al total) */
   deliveryFee?: number;
+  /** Cuánto se pagó con cada método (pago mixto o cuenta dividida); sin propina */
+  payments?: Record<string, number>;
   /** Pedido de mesa (comer aquí): la mesa elegida y cuántas personas */
   table?: { id: string; name: string; zone: string };
   diners?: number;
