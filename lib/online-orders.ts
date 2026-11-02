@@ -181,6 +181,10 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
       subtotal,
       total,
       ...(deliveryFee ? { deliveryFee } : {}),
+      // Se paga al recoger o al recibir: queda en Cuentas en espera (POS) hasta que el cliente pague.
+      // Pagado en línea o en la terminal del kiosco: ya está cobrado.
+      pendingPayment: !(paidOnline(order.data) || Boolean(order.data.kiosk)),
+      paidAt: paidOnline(order.data) || order.data.kiosk ? new Date().toISOString() : undefined,
       source: order.data.kiosk ? "Kiosco" : "Menú digital",
       onlineOrderId: order.id,
       onlineFolio: order.folio,
