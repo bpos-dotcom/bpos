@@ -4,6 +4,7 @@
  * tarjeta), sumarle por la venta y canjear premios o saldo. Todo pasa por
  * funciones de la nube que revisan que sea del negocio (migración 0016).
  */
+import { aiFetch } from "@/lib/ai/client";
 import { getSupabase } from "@/lib/supabase/client";
 
 export type ClubMember = {
@@ -25,10 +26,20 @@ export async function findMembers(query: string): Promise<ClubMember[]> {
   return ((data as ClubMember[]) || []).map((m) => ({ ...m, points: Number(m.points), stamps: Number(m.stamps), cashback: Number(m.cashback) }));
 }
 
+/**
+ * Si el socio tiene la tarjeta en Google Wallet, le actualiza el saldo en el
+ * celular (lo hace la nube; si falla, la tarjeta se pone al día en el
+ * siguiente movimiento).
+ */
+export function syncWalletCard(accountId: string) {
+  void aiFetch("/api/club/wallet", { method: "POST", body: JSON.stringify({ accion: "socio", accountId }) }).catch(() => undefined);
+}
+
 /** Suma de una venta (si no es socio o el club está apagado, no pasa nada) */
 export async function earnLoyalty(accountId: string, amount: number, ref: string, by = "") {
   const { data, error } = await getSupabase().rpc("bpos_loyalty_earn", { p_account: accountId, p_amount: amount, p_ref: ref, p_by: by });
   if (error) throw new Error(error.message);
+  if ((data as { member?: boolean })?.member) syncWalletCard(accountId);
   return data as { member: boolean; points?: number; stamps?: number; cashback?: number; earned?: { points: number; stamps: number; cashback: number } };
 }
 
@@ -43,5 +54,6 @@ export async function redeemLoyalty(accountId: string, use: { points?: number; s
     p_by: by,
   });
   if (error) throw new Error(error.message);
+  syncWalletCard(accountId);
   return data as { points: number; stamps: number; cashback: number };
 }

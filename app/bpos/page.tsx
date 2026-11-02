@@ -163,7 +163,14 @@ export default function BposLanding() {
         </div>
       </section>
 
-      <footer className="border-t border-zinc-800 py-8 text-center text-sm text-zinc-500">© {new Date().getFullYear()} B-POS · Punto de venta para restaurantes</footer>
+      <footer className="border-t border-zinc-800 py-8 text-center text-sm text-zinc-500">
+        <p className="space-x-3">
+          <a href="mailto:equipo@bpos.com.mx" className="text-orange-300 hover:underline">equipo@bpos.com.mx</a>
+          <span>·</span>
+          <a href="mailto:soporte@bpos.com.mx" className="text-orange-300 hover:underline">soporte@bpos.com.mx</a>
+        </p>
+        <p className="mt-2">© {new Date().getFullYear()} B-POS · Punto de venta para restaurantes</p>
+      </footer>
     </main>
   );
 }

@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { randomInt } from "node:crypto";
-import { balanceLabel, clubName, howItWorks, normalizeLoyalty, welcomeLabel, type LoyaltyConfig } from "@/lib/loyalty";
+import { clubName, howItWorks, normalizeLoyalty, welcomeLabel, type LoyaltyConfig } from "@/lib/loyalty";
 import { walletReady, walletSaveUrl } from "@/lib/customer-accounts/wallet";
 import {
   Friendly,
@@ -269,18 +269,10 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ accion
           if (!member) throw new Friendly("Primero únete al club.");
           if (!walletReady()) throw new Friendly("Google Wallet estará disponible muy pronto.", 503);
           const m = member as Member;
-          const url = walletSaveUrl({
-            businessId: shop.businessId,
-            businessName: shop.name,
-            clubName: club.name,
-            color: shop.color,
-            logoUrl: `https://www.bpos.com.mx/m/${shop.slug}/icono?size=192`,
-            accountId: account.id,
-            customerName: account.name,
-            code: m.code,
-            balanceLabel: config.kind === "sellos" ? "Sellos" : config.kind === "cashback" ? "Saldo" : "Puntos",
-            balanceText: balanceLabel(config, m),
-          });
+          const url = walletSaveUrl(
+            { businessId: shop.businessId, businessName: shop.name, slug: shop.slug, color: shop.color, config },
+            { accountId: account.id, customerName: account.name, code: m.code, points: Number(m.points), stamps: Number(m.stamps), cashback: Number(m.cashback) },
+          );
           await db.from("bpos_loyalty_members").update({ wallet_saved: true }).eq("account_id", account.id);
           return NextResponse.json({ url });
         }

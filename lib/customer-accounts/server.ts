@@ -163,6 +163,7 @@ async function sendEmail(to: string, business: { name: string; color: string }, 
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       from,
+      reply_to: "soporte@bpos.com.mx",
       to: [to],
       subject: `${code} es tu código de ${business.name}`,
       html,

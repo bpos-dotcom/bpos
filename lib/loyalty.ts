@@ -33,7 +33,20 @@ export type LoyaltyConfig = {
   /** Botones en la página de fidelidad (solo salen los activados) */
   links: Record<SocialKey, SocialLink>;
   terms: string;
+  /** Tarjeta en Google Wallet: imagen de portada (franja ancha), color ("" = el de la marca), tipo de código y texto en la tarjeta */
+  cardHero: string;
+  cardColor: string;
+  cardBarcode: BarcodeType;
+  cardNote: string;
 };
+
+export type BarcodeType = "QR_CODE" | "AZTEC" | "PDF_417" | "CODE_128";
+export const BARCODES: { type: BarcodeType; label: string; hint: string }[] = [
+  { type: "QR_CODE", label: "QR", hint: "El más común; lo lee cualquier celular o lector." },
+  { type: "AZTEC", label: "Aztec", hint: "Cuadrado como el QR, con un círculo al centro." },
+  { type: "PDF_417", label: "PDF417", hint: "Rectangular, como el de los boletos de avión." },
+  { type: "CODE_128", label: "Código de barras", hint: "Barras clásicas; necesita lector de barras." },
+];
 
 export const SOCIALS: { key: SocialKey; label: string; icon: string; color: string; hint: string }[] = [
   { key: "whatsapp", label: "Comunidad de WhatsApp", icon: "💬", color: "#25d366", hint: "https://chat.whatsapp.com/..." },
@@ -60,6 +73,10 @@ export const DEFAULT_LOYALTY: LoyaltyConfig = {
   welcomeText: "",
   links: emptyLinks(),
   terms: "",
+  cardHero: "",
+  cardColor: "",
+  cardBarcode: "QR_CODE",
+  cardNote: "",
 };
 
 const num = (v: unknown, fallback: number, min = 0, max = 1_000_000) => {
@@ -96,6 +113,10 @@ export function normalizeLoyalty(raw: unknown): LoyaltyConfig {
     welcomeText: str(r.welcomeText, 100),
     links,
     terms: str(r.terms, 500),
+    cardHero: httpsUrl(r.cardHero),
+    cardColor: /^#[0-9a-f]{6}$/i.test(String(r.cardColor || "")) ? String(r.cardColor).toLowerCase() : "",
+    cardBarcode: BARCODES.some((b) => b.type === r.cardBarcode) ? (r.cardBarcode as BarcodeType) : "QR_CODE",
+    cardNote: str(r.cardNote, 200),
   };
 }
 
