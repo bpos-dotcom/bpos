@@ -29,6 +29,7 @@ import {
 import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
 import { PLANS, TRIAL_DAYS, planAccess, type PlanState } from "@/lib/plans";
 import { saveBusinessSettings } from "@/lib/business-settings";
+import { SignupForm } from "@/components/cloud/SignupForm";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
 
@@ -54,12 +55,17 @@ type GateState =
  */
 /** Páginas que cualquiera puede ver sin cuenta (la portada de B-POS en "/", menús, club y kiosco) */
 export const PUBLIC_PATHS = ["/demo", "/m", "/fidelidad", "/kiosco"];
-export const isPublicPath = (pathname: string) => pathname === "/" || PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+export const isPublicPath = (pathname: string) =>
+  pathname === "/" ||
+  PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
 export function CloudGate({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() || "/";
   const isPublic = isPublicPath(pathname);
-  const [state, setState] = useState<GateState>({ step: "loading", text: "Conectando con la nube..." });
+  const [state, setState] = useState<GateState>({
+    step: "loading",
+    text: "Conectando con la nube...",
+  });
 
   const begin = useCallback(async (account: ReadyAccount) => {
     localStorage.setItem(ACCOUNT_CACHE_KEY, JSON.stringify(account));
@@ -73,7 +79,9 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
 
     if (situation === "download-cloud") {
       setState({ step: "working", text: "Descargando datos de la nube..." });
-      await initialSync(account, "download-cloud", (text) => setState({ step: "working", text }));
+      await initialSync(account, "download-cloud", (text) =>
+        setState({ step: "working", text }),
+      );
       startSync(account);
       setState({ step: "ready", account });
       return;
@@ -91,21 +99,28 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
       const cached = readCachedAccount();
       setState({
         step: "error",
-        message: error instanceof Error ? error.message : "No se pudo conectar con la nube.",
-        canWorkOffline: Boolean(cached && localStorage.getItem("bpos_sync_meta")),
+        message:
+          error instanceof Error
+            ? error.message
+            : "No se pudo conectar con la nube.",
+        canWorkOffline: Boolean(
+          cached && localStorage.getItem("bpos_sync_meta"),
+        ),
       });
       return;
     }
 
     if (account.status === "signed-out") return setState({ step: "account" });
-    if (account.status === "no-business") return setState({ step: "business", email: account.email });
+    if (account.status === "no-business")
+      return setState({ step: "business", email: account.email });
     if (account.status === "ready") {
       try {
         await begin(account);
       } catch (error) {
         setState({
           step: "error",
-          message: error instanceof Error ? error.message : "No se pudo sincronizar.",
+          message:
+            error instanceof Error ? error.message : "No se pudo sincronizar.",
           canWorkOffline: Boolean(localStorage.getItem("bpos_sync_meta")),
         });
       }
@@ -132,7 +147,11 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
     <main className="flex min-h-screen items-center justify-center bg-black p-6 text-white">
       <section className="w-full max-w-xl rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
         {/* eslint-disable-next-line @next/next/no-img-element -- logo fijo */}
-        <img src="/bpos-logo.png" alt="B-POS" className="mx-auto mb-6 h-20 w-20 object-contain" />
+        <img
+          src="/bpos-logo.png"
+          alt="B-POS"
+          className="mx-auto mb-6 h-20 w-20 object-contain"
+        />
 
         {(state.step === "loading" || state.step === "working") && (
           <p className="text-center text-zinc-300">{state.text}</p>
@@ -140,7 +159,9 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
 
         {state.step === "account" && <AccountForm onDone={refresh} />}
 
-        {state.step === "business" && <BusinessForm email={state.email} onDone={refresh} />}
+        {state.step === "business" && (
+          <BusinessForm email={state.email} onDone={refresh} />
+        )}
 
         {state.step === "first-sync" && (
           <FirstSync
@@ -149,13 +170,18 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
             onStart={async (strategy) => {
               setState({ step: "working", text: "Preparando..." });
               try {
-                await initialSync(state.account, strategy, (text) => setState({ step: "working", text }));
+                await initialSync(state.account, strategy, (text) =>
+                  setState({ step: "working", text }),
+                );
                 startSync(state.account);
                 setState({ step: "ready", account: state.account });
               } catch (error) {
                 setState({
                   step: "error",
-                  message: error instanceof Error ? error.message : "No se pudo sincronizar.",
+                  message:
+                    error instanceof Error
+                      ? error.message
+                      : "No se pudo sincronizar.",
                   canWorkOffline: false,
                 });
               }
@@ -210,7 +236,8 @@ function AccountForm({ onDone }: { onDone: () => void }) {
   async function submit() {
     setMessage("");
     if (!email.includes("@")) return setMessage("Escribe un correo válido.");
-    if (password.length < 6) return setMessage("La contraseña debe tener al menos 6 caracteres.");
+    if (password.length < 6)
+      return setMessage("La contraseña debe tener al menos 6 caracteres.");
     setBusy(true);
     try {
       if (mode === "login") {
@@ -220,7 +247,9 @@ function AccountForm({ onDone }: { onDone: () => void }) {
         onDone();
       } else {
         setMode("login");
-        setMessage("Te mandamos un correo para confirmar la cuenta. Ábrelo, confirma y luego entra aquí.");
+        setMessage(
+          "Te mandamos un correo para confirmar la cuenta. Ábrelo, confirma y luego entra aquí.",
+        );
       }
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "No se pudo entrar.");
@@ -232,13 +261,20 @@ function AccountForm({ onDone }: { onDone: () => void }) {
     <>
       <h1 className="text-center text-3xl font-black">Conectar a la nube</h1>
       <p className="mt-2 text-center text-zinc-400">
-        Entra con la cuenta del negocio. Solo se hace una vez en cada computadora, tablet o celular.
+        Entra con la cuenta del negocio. Solo se hace una vez en cada
+        computadora, tablet o celular.
       </p>
       {mode === "signup" && (
-        <p className="mt-3 text-center text-sm text-orange-300">¿Negocio nuevo? Crea tu cuenta: {TRIAL_DAYS} días gratis de B-POS, sin tarjeta.</p>
+        <p className="mt-3 text-center text-sm text-orange-300">
+          ¿Negocio nuevo? Crea tu cuenta: {TRIAL_DAYS} días gratis de B-POS, sin
+          tarjeta.
+        </p>
       )}
       <p className="mt-2 text-center text-sm">
-        <Link href="/" className="font-bold text-zinc-400 underline hover:text-orange-400">
+        <Link
+          href="/"
+          className="font-bold text-zinc-400 underline hover:text-orange-400"
+        >
           ¿Qué es B-POS? Ver planes
         </Link>
       </p>
@@ -258,52 +294,81 @@ function AccountForm({ onDone }: { onDone: () => void }) {
         ))}
       </div>
 
-      <div className="mt-6 space-y-4">
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="correo@negocio.com"
-          type="email"
-          autoComplete="email"
-          className={input}
-        />
-        <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && submit()}
-          placeholder="Contraseña (mínimo 6 caracteres)"
-          type="password"
-          autoComplete={mode === "login" ? "current-password" : "new-password"}
-          className={input}
-        />
-        {message && <p className="text-center text-sm text-orange-300">{message}</p>}
-        <button onClick={submit} disabled={busy} className={primary}>
-          {busy ? "Un momento..." : mode === "login" ? "Entrar" : "Crear cuenta"}
-        </button>
-      </div>
+      {mode === "signup" ? (
+        <SignupForm onDone={onDone} />
+      ) : (
+        <div className="mt-6 space-y-4">
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="correo@negocio.com"
+            type="email"
+            autoComplete="email"
+            className={input}
+          />
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && submit()}
+            placeholder="Contraseña (mínimo 6 caracteres)"
+            type="password"
+            autoComplete={
+              mode === "login" ? "current-password" : "new-password"
+            }
+            className={input}
+          />
+          {message && (
+            <p className="text-center text-sm text-orange-300">{message}</p>
+          )}
+          <button onClick={submit} disabled={busy} className={primary}>
+            {busy ? "Un momento..." : "Entrar"}
+          </button>
+        </div>
+      )}
     </>
   );
 }
 
 // ------------------------------------------------------------ negocio
 
-function BusinessForm({ email, onDone }: { email: string; onDone: () => void }) {
+function BusinessForm({
+  email,
+  onDone,
+}: {
+  email: string;
+  onDone: () => void;
+}) {
   const [businessName, setBusinessName] = useState("");
   const [branchName, setBranchName] = useState("Matriz");
+  const [address, setAddress] = useState("");
+  const [phone, setPhone] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
   async function submit() {
-    if (!businessName.trim()) return setMessage("Escribe el nombre del negocio.");
+    if (!businessName.trim())
+      return setMessage("Escribe el nombre del negocio.");
+    if (address.trim().length < 5)
+      return setMessage("Escribe la dirección del negocio.");
+    if (phone.replace(/D/g, "").length < 10)
+      return setMessage("Escribe un teléfono de 10 dígitos.");
     setBusy(true);
     setMessage("");
     try {
       await createBusiness(businessName, branchName);
       // Marca blanca: tickets y pantallas usan el nombre del negocio
-      saveBusinessSettings({ businessName: businessName.trim() });
+      saveBusinessSettings({
+        businessName: businessName.trim(),
+        address: address.trim(),
+        businessEmail: email,
+        ticketPhone: phone,
+        ownerWhatsapp: phone,
+      });
       onDone();
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "No se pudo crear el negocio.");
+      setMessage(
+        error instanceof Error ? error.message : "No se pudo crear el negocio.",
+      );
     }
     setBusy(false);
   }
@@ -313,19 +378,58 @@ function BusinessForm({ email, onDone }: { email: string; onDone: () => void }) 
       <h1 className="text-center text-3xl font-black">Da de alta tu negocio</h1>
       <p className="mt-2 text-center text-zinc-400">Cuenta: {email}</p>
       <p className="mt-4 rounded-2xl border border-orange-500/40 bg-orange-500/10 p-3 text-center text-sm text-orange-200">
-        🎁 Empiezas con <b>{TRIAL_DAYS} días de prueba gratis</b>, sin tarjeta. Después eliges tu plan en Configuración → Mi plan (desde $
+        🎁 Empiezas con <b>{TRIAL_DAYS} días de prueba gratis</b>, sin tarjeta.
+        Después eliges tu plan en Configuración → Mi plan (desde $
         {PLANS.basic.price} al mes por sucursal).
       </p>
       <div className="mt-8 space-y-4">
         <label className="block">
-          <span className="mb-2 block text-sm font-bold text-zinc-400">Nombre del negocio</span>
-          <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="Ej. Tacos El Güero" className={input} />
+          <span className="mb-2 block text-sm font-bold text-zinc-400">
+            Nombre del negocio
+          </span>
+          <input
+            value={businessName}
+            onChange={(e) => setBusinessName(e.target.value)}
+            placeholder="Ej. Tacos El Güero"
+            className={input}
+          />
         </label>
         <label className="block">
-          <span className="mb-2 block text-sm font-bold text-zinc-400">Sucursal</span>
-          <input value={branchName} onChange={(e) => setBranchName(e.target.value)} className={input} />
+          <span className="mb-2 block text-sm font-bold text-zinc-400">
+            Dirección del negocio
+          </span>
+          <input
+            value={address}
+            onChange={(e) => setAddress(e.target.value)}
+            placeholder="Calle, número, colonia y ciudad"
+            className={input}
+          />
         </label>
-        {message && <p className="text-center text-sm text-red-400">{message}</p>}
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold text-zinc-400">
+            Teléfono del negocio
+          </span>
+          <input
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="10 dígitos"
+            type="tel"
+            className={input}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold text-zinc-400">
+            Sucursal
+          </span>
+          <input
+            value={branchName}
+            onChange={(e) => setBranchName(e.target.value)}
+            className={input}
+          />
+        </label>
+        {message && (
+          <p className="text-center text-sm text-red-400">{message}</p>
+        )}
         <button onClick={submit} disabled={busy} className={primary}>
           {busy ? "Creando..." : "Crear negocio"}
         </button>
@@ -357,15 +461,21 @@ function FirstSync({
   if (situation === "upload-local") {
     return (
       <>
-        <h1 className="text-center text-3xl font-black">Subir tus datos a la nube</h1>
+        <h1 className="text-center text-3xl font-black">
+          Subir tus datos a la nube
+        </h1>
         <p className="mt-3 text-center text-zinc-400">
           {account.businessName} · {account.branchName}
         </p>
         <p className="mt-4 text-center text-zinc-300">
-          Es la primera vez que se conecta este negocio. Vamos a subir todo lo que tiene esta computadora
-          (productos, ventas, caja, inventario, usuarios y configuración) para que los demás dispositivos lo vean.
+          Es la primera vez que se conecta este negocio. Vamos a subir todo lo
+          que tiene esta computadora (productos, ventas, caja, inventario,
+          usuarios y configuración) para que los demás dispositivos lo vean.
         </p>
-        <button onClick={() => onStart("upload-local")} className={`${primary} mt-8`}>
+        <button
+          onClick={() => onStart("upload-local")}
+          className={`${primary} mt-8`}
+        >
           Subir y continuar
         </button>
       </>
@@ -374,19 +484,23 @@ function FirstSync({
 
   return (
     <>
-      <h1 className="text-center text-3xl font-black">Esta computadora también tiene datos</h1>
+      <h1 className="text-center text-3xl font-black">
+        Esta computadora también tiene datos
+      </h1>
       <p className="mt-3 text-center text-zinc-400">
         {account.businessName} · {account.branchName}
       </p>
       <p className="mt-4 text-center text-zinc-300">
-        La nube ya tiene datos de tu negocio y este navegador también. ¿Qué quieres hacer?
+        La nube ya tiene datos de tu negocio y este navegador también. ¿Qué
+        quieres hacer?
       </p>
       <div className="mt-8 space-y-3">
         <button onClick={() => onStart("download-cloud")} className={primary}>
           Usar los datos de la nube
         </button>
         <p className="text-center text-xs text-zinc-500">
-          Recomendado si este es un dispositivo nuevo o de prueba. Lo de este navegador se reemplaza.
+          Recomendado si este es un dispositivo nuevo o de prueba. Lo de este
+          navegador se reemplaza.
         </p>
         <button onClick={() => onStart("merge")} className={secondary}>
           Combinar (subir también lo de esta computadora)
@@ -410,7 +524,10 @@ const PLAN_FREE_PATHS = ["/login", "/configuracion/plan", "/acceso-denegado"];
  */
 function PlanLock({ account }: { account: ReadyAccount }) {
   const pathname = usePathname() || "/";
-  const [access, setAccess] = useState<{ locked: boolean; warning: string } | null>(null);
+  const [access, setAccess] = useState<{
+    locked: boolean;
+    warning: string;
+  } | null>(null);
   const [hideWarning, setHideWarning] = useState(false);
 
   useEffect(() => {
@@ -432,22 +549,30 @@ function PlanLock({ account }: { account: ReadyAccount }) {
     };
   }, [account.businessId, pathname]);
 
-  if (!access || PLAN_FREE_PATHS.some((p) => pathname.startsWith(p))) return null;
+  if (!access || PLAN_FREE_PATHS.some((p) => pathname.startsWith(p)))
+    return null;
 
   if (access.locked) {
     return (
       <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/90 p-6 text-white backdrop-blur">
         <section className="w-full max-w-lg rounded-3xl border border-orange-500/40 bg-zinc-950 p-8 text-center">
           <p className="text-5xl">⏸️</p>
-          <h2 className="mt-4 text-3xl font-black">Tu plan de B-POS está en pausa</h2>
+          <h2 className="mt-4 text-3xl font-black">
+            Tu plan de B-POS está en pausa
+          </h2>
           <p className="mt-3 text-zinc-300">
-            La prueba gratis terminó o el último pago no se completó. Tus datos están guardados: activa tu plan para
-            seguir vendiendo.
+            La prueba gratis terminó o el último pago no se completó. Tus datos
+            están guardados: activa tu plan para seguir vendiendo.
           </p>
-          <a href="/configuracion/plan" className="mt-6 block w-full rounded-2xl bg-orange-500 py-4 font-black text-black hover:bg-orange-400">
+          <a
+            href="/configuracion/plan"
+            className="mt-6 block w-full rounded-2xl bg-orange-500 py-4 font-black text-black hover:bg-orange-400"
+          >
             Ir a Mi plan
           </a>
-          <p className="mt-3 text-xs text-zinc-500">Necesitas entrar con un usuario Admin.</p>
+          <p className="mt-3 text-xs text-zinc-500">
+            Necesitas entrar con un usuario Admin.
+          </p>
         </section>
       </div>
     );
@@ -457,10 +582,17 @@ function PlanLock({ account }: { account: ReadyAccount }) {
     return (
       <div className="fixed left-1/2 top-3 z-[70] flex -translate-x-1/2 items-center gap-3 rounded-full border border-orange-500/50 bg-black/95 px-5 py-2 text-sm text-orange-200 shadow-xl">
         <span>{access.warning}</span>
-        <a href="/configuracion/plan" className="font-black text-orange-400 hover:underline">
+        <a
+          href="/configuracion/plan"
+          className="font-black text-orange-400 hover:underline"
+        >
           Mi plan
         </a>
-        <button onClick={() => setHideWarning(true)} className="text-zinc-500 hover:text-white" aria-label="Cerrar">
+        <button
+          onClick={() => setHideWarning(true)}
+          className="text-zinc-500 hover:text-white"
+          aria-label="Cerrar"
+        >
           ✕
         </button>
       </div>
@@ -472,7 +604,10 @@ function PlanLock({ account }: { account: ReadyAccount }) {
 // ------------------------------------------------------------ indicador
 
 function SyncBadge({ account }: { account: ReadyAccount }) {
-  const [status, setStatus] = useState<SyncStatus>({ state: "idle", pending: 0 });
+  const [status, setStatus] = useState<SyncStatus>({
+    state: "idle",
+    pending: 0,
+  });
   const [open, setOpen] = useState(false);
   const [isPrimary, setIsPrimary] = useState(true);
 
@@ -504,16 +639,20 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
           <p className="text-xs text-zinc-500">{account.email}</p>
           {status.lastSyncAt && (
             <p className="mt-2 text-xs text-zinc-500">
-              Última sincronización: {new Date(status.lastSyncAt).toLocaleTimeString()}
+              Última sincronización:{" "}
+              {new Date(status.lastSyncAt).toLocaleTimeString()}
             </p>
           )}
-          {status.message && <p className="mt-2 text-xs text-orange-300">{status.message}</p>}
+          {status.message && (
+            <p className="mt-2 text-xs text-orange-300">{status.message}</p>
+          )}
 
           {account.branches.length > 1 && (
             <select
               value={account.branchId}
               onChange={(e) => {
-                if (!confirm("¿Cambiar la sucursal de este dispositivo?")) return;
+                if (!confirm("¿Cambiar la sucursal de este dispositivo?"))
+                  return;
                 selectBranch(e.target.value);
                 resetDeviceSync();
                 window.location.reload();
@@ -538,8 +677,8 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
               }}
             />
             <span>
-              <b>Caja principal.</b> Descuenta el inventario de las ventas. Déjalo activo solo en la computadora
-              de la caja.
+              <b>Caja principal.</b> Descuenta el inventario de las ventas.
+              Déjalo activo solo en la computadora de la caja.
             </span>
           </label>
 
@@ -555,7 +694,12 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
             </button>
             <button
               onClick={async () => {
-                if (!confirm("¿Desconectar este dispositivo de la nube? Tendrás que volver a entrar con la cuenta.")) return;
+                if (
+                  !confirm(
+                    "¿Desconectar este dispositivo de la nube? Tendrás que volver a entrar con la cuenta.",
+                  )
+                )
+                  return;
                 await flush().catch(() => undefined);
                 await signOutDevice();
                 resetDeviceSync();
