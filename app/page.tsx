@@ -52,6 +52,9 @@ export default function BposLanding() {
         </div>
         <div className="flex items-center gap-2">
           <ThemeToggle />
+          <Link href="/demo" className="rounded-xl px-3 py-2 text-sm font-black text-orange-300 hover:text-orange-200">
+            Demo
+          </Link>
           <Link href="/pos" className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black hover:border-orange-500">
             Entrar
           </Link>
@@ -71,9 +74,9 @@ export default function BposLanding() {
             <Link href="/pos" className={`${button} bg-orange-500 text-black hover:bg-orange-400`}>
               Prueba {TRIAL_DAYS} días gratis
             </Link>
-            <a href="#planes" className={`${button} border border-orange-500 text-orange-300 hover:bg-orange-500/10`}>
-              Ver planes
-            </a>
+            <Link href="/demo" className={`${button} border border-orange-500 text-orange-300 hover:bg-orange-500/10`}>
+              ▶ Ver la demo
+            </Link>
           </div>
           <p className="mt-3 text-sm text-zinc-500">Sin tarjeta. Desde ${PLANS.basic.price} MXN al mes por sucursal.</p>
         </div>
