@@ -239,6 +239,17 @@ export default function WalletCardSettings({ c, update, business, brandColor, br
               Texto en la tarjeta (opcional)
               <textarea value={c.cardNote} maxLength={200} rows={2} placeholder="Muestra tu tarjeta en caja antes de pagar. Martes 2x1 para socios." onChange={(e) => update({ cardNote: e.target.value })} className={`${input} mt-1`} />
             </label>
+            <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-zinc-800 px-4 py-3">
+              <input type="checkbox" checked={c.cardNotify} onChange={(e) => update({ cardNotify: e.target.checked })} className="mt-1 h-5 w-5 accent-orange-500" />
+              <span>
+                <span className="block text-sm font-black">Avisar al socio cada vez que suma o canjea</span>
+                <span className="block text-xs text-zinc-400">
+                  Le llega una notificación a su tarjeta con lo que ganó y lo que le falta
+                  {c.kind === "sellos" ? ' ("¡Sumaste 1 sello! Llevas 5 de 6...")' : c.kind === "cashback" ? ' ("¡Ganaste $12 de saldo! Ya tienes $85...")' : ' ("¡Sumaste 12 puntos! Te faltan 30 para...")'}. Google permite 3 avisos al
+                  día por tarjeta.
+                </span>
+              </span>
+            </label>
             {sync.state !== "idle" && (
               <p className={`text-sm font-bold ${sync.state === "error" ? "text-red-300" : sync.state === "ok" ? "text-green-300" : "text-zinc-400"}`}>{sync.text}</p>
             )}
