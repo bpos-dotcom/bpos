@@ -1,14 +1,14 @@
 import type { MetadataRoute } from "next";
 
 // Bloque 12 · B-POS se instala como app en Android, iPhone y computadora.
-// Abre directo en la App del dueño; desde ahí se llega al resto de B-POS.
+// Abre en /inicio: el POS para quien vende, la App del dueño para quien no (lib/permissions homePathFor).
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "B-POS",
     short_name: "B-POS",
     description: "Ventas, sucursales y alertas de tu negocio en tiempo real.",
     id: "/dueno",
-    start_url: "/dueno",
+    start_url: "/inicio",
     scope: "/",
     display: "standalone",
     orientation: "portrait",
