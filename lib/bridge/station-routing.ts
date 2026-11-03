@@ -57,12 +57,18 @@ export function stationsByLine(
     (product?.modifierGroups || []).flatMap((g) => {
       const linkedOptions = g.options.filter((o) => o.productId);
       if (!linkedOptions.length) return [];
-      const nameOf = (o: { name?: string; productId?: number }) => products.find((x) => String(x.id) === String(o.productId))?.name || o.name || "";
-      const chosen = linkedOptions.find((o) => {
+      const nameOf = (o: { name?: string; productId?: number }) => (o.productId ? products.find((x) => String(x.id) === String(o.productId))?.name : "") || o.name || "";
+      const matches = (o: { name?: string; productId?: number }) => {
         const name = plain(nameOf(o));
-        return name && said.some((s) => s.includes(name) || name.includes(s));
-      });
-      const required = Math.max(Number(g.min) || 0, Number(g.included) || 0) >= 1;
+        return Boolean(name) && said.some((s) => s.includes(name) || name.includes(s));
+      };
+      // Lo que contestó el cliente: una opción enlazada (va a su estación) o una
+      // sin producto ("No, gracias"): el grupo ya quedó contestado y no imprime nada
+      const answered = g.options.find(matches);
+      if (answered && !answered.productId) return [];
+      const chosen = answered;
+      // "Incluidas" es cuántas van gratis si se eligen; obligatorio solo es min ≥ 1
+      const required = (Number(g.min) || 0) >= 1;
       if (!chosen && !required) return [];
       // Obligatorio sin elección en el ticket: el nombre del grupo si hay varias opciones
       const option = chosen || linkedOptions[0];
