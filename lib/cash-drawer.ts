@@ -55,21 +55,17 @@ export function drawerShouldOpen(paymentMethod: string, orderType: string | unde
 
 /**
  * Robo hormiga: el cajón se abrió (al abrir el cobro o con el botón) y la
- * venta no se concretó, o se concretó sin efectivo. Queda en la bitácora
+ * venta no se concretó (cobro cancelado o mandado a cocina sin cobrar). Si
+ * se cobró, con la forma que sea, no se avisa: el cajón se abre solo. Queda en la bitácora
  * (nube, no se puede borrar), como alerta en el Centro de operaciones y le
  * llega al dueño por push (preferencia "seguridad").
  */
-export async function reportDrawerWithoutCashSale(input: { reason: "cancelado" | "sin-efectivo" | "pendiente"; paymentMethod: string; total: number; orderType?: string }) {
+export async function reportDrawerWithoutCashSale(input: { reason: "cancelado" | "pendiente"; paymentMethod: string; total: number; orderType?: string }) {
   if (typeof window === "undefined") return;
   const [{ addAuditEvent }, { getCurrentUser }, { upsertOperationsAlert }] = await Promise.all([import("@/lib/audit"), import("@/lib/auth"), import("@/lib/notifications/operationsCenter")]);
   const user = getCurrentUser();
   const money = `$${input.total.toFixed(2)}`;
-  const why =
-    input.reason === "cancelado"
-      ? `se abrió el cajón y el cobro de ${money} se canceló sin venta`
-      : input.reason === "pendiente"
-        ? `se abrió el cajón y el pedido de ${money} se mandó a cocina sin cobrar`
-        : `se abrió el cajón y la venta de ${money} se cobró con ${input.paymentMethod} (sin efectivo)`;
+  const why = input.reason === "cancelado" ? `se abrió el cajón y el cobro de ${money} se canceló sin venta` : `se abrió el cajón y el pedido de ${money} se mandó a cocina sin cobrar`;
   const description = `${user.name}: ${why}${input.orderType ? ` (${input.orderType})` : ""}.`;
   const event = addAuditEvent({
     category: "Seguridad",

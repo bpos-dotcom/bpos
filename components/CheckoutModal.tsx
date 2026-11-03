@@ -188,13 +188,12 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
     setDiscount("");
     setPicked({});
   }
-  /** El cajón se abrió y no hubo venta en efectivo: aviso al dueño (robo hormiga) */
-  function checkDrawer(reason: "cancelado" | "sin-efectivo" | "pendiente") {
+  /** El cajón se abrió y no hubo venta: aviso al dueño (robo hormiga). Si la venta se concretó, con
+   *  cualquier forma de pago, no es sospechoso (el cajón se abre solo) y no se avisa. */
+  function checkDrawer(reason: "cancelado" | "pendiente") {
     if (!drawerOpened.current) return;
-    const method = paymentMethod;
-    if (reason === "sin-efectivo" && getDrawerSettings().methods.includes(method)) return; // cobró con una forma que sí abre el cajón
     drawerOpened.current = false;
-    void reportDrawerWithoutCashSale({ reason, paymentMethod: method, total, orderType });
+    void reportDrawerWithoutCashSale({ reason, paymentMethod, total, orderType });
   }
 
   function close() {
@@ -269,7 +268,6 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
       alert("El pago no cubre el total.");
       return;
     }
-    checkDrawer("sin-efectivo");
     onConfirm(result({}));
     resetAll();
   }
