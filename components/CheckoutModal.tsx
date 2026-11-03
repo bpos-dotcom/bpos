@@ -126,6 +126,23 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
     };
   }, []);
 
+  // El cajón se abre en cuanto el cobro es en efectivo (o mixto), una vez por cobro,
+  // sin esperar a capturar el pago ni a que salga el ticket.
+  // (Va antes del `return null`: los hooks deben correr en cada render.)
+  const drawerOpened = useRef(false);
+  const wantsDrawer = paymentMethod === "Efectivo" || paymentMethod === "Mixto";
+  useEffect(() => {
+    if (!isOpen) {
+      drawerOpened.current = false;
+      return;
+    }
+    if (!wantsDrawer || drawerOpened.current || total <= 0) return;
+    drawerOpened.current = true;
+    void openCashDrawer().then((opened) => {
+      if (!opened) drawerOpened.current = false; // Agent viejo o sin cajón: se abrirá con el ticket
+    });
+  }, [isOpen, wantsDrawer, total]);
+
   if (!isOpen) return null;
 
   // ----- Cuánto se cobra ahora -----
@@ -179,21 +196,6 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
   const transferNumber = Number(transferAmount) || 0;
   const isCash = paymentMethod === "Efectivo";
   const isMixed = paymentMethod === "Mixto";
-
-  // El cajón se abre en cuanto el cobro es en efectivo (o mixto), una vez por cobro,
-  // sin esperar a capturar el pago ni a que salga el ticket
-  const drawerOpened = useRef(false);
-  useEffect(() => {
-    if (!isOpen) {
-      drawerOpened.current = false;
-      return;
-    }
-    if (!(isCash || isMixed) || drawerOpened.current || total <= 0) return;
-    drawerOpened.current = true;
-    void openCashDrawer().then((opened) => {
-      if (!opened) drawerOpened.current = false; // Agent viejo o sin cajón: se abrirá con el ticket
-    });
-  }, [isOpen, isCash, isMixed, total]);
 
   const paidTotal = isCash ? cashNumber : isMixed ? round2(cashNumber + cardNumber + transferNumber) : toPay;
   const change = isCash || isMixed ? round2(Math.max(paidTotal - toPay, 0)) : 0;
