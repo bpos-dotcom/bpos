@@ -5,7 +5,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { findActiveAdminByPin } from "@/lib/users";
 
 export type PermissionKey =
- | "dashboard.view" | "pos.view" | "pos.discount" | "pos.cancel" | "pos.correct" | "pos.reprint"
+ | "dashboard.view" | "pos.view" | "waiter.view" | "pos.discount" | "pos.cancel" | "pos.correct" | "pos.reprint"
  | "cash.view" | "cash.open" | "cash.movement" | "cash.close" | "cash.authorize_difference" | "cash.history"
  | "kds.view" | "printing.view" | "printing.reprint"
  | "inventory.view" | "inventory.adjust" | "inventory.costs"
@@ -14,7 +14,7 @@ export type PermissionKey =
  | "users.manage" | "audit.view" | "owner.view" | "reviews.view" | "customers.view" | "finance.view";
 
 export const PERMISSIONS:{key:PermissionKey;label:string;group:string}[]=[
- {key:"dashboard.view",label:"Ver Dashboard",group:"Páginas"},{key:"pos.view",label:"Abrir POS",group:"Páginas"},{key:"cash.view",label:"Ver Caja",group:"Páginas"},{key:"kds.view",label:"Ver Cocina KDS",group:"Páginas"},{key:"printing.view",label:"Ver Impresiones",group:"Páginas"},{key:"inventory.view",label:"Ver Inventario",group:"Páginas"},{key:"purchases.view",label:"Ver Compras",group:"Páginas"},{key:"purchases.create",label:"Registrar compras",group:"Compras"},{key:"purchases.cancel",label:"Cancelar compras",group:"Compras"},{key:"purchases.aliases",label:"Administrar equivalencias de compra",group:"Compras"},{key:"purchases.suppliers",label:"Administrar proveedores",group:"Compras"},{key:"bridge.view",label:"Ver Bridge",group:"Páginas"},{key:"reports.view",label:"Ver Reportes",group:"Páginas"},{key:"settings.view",label:"Ver Configuración",group:"Páginas"},{key:"audit.view",label:"Ver Bitácora",group:"Páginas"},{key:"owner.view",label:"Ver App del dueño",group:"Páginas"},{key:"reviews.view",label:"Ver y atender Opiniones",group:"Páginas"},{key:"customers.view",label:"Ver Clientes y Cupones",group:"Páginas"},{key:"finance.view",label:"Ver Finanzas",group:"Páginas"},
+ {key:"dashboard.view",label:"Ver Dashboard",group:"Páginas"},{key:"waiter.view",label:"Tomar órdenes en la app de meseros",group:"Páginas"},{key:"pos.view",label:"Abrir POS",group:"Páginas"},{key:"cash.view",label:"Ver Caja",group:"Páginas"},{key:"kds.view",label:"Ver Cocina KDS",group:"Páginas"},{key:"printing.view",label:"Ver Impresiones",group:"Páginas"},{key:"inventory.view",label:"Ver Inventario",group:"Páginas"},{key:"purchases.view",label:"Ver Compras",group:"Páginas"},{key:"purchases.create",label:"Registrar compras",group:"Compras"},{key:"purchases.cancel",label:"Cancelar compras",group:"Compras"},{key:"purchases.aliases",label:"Administrar equivalencias de compra",group:"Compras"},{key:"purchases.suppliers",label:"Administrar proveedores",group:"Compras"},{key:"bridge.view",label:"Ver Bridge",group:"Páginas"},{key:"reports.view",label:"Ver Reportes",group:"Páginas"},{key:"settings.view",label:"Ver Configuración",group:"Páginas"},{key:"audit.view",label:"Ver Bitácora",group:"Páginas"},{key:"owner.view",label:"Ver App del dueño",group:"Páginas"},{key:"reviews.view",label:"Ver y atender Opiniones",group:"Páginas"},{key:"customers.view",label:"Ver Clientes y Cupones",group:"Páginas"},{key:"finance.view",label:"Ver Finanzas",group:"Páginas"},
  {key:"pos.discount",label:"Aplicar descuentos",group:"POS"},{key:"pos.cancel",label:"Cancelar o borrar ventas",group:"POS"},{key:"pos.correct",label:"Corregir pedidos",group:"POS"},{key:"pos.reprint",label:"Reimprimir tickets/comandas",group:"POS"},
  {key:"cash.open",label:"Abrir caja",group:"Caja"},{key:"cash.movement",label:"Registrar movimientos",group:"Caja"},{key:"cash.close",label:"Cerrar caja",group:"Caja"},{key:"cash.authorize_difference",label:"Autorizar diferencias",group:"Caja"},{key:"cash.history",label:"Ver historial de cortes",group:"Caja"},
  {key:"printing.reprint",label:"Reimprimir desde Impresiones",group:"Impresiones"},{key:"inventory.adjust",label:"Ajustar inventario",group:"Inventario"},{key:"inventory.costs",label:"Ver costos",group:"Inventario"},
@@ -29,6 +29,7 @@ const ROLE_DEFAULTS:Record<UserRole,PermissionKey[]>={
  Cocina:["kds.view","printing.view"],
  Inventario:["dashboard.view","inventory.view","inventory.adjust","purchases.view","purchases.create","purchases.aliases","purchases.suppliers"],
  Consulta:["dashboard.view","reports.view"],
+ Mesero:["waiter.view"],
 };
 export function getRoleDefaults(role:UserRole){return [...ROLE_DEFAULTS[role]];}
 export function getUserPermissions(userId:number,role:UserRole):PermissionKey[]{if(typeof window==="undefined")return ROLE_DEFAULTS[role];try{const saved=JSON.parse(localStorage.getItem(KEY)||"{}");return Array.isArray(saved[userId])?saved[userId]:ROLE_DEFAULTS[role];}catch{return ROLE_DEFAULTS[role];}}

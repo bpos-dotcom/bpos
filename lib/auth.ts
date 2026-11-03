@@ -1,8 +1,8 @@
-export type UserRole = "Cajero" | "Gerente" | "Admin" | "Cocina" | "Inventario" | "Consulta";
+export type UserRole = "Cajero" | "Gerente" | "Admin" | "Cocina" | "Inventario" | "Consulta" | "Mesero";
 
 export type CurrentUser = { id: number; name: string; role: UserRole; };
 const USER_KEY = "bpos_current_user";
-const ROLES: UserRole[] = ["Cajero", "Gerente", "Admin", "Cocina", "Inventario", "Consulta"];
+const ROLES: UserRole[] = ["Cajero", "Gerente", "Admin", "Cocina", "Inventario", "Consulta", "Mesero"];
 /** Usuario sin sesión: id 0, sin ningún permiso (ver hasPermission). */
 export const GUEST_USER: CurrentUser = { id: 0, name: "Sin sesión", role: "Consulta" };
 

@@ -21,6 +21,7 @@ import { friendlyError, getSupabase } from "@/lib/supabase/client";
 /** Llaves que pertenecen a este dispositivo y nunca se sincronizan */
 const DEVICE_LOCAL_KEYS = new Set([
   "bpos_current_user",
+  "bpos_waiter_device",
   "bpos_device_id",
   "bpos_plan",
   "bpos_branch_id",
