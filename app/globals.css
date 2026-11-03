@@ -48,25 +48,16 @@ html.sidebar-collapsed {
   }
 }
 
-.bpos-scroll {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+/* Sin barras de desplazamiento visibles en toda la app (se sigue desplazando con rueda, dedo o teclado).
+   Antes solo las escondía .bpos-scroll, el menú digital y el kiosco; en el resto (ventanas de cobro,
+   listas, página) se veía la barra gris del navegador. */
+html, body, * {
+  scrollbar-width: none;
 }
-.bpos-scroll:hover {
-  scrollbar-color: #3f3f46 transparent;
-}
-.bpos-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-.bpos-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.bpos-scroll::-webkit-scrollbar-thumb {
-  background: transparent;
-  border-radius: 999px;
-}
-.bpos-scroll:hover::-webkit-scrollbar-thumb {
-  background: #3f3f46;
+*::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* Impresión / PDF de reportes: papel blanco, sin menú ni botones */
@@ -163,9 +154,6 @@ html.theme-light body {
 /* text-black solo se usa sobre botones de color: sigue oscuro */
 html.theme-light .text-black {
   color: #111114;
-}
-html.theme-light .bpos-scroll:hover::-webkit-scrollbar-thumb {
-  background: #c4c4cc;
 }
 
 /* POS: destello naranja al tocar un producto (ProductCard) */
