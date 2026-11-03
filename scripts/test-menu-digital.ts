@@ -82,6 +82,13 @@ async function main() {
   check("viernes 15:00 abierto", dm.isOpenNow(horario, new Date("2026-10-30T15:00:00")));
   check("viernes 23:00 cerrado", !dm.isOpenNow(horario, new Date("2026-10-30T23:00:00")));
   check("sábado cerrado", !dm.isOpenNow(horario, new Date("2026-10-31T15:00:00")));
+  const dos = dm.normalizeDigitalMenu({ hours: { days: [1, 2, 3, 4, 5], from: "13:30", to: "23:30" }, moreHours: [{ days: [0, 6], from: "12:00", to: "00:00" }] });
+  check("dos horarios: viernes 14:00 abierto", dm.isOpenNow(dos, new Date("2026-10-30T14:00:00")));
+  check("dos horarios: sábado 12:30 abierto", dm.isOpenNow(dos, new Date("2026-10-31T12:30:00")));
+  check("dos horarios: sábado 11:00 cerrado", !dm.isOpenNow(dos, new Date("2026-10-31T11:00:00")));
+  check("dos horarios: viernes 12:00 cerrado", !dm.isOpenNow(dos, new Date("2026-10-30T12:00:00")));
+  check("dos horarios: texto", dm.openHoursLabel(dos).includes("Sáb"), dm.openHoursLabel(dos));
+  check("sin horario: siempre abierto", dm.isOpenNow(dm.normalizeDigitalMenu({ moreHours: [] }), new Date("2026-10-30T03:00:00")));
 
   // Liga
   check("liga sugerida", dm.suggestSlug("Burger Planet Lerdo!") === "burger-planet-lerdo");

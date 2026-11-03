@@ -152,7 +152,18 @@ export default function MenuDigitalPage() {
   }, [products, search, orderedCategories]);
 
   const soldOutCount = products.filter((p) => isSoldOut(menu, p.id, now)).length;
-  const hours = menu.hours || { days: [], from: "", to: "" };
+  /** Bloques de horario: el principal más los extra (ej. fin de semana con otras horas) */
+  const hourBlocks = [menu.hours || { days: [], from: "", to: "" }, ...(menu.moreHours || [])];
+  const setHourBlock = (index: number, next: { days: number[]; from: string; to: string } | null) => {
+    if (index === 0) {
+      update({ hours: next || { days: [], from: "", to: "" } });
+      return;
+    }
+    const more = [...(menu.moreHours || [])];
+    if (next) more[index - 1] = next;
+    else more.splice(index - 1, 1);
+    update({ moreHours: more });
+  };
 
   async function printTableQrs() {
     if (!link || menu.tables < 1) return;
@@ -371,27 +382,48 @@ export default function MenuDigitalPage() {
             )}
 
             <p className="mt-5 text-sm font-bold text-zinc-300">Horario para recibir pedidos (vacío = siempre)</p>
-            <div className="mt-2 flex flex-wrap items-center gap-2">
-              {DAY_SHORT.map((d, i) => {
-                const on = hours.days.length === 0 || hours.days.includes(i);
-                return (
-                  <button
-                    key={d}
-                    onClick={() => {
-                      const all = hours.days.length === 0 ? [0, 1, 2, 3, 4, 5, 6] : hours.days;
-                      const days = on ? all.filter((x) => x !== i) : [...all, i];
-                      update({ hours: { ...hours, days } });
-                    }}
-                    className={`rounded-xl border px-3 py-2 text-sm font-black ${on ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-700 text-zinc-400"}`}
-                  >
-                    {d}
+            {hourBlocks.map((hours, b) => (
+              <div key={b} className={`flex flex-wrap items-center gap-2 ${b === 0 ? "mt-2" : "mt-3 border-t border-zinc-800 pt-3"}`}>
+                {DAY_SHORT.map((d, i) => {
+                  const on = hours.days.length === 0 || hours.days.includes(i);
+                  return (
+                    <button
+                      key={d}
+                      onClick={() => {
+                        const all = hours.days.length === 0 ? [0, 1, 2, 3, 4, 5, 6] : hours.days;
+                        const days = on ? all.filter((x) => x !== i) : [...all, i];
+                        setHourBlock(b, { ...hours, days });
+                      }}
+                      className={`rounded-xl border px-3 py-2 text-sm font-black ${on ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-700 text-zinc-400"}`}
+                    >
+                      {d}
+                    </button>
+                  );
+                })}
+                <input type="time" value={hours.from} onChange={(e) => setHourBlock(b, { ...hours, from: e.target.value })} className="rounded-xl border border-zinc-800 bg-black px-3 py-2" />
+                <span className="text-zinc-500">a</span>
+                <input type="time" value={hours.to} onChange={(e) => setHourBlock(b, { ...hours, to: e.target.value })} className="rounded-xl border border-zinc-800 bg-black px-3 py-2" />
+                {b > 0 && (
+                  <button onClick={() => setHourBlock(b, null)} className="rounded-xl border border-zinc-700 px-3 py-2 text-sm font-bold text-zinc-400 hover:border-red-500 hover:text-red-400">
+                    Quitar
                   </button>
-                );
-              })}
-              <input type="time" value={hours.from} onChange={(e) => update({ hours: { ...hours, from: e.target.value } })} className="rounded-xl border border-zinc-800 bg-black px-3 py-2" />
-              <span className="text-zinc-500">a</span>
-              <input type="time" value={hours.to} onChange={(e) => update({ hours: { ...hours, to: e.target.value } })} className="rounded-xl border border-zinc-800 bg-black px-3 py-2" />
-            </div>
+                )}
+              </div>
+            ))}
+            {hourBlocks.length < 7 && (
+              <button
+                onClick={() => {
+                  // Días que no cubre ningún bloque (vacío = todos; entonces el nuevo arranca sin días)
+                  const used = new Set(hourBlocks.flatMap((h) => (h.days.length ? h.days : [0, 1, 2, 3, 4, 5, 6])));
+                  const free = [0, 1, 2, 3, 4, 5, 6].filter((d) => !used.has(d));
+                  update({ moreHours: [...(menu.moreHours || []), { days: free.length ? free : [0], from: hourBlocks[0].from, to: hourBlocks[0].to }] });
+                }}
+                className="mt-3 rounded-xl border border-dashed border-zinc-700 px-3 py-2 text-sm font-bold text-zinc-300 hover:border-orange-500"
+              >
+                + Otro horario (ej. fin de semana)
+              </button>
+            )}
+            {hourBlocks.length > 1 && <p className="mt-1 text-xs text-zinc-500">Recibes pedidos cuando aplica cualquiera de los horarios. Un día puede estar en dos bloques (ej. mañana y noche).</p>}
 
             <label className={`${label} mt-5`}>
               Aviso arriba del menú (opcional)

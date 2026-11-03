@@ -8,7 +8,7 @@
  * Lo usan la página pública y B-POS, así que no depende del navegador.
  */
 import type { ModifierGroup, Product } from "@/data/products";
-import { isOnSale, type SaleSchedule } from "@/lib/sale-schedule";
+import { cleanSchedule, isOnSale, scheduleLabel, type SaleSchedule } from "@/lib/sale-schedule";
 
 export const DIGITAL_MENU_KEY = "bpos_digital_menu";
 export const DIGITAL_MENU_EVENT = "bpos:digital-menu-updated";
@@ -95,6 +95,8 @@ export type DigitalMenuSettings = {
   prepMinutes: number;
   /** Horario para recibir pedidos (sin horario = siempre que esté abierto) */
   hours?: SaleSchedule;
+  /** Más bloques de horario (ej. fin de semana con otras horas). Abierto si cualquiera aplica. */
+  moreHours?: SaleSchedule[];
   /** Aviso arriba del menú ("Hoy 2x1 en papas") */
   notice: string;
   /** Pago al recoger o al recibir (forma antigua; ahora manda paymentsByType) */
@@ -269,6 +271,7 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
     tables: Math.round(num(r.tables, 0, 0, 200)),
     prepMinutes: Math.round(num(r.prepMinutes, 20, 5, 240)),
     hours: r.hours,
+    moreHours: Array.isArray(r.moreHours) ? r.moreHours.filter((h) => h && typeof h === "object" && Array.isArray(h.days)).slice(0, 6) : [],
     notice: typeof r.notice === "string" ? r.notice.slice(0, 200) : "",
     payments: {
       cash: r.payments?.cash !== false,
@@ -376,8 +379,19 @@ export function onlineGroups(product: Product, catalog: Product[], menu: Pick<Di
 }
 
 /** ¿Recibe pedidos en este momento? (horario) */
-export function isOpenNow(menu: Pick<DigitalMenuSettings, "hours">, now = new Date()) {
-  return isOnSale(menu.hours, now);
+export function isOpenNow(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">, now = new Date()) {
+  const blocks = openHoursBlocks(menu);
+  return blocks.length === 0 || blocks.some((b) => isOnSale(b, now));
+}
+
+/** Bloques de horario con contenido (el principal más los extra). Vacío = siempre abierto. */
+export function openHoursBlocks(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">): SaleSchedule[] {
+  return [menu.hours, ...(menu.moreHours || [])].map((h) => cleanSchedule(h)).filter((h): h is SaleSchedule => Boolean(h));
+}
+
+/** "Lun, Mar, Mié, Jue, Vie · 13:30 a 23:30 · Sáb, Dom · 12:00 a 00:00" */
+export function openHoursLabel(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">) {
+  return openHoursBlocks(menu).map((b) => scheduleLabel(b)).join(" · ");
 }
 
 /** Liga sugerida a partir del nombre del negocio: "Burger Planet" → "burger-planet" */
