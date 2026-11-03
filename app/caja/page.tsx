@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { buildShoppingListMessage, clearLowStockAfterShiftClose, getPendingLowStock, markShoppingListSent, shoppingListWasSentForShift } from "@/lib/inventory";
-import { getOwnerWhatsapp } from "@/lib/business-settings";
+import { getBusinessSettings, getCutEmail, getOwnerWhatsapp } from "@/lib/business-settings";
+import { emailCashCut } from "@/lib/cash-cut-email";
 import { getCurrentUser } from "@/lib/auth";
 import { requirePermission, requirePermissionOrAdmin } from "@/lib/permissions";
 import { addAuditEvent } from "@/lib/audit";
@@ -55,7 +56,16 @@ export default function CajaPage() {
   const [openingCash, setOpeningCash] = useState("");
   const [cashCounted, setCashCounted] = useState("");
   /** Último corte cerrado: liga de WhatsApp por si el navegador bloqueó la ventana (el PIN tarda y se pierde el "clic") */
-  const [lastCut, setLastCut] = useState<{ folio: string; url: string } | null>(null);
+  // Último corte cerrado: botón de WhatsApp (si está activado) y cómo fue el correo automático
+  const [lastCut, setLastCut] = useState<{ folio: string; message: string; url: string | null; email: string; emailStatus: "enviando" | "enviado" | "error" | "apagado"; emailError?: string } | null>(null);
+
+  /** Manda (o reintenta) el corte por correo y refleja el resultado en la pantalla de caja cerrada */
+  function sendCutEmail(folio: string, message: string, email: string) {
+    setLastCut((c) => (c?.folio === folio ? { ...c, emailStatus: "enviando", emailError: undefined } : c));
+    emailCashCut({ folio, message }, email)
+      .then(() => setLastCut((c) => (c?.folio === folio ? { ...c, emailStatus: "enviado" } : c)))
+      .catch((error: unknown) => setLastCut((c) => (c?.folio === folio ? { ...c, emailStatus: "error", emailError: error instanceof Error ? error.message : "No se pudo mandar el correo." } : c)));
+  }
   const [differenceReason, setDifferenceReason] = useState("");
   const [movementType, setMovementType] =
     useState<CashMovement["type"]>("Gasto");
@@ -345,7 +355,8 @@ export default function CajaPage() {
 
   const currentUserForCut = getCurrentUser();
   const cashierName = currentUserForCut?.name || "Usuario del sistema";
-  const message = `🍔 *BURGER PLANET*
+  const settings = getBusinessSettings();
+  const message = `🍔 *${settings.businessName.toUpperCase()}*
 📊 *CORTE DE CAJA*
 
 🧾 Folio: ${cutFolio}
@@ -390,29 +401,34 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
 
 ✅ Corte finalizado correctamente.`;
 
+  // Cómo se manda el corte (Configuración → Empresa → Corte de caja): correo solo y/o WhatsApp con un toque
+  const cutEmail = getCutEmail();
+  const phone = settings.cutWhatsappEnabled ? getOwnerWhatsapp() : "";
+  const sendsBy = [cutEmail ? `correo a ${cutEmail}` : "", phone ? "WhatsApp" : ""].filter(Boolean).join(" y ");
   const confirmed = confirm(
-    `¿Cerrar turno y enviar corte por WhatsApp?\n\nFolio: ${cutFolio}\nEsperado: $${expectedCash.toFixed(
+    `¿Cerrar turno${sendsBy ? ` y enviar corte por ${sendsBy}` : ""}?\n\nFolio: ${cutFolio}\nEsperado: $${expectedCash.toFixed(
       2
     )}\nContado: $${counted.toFixed(2)}\nDiferencia: $${cutDifference.toFixed(2)}`
   );
 
   if (!confirmed) return;
 
-  const phone = getOwnerWhatsapp();
-  if (!phone) {
-    alert("Configura el WhatsApp del dueño en Configuración → Empresa y propietario.");
+  if (settings.cutWhatsappEnabled && !phone) {
+    alert("Configura el WhatsApp del dueño en Configuración → Empresa y propietario (o apaga el envío por WhatsApp ahí).");
     window.location.href = "/configuracion/empresa";
     return;
   }
-  const whatsappUrl = `https://wa.me/${phone}?text=${encodeURIComponent(
-    message
-  )}`;
+  const whatsappUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}` : null;
 
-  // Después del PIN y la confirmación el navegador puede tomar la ventana como emergente y bloquearla:
+  // Correo: lo manda el servidor sin que nadie toque nada; el resultado se muestra en la pantalla de caja cerrada
+  setLastCut({ folio: cutFolio, message, url: whatsappUrl, email: cutEmail, emailStatus: cutEmail ? "enviando" : "apagado" });
+  if (cutEmail) sendCutEmail(cutFolio, message, cutEmail);
+  // WhatsApp: después de la confirmación el navegador puede tomar la ventana como emergente y bloquearla;
   // el corte queda con su botón para abrir WhatsApp con un clic (y en Historial de cortes para reenviar)
-  const popup = window.open(whatsappUrl, "_blank");
-  setLastCut({ folio: cutFolio, url: whatsappUrl });
-  if (!popup) alert("El navegador bloqueó la ventana de WhatsApp. Usa el botón \"Enviar corte por WhatsApp\" que aparece en pantalla.");
+  if (whatsappUrl) {
+    const popup = window.open(whatsappUrl, "_blank");
+    if (!popup) alert("El navegador bloqueó la ventana de WhatsApp. Usa el botón \"Enviar corte por WhatsApp\" que aparece en pantalla.");
+  }
 
   const closedAt = new Date().toISOString();
   const currentUser = getCurrentUser();
@@ -440,7 +456,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
     cashOut,
     movements: shift.movements,
     shoppingListSent: shoppingListWasSentForShift(shift.openedAt),
-    whatsappPhone: phone,
+    ...(phone ? { whatsappPhone: phone } : {}),
     cutMessage: message,
     cutSentAt: closedAt,
   };
@@ -483,11 +499,26 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
       {!shift ? (
         <section className="mx-auto max-w-xl rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
           {lastCut && (
-            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-green-500/40 bg-green-500/10 p-4">
-              <p className="text-sm font-bold text-green-200">Corte {lastCut.folio} cerrado. ¿Ya llegó al WhatsApp del dueño?</p>
-              <a href={lastCut.url} target="_blank" rel="noreferrer" className="rounded-xl bg-green-500 px-4 py-2 text-sm font-black text-black">
-                📲 Enviar corte por WhatsApp
-              </a>
+            <div className="mb-6 rounded-2xl border border-green-500/40 bg-green-500/10 p-4">
+              <p className="text-sm font-bold text-green-200">Corte {lastCut.folio} cerrado.</p>
+              {lastCut.emailStatus === "enviando" && <p className="mt-1 text-sm text-zinc-300">📧 Mandando el corte por correo a {lastCut.email}…</p>}
+              {lastCut.emailStatus === "enviado" && <p className="mt-1 text-sm text-green-300">📧 Corte enviado por correo a {lastCut.email}.</p>}
+              {lastCut.emailStatus === "error" && (
+                <p className="mt-1 text-sm text-red-300">
+                  📧 No se pudo mandar el correo: {lastCut.emailError}{" "}
+                  <button onClick={() => sendCutEmail(lastCut.folio, lastCut.message, lastCut.email)} className="font-black underline">
+                    Reintentar
+                  </button>
+                </p>
+              )}
+              {lastCut.url && (
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+                  <p className="text-sm text-zinc-300">¿Ya llegó al WhatsApp del dueño?</p>
+                  <a href={lastCut.url} target="_blank" rel="noreferrer" className="rounded-xl bg-green-500 px-4 py-2 text-sm font-black text-black">
+                    📲 Enviar corte por WhatsApp
+                  </a>
+                </div>
+              )}
             </div>
           )}
           <p className="text-sm font-bold text-orange-500">Caja cerrada</p>
