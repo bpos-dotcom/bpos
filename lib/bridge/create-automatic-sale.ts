@@ -166,6 +166,12 @@ function nextOrderId(orders: AutomaticSaleOrder[]) {
 
 /** Si se equivale después de esto, cocina ya lo preparó con el ticket impreso: entra al KDS como entregado. */
 const LATE_SALE_MS = 15 * 60 * 1000;
+/**
+ * DiDi reinicia sus números cada día (#1, #2…): el mismo número solo es el
+ * mismo pedido si llegó hace menos de esto. Antes el DiDi #12 de hoy se tomaba
+ * como repetido del #12 de ayer y no se creaba la venta.
+ */
+export const SAME_ORDER_WINDOW_MS = 12 * 60 * 60 * 1000;
 
 export function createAutomaticSale(
   payload: SaleReadyPayload,
@@ -197,8 +203,9 @@ export function createAutomaticSale(
   }
 
   const orders = readOrders();
+  const incomingAt = Date.parse(options.receivedAt || "") || Date.now();
   const duplicate = orders.find(
-    (order) => order.externalOrderKey === payload.externalOrderKey
+    (order) => order.externalOrderKey === payload.externalOrderKey && Math.abs(incomingAt - Date.parse(order.createdAt)) < SAME_ORDER_WINDOW_MS
   );
 
   if (duplicate) {
