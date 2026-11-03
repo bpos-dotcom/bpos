@@ -67,7 +67,8 @@ export default function OperationsCenterPage() {
       setAlerts(getOperationsAlerts());
     };
     void openCenter();
-    const timer = window.setInterval(() => void refresh(), 3000);
+    // Cada revisión consulta el Bridge en la nube: cada 10 s basta (el menú lateral ya avisa al momento)
+    const timer = window.setInterval(() => void refresh(), 10_000);
     const onUpdate = () => setAlerts(getOperationsAlerts());
     window.addEventListener(OPERATIONS_ALERT_EVENT, onUpdate);
     window.addEventListener("bpos:inventory-alerts-updated", onUpdate);
