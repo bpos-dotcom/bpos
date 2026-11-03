@@ -5,6 +5,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import { syncStationPrinters, toStationPrintersConfig } from "@/lib/localService";
 import { listAgents } from "@/lib/agent/client";
 import { isCloudConfigured } from "@/lib/supabase/client";
+import { DEFAULT_DRAWER_METHODS, DRAWER_MIXED, DRAWER_ORDER_TYPES, type DrawerWhen } from "@/lib/cash-drawer";
+import { getEnabledPaymentMethods } from "@/lib/payment-methods";
 
 type Printer = {
   name: string;
@@ -24,7 +26,18 @@ type Station = (typeof STATIONS)[number];
 
 const STORAGE_KEY = "bpos_station_printers";
 
-type SavedConfig = Record<Station, string> & { paperWidthMm?: 58 | 80; printMode?: "escpos" | "windows"; openDrawer?: boolean };
+type SavedConfig = Record<Station, string> & {
+  paperWidthMm?: 58 | 80;
+  printMode?: "escpos" | "windows";
+  /** Cajón (lib/cash-drawer.ts): apagador general, cuándo, formas de pago y tipos de pedido */
+  openDrawer?: boolean;
+  drawerWhen?: DrawerWhen;
+  drawerMethods?: string[];
+  drawerOrderTypes?: string[];
+};
+
+const check = "h-5 w-5 accent-orange-500";
+const chip = (on: boolean) => `cursor-pointer rounded-xl border px-3 py-2 text-sm font-bold ${on ? "border-orange-500 bg-orange-500/15 text-orange-200" : "border-zinc-800 text-zinc-400"}`;
 
 export default function PrinterSettingsPage() {
   const [printers, setPrinters] = useState<Printer[]>([]);
@@ -179,14 +192,68 @@ export default function PrinterSettingsPage() {
           <div className="rounded-2xl border border-zinc-800 bg-black p-5">
             <p className="mb-3 text-lg font-black text-orange-500">Cajón de dinero</p>
             <label className="flex cursor-pointer items-start gap-3">
-              <input type="checkbox" checked={config.openDrawer !== false} onChange={(e) => setConfig({ ...config, openDrawer: e.target.checked })} className="mt-1 h-5 w-5 accent-orange-500" />
+              <input type="checkbox" checked={config.openDrawer !== false} onChange={(e) => setConfig({ ...config, openDrawer: e.target.checked })} className={`mt-1 ${check}`} />
               <span>
-                <span className="font-black">Abrir el cajón al cobrar en efectivo</span>
+                <span className="font-black">Abrir el cajón solo al cobrar</span>
                 <span className="mt-1 block text-xs text-zinc-500">
-                  El cajón va conectado a la impresora de Caja (cable RJ11). Se abre al imprimir el ticket de un cobro con efectivo o mixto; no con tarjeta, precuentas ni cuentas por cobrar. Necesita B-POS Agent 2.0.5 o más nuevo.
+                  El cajón va conectado a la impresora de Caja (cable RJ11). Apagado, solo se abre con el botón Abrir cajón de la ventana de cobro. Necesita B-POS Agent 2.0.8 o más nuevo.
                 </span>
               </span>
             </label>
+            {config.openDrawer !== false && (
+              <div className="mt-5 space-y-5 border-t border-zinc-800 pt-5">
+                <div>
+                  <p className="mb-2 text-sm font-black text-zinc-300">¿Cuándo?</p>
+                  <div className="space-y-2">
+                    {([
+                      ["al-abrir", "Al abrir la ventana de cobro", "En cuanto el cajero da Cobrar y elige la forma de pago: el cajón ya está abierto mientras cuenta el dinero."],
+                      ["al-cobrar", "Al confirmar el cobro", "Hasta que se confirma el pago (y antes del ticket). Útil si no quieres el cajón abierto mientras capturas."],
+                    ] as const).map(([value, label, hint]) => (
+                      <label key={value} className="flex cursor-pointer items-start gap-3">
+                        <input type="radio" name="drawerWhen" checked={(config.drawerWhen || "al-abrir") === value} onChange={() => setConfig({ ...config, drawerWhen: value })} className={`mt-1 ${check}`} />
+                        <span>
+                          <span className="font-bold">{label}</span>
+                          <span className="block text-xs text-zinc-500">{hint}</span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <p className="mb-2 text-sm font-black text-zinc-300">¿Con qué forma de pago?</p>
+                  <div className="flex flex-wrap gap-2">
+                    {Array.from(new Set([...getEnabledPaymentMethods().map((m) => m.name), DRAWER_MIXED])).map((name) => {
+                      const methods = config.drawerMethods ?? DEFAULT_DRAWER_METHODS;
+                      const on = methods.includes(name);
+                      return (
+                        <button key={name} type="button" onClick={() => setConfig({ ...config, drawerMethods: on ? methods.filter((x) => x !== name) : [...methods, name] })} className={chip(on)}>
+                          {name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-500">Mixto = parte efectivo y parte tarjeta o transferencia. Con las que no marques, el cajón no se abre (ej. tarjeta).</p>
+                </div>
+                <div>
+                  <p className="mb-2 text-sm font-black text-zinc-300">¿Para qué tipos de pedido?</p>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setConfig({ ...config, drawerOrderTypes: [] })} className={chip((config.drawerOrderTypes ?? []).length === 0)}>
+                      Todos
+                    </button>
+                    {DRAWER_ORDER_TYPES.map((t) => {
+                      const types = config.drawerOrderTypes ?? [];
+                      const on = types.includes(t);
+                      return (
+                        <button key={t} type="button" onClick={() => setConfig({ ...config, drawerOrderTypes: on ? types.filter((x) => x !== t) : [...types, t] })} className={chip(on)}>
+                          {t}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="mt-2 text-xs text-zinc-500">Ej. solo Mostrador: a domicilio el dinero lo trae el repartidor después, y el cajón no se abre al cobrar.</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
 
