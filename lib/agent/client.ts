@@ -23,7 +23,7 @@ export type AgentInfo = {
   online: boolean;
 };
 
-export type AgentJobKind = "print-tickets" | "print-original" | "station-printers" | "print";
+export type AgentJobKind = "print-tickets" | "print-original" | "station-printers" | "print" | "open-drawer";
 
 /** El Agent avisa cada pocos segundos; más de esto sin aviso = desconectado */
 const ONLINE_MS = 30_000;
