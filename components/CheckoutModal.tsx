@@ -7,13 +7,14 @@
  *   - cuentas en espera / de mesa: dividir entre personas o por productos
  * Regresa cuánto se pagó con cada método (sin propina) y la propina aparte.
  */
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getEnabledPaymentMethods } from "@/lib/payment-methods";
 import { AmountInput, cashQuickAmounts } from "@/components/AmountInput";
 import { checkCoupon, normalizeCode } from "@/lib/coupons";
 import { DRIVERS_EVENT, getDrivers, type Driver } from "@/lib/drivers";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { allocate } from "@/lib/sale-payments";
+import { openCashDrawer } from "@/lib/localService";
 
 export type PaymentMethod = string;
 
@@ -41,6 +42,8 @@ export type CheckoutResult = {
   splitAmount?: number;
   /** Cuenta dividida por productos: qué se paga ahora */
   splitItems?: { key: string; quantity: number }[];
+  /** El cajón ya se abrió al abrir el cobro (no volver a abrirlo con el ticket) */
+  drawerOpened?: boolean;
 };
 
 type CheckoutModalProps = {
@@ -177,6 +180,21 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
   const isCash = paymentMethod === "Efectivo";
   const isMixed = paymentMethod === "Mixto";
 
+  // El cajón se abre en cuanto el cobro es en efectivo (o mixto), una vez por cobro,
+  // sin esperar a capturar el pago ni a que salga el ticket
+  const drawerOpened = useRef(false);
+  useEffect(() => {
+    if (!isOpen) {
+      drawerOpened.current = false;
+      return;
+    }
+    if (!(isCash || isMixed) || drawerOpened.current || total <= 0) return;
+    drawerOpened.current = true;
+    void openCashDrawer().then((opened) => {
+      if (!opened) drawerOpened.current = false; // Agent viejo o sin cajón: se abrirá con el ticket
+    });
+  }, [isOpen, isCash, isMixed, total]);
+
   const paidTotal = isCash ? cashNumber : isMixed ? round2(cashNumber + cardNumber + transferNumber) : toPay;
   const change = isCash || isMixed ? round2(Math.max(paidTotal - toPay, 0)) : 0;
 
@@ -207,6 +225,7 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
       ...(isDelivery ? { address: address.trim(), deliveryFee: feeNumber } : {}),
       ...(driver ? { driver } : {}),
       paymentMethod,
+      drawerOpened: drawerOpened.current,
       cashReceived: cashNumber,
       cardAmount: cardNumber,
       transferAmount: transferNumber,

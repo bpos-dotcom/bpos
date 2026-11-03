@@ -260,6 +260,19 @@ async function printTickets(req) {
   return { ...record, results };
 }
 
+/**
+ * Abre el cajón de dinero (impresora de Caja) sin imprimir nada: la pantalla
+ * de cobro lo pide en cuanto se abre con Efectivo, para no esperar al ticket.
+ */
+async function openDrawer() {
+  if (getConfig().openDrawer === false) return { opened: false, reason: "El cajón está apagado en Configuración → Impresoras." };
+  const printer = printerFor("Caja");
+  if (!printer) return { opened: false, reason: "Sin impresora asignada a Caja." };
+  await openCashDrawer(printer);
+  console.log(`Cajón abierto en "${printer}" (cobro en efectivo)`);
+  return { opened: true, printer };
+}
+
 /** HTML del ticket original como texto (renglón por renglón, tal como lo leyó el Agent). */
 function originalTextHtml(req) {
   const esc = (v) => String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
@@ -337,4 +350,4 @@ function scheduleFallback(job) {
   );
 }
 
-module.exports = { listPrinters, printTickets, printOriginal, scheduleFallback, getConfig, setConfig, renderTicketStrip, renderHtmlTicket, originalTextHtml, VIRTUAL_PRINTER };
+module.exports = { listPrinters, printTickets, printOriginal, openDrawer, scheduleFallback, getConfig, setConfig, renderTicketStrip, renderHtmlTicket, originalTextHtml, VIRTUAL_PRINTER };

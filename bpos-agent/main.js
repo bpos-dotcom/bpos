@@ -308,8 +308,14 @@ function stationPrintersJob(body) {
   return { success: true, config: stationPrinter.setConfig(body || {}) };
 }
 
+/** Abrir el cajón de dinero al abrir el cobro en efectivo (sin ticket) */
+async function openDrawerJob() {
+  return { success: true, ...(await stationPrinter.openDrawer()) };
+}
+
 const AGENT_JOBS = {
   print: printCommandJob,
+  "open-drawer": openDrawerJob,
   "print-tickets": printTicketsJob,
   "print-original": printOriginalJob,
   "station-printers": async (body) => stationPrintersJob(body),
@@ -346,6 +352,14 @@ server.post("/station-printers", (req, res) => {
     res.json(stationPrintersJob(req.body));
   } catch (error) {
     res.status(400).json({ success: false, error: error.message });
+  }
+});
+
+server.post("/open-drawer", async (req, res) => {
+  try {
+    res.json(await openDrawerJob(req.body));
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 });
 

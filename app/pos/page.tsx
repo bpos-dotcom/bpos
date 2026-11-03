@@ -488,7 +488,7 @@ function PosScreen() {
   const splitLinesOf = (o: SavedOrder): SplitLine[] => o.items.map((item, i) => ({ key: item.lineId || `${item.id}-${i}`, name: item.name, price: item.price, quantity: item.quantity }));
 
   /** Cierra una cuenta en espera como pagada: ticket, club, bitácora */
-  function finalizePending(order: SavedOrder, pay: { payments: Record<string, number>; tip: number; tipPayments: Record<string, number>; partialPayments?: SavedOrder["partialPayments"]; couponCode?: string }) {
+  function finalizePending(order: SavedOrder, pay: { payments: Record<string, number>; tip: number; tipPayments: Record<string, number>; partialPayments?: SavedOrder["partialPayments"]; couponCode?: string; drawerOpened?: boolean }) {
     const paid: SavedOrder = {
       ...order,
       pendingPayment: false,
@@ -507,7 +507,7 @@ function PosScreen() {
     }
     addAuditEvent({ category: "Venta", action: "sale.paid", description: `${currentUser?.name || "Usuario"} cobró ${nameOf(paid)} (Pedido #${folio(paid)}: ${money(paid.total)}, ${paid.details.paymentMethod}${pay.tip > 0 ? `, propina ${money(pay.tip)}` : ""})`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { total: paid.total, paymentMethod: paid.details.paymentMethod, payments: pay.payments, tip: pay.tip } });
     // Ticket del cliente ya con el pago
-    void printSale(paid, { stations: [], customer: true }, true).catch(() => undefined);
+    void printSale(paid, { stations: [], customer: true, drawer: !pay.drawerOpened }, true).catch(() => undefined);
     setPayingOrder(null);
     alert(`${nameOf(paid)} cobrada: ${money(paid.total)}${pay.tip > 0 ? ` + ${money(pay.tip)} de propina` : ""}.`);
   }
@@ -610,13 +610,14 @@ function PosScreen() {
         tip: round2(partials.reduce((s, p) => s + p.tip, 0)),
         tipPayments: sumPayments(partials.map((p) => p.tipPayments)),
         partialPayments: partials,
+        drawerOpened: data.drawerOpened,
         couponCode: data.couponCode,
       });
       return;
     }
 
     // --- Todo de una vez ---
-    finalizePending(withDiscount, { payments: data.payments, tip: data.tip, tipPayments: data.tipPayments, couponCode: data.couponCode });
+    finalizePending(withDiscount, { payments: data.payments, tip: data.tip, tipPayments: data.tipPayments, couponCode: data.couponCode, drawerOpened: data.drawerOpened });
   }
 
   function nextGlobalOrderId() {
@@ -702,7 +703,8 @@ function PosScreen() {
     }
     discountInventoryByOrder(newOrder.id, cart);
     // Comandas por estación y ticket del cliente en Caja, directo a las térmicas
-    void printSale(newOrder, { stations: saleStations(newOrder), customer: true }, false)
+    // Si el cajón ya se abrió al abrir el cobro, el ticket no lo vuelve a abrir
+    void printSale(newOrder, { stations: saleStations(newOrder), customer: true, drawer: !data.drawerOpened }, false)
       .then((failed) => {
         if (failed.length) alert(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`);
       })

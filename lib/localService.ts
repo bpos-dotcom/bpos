@@ -16,6 +16,7 @@ const LOCAL_PATHS: Record<AgentJobKind, string> = {
   "station-printers": "/station-printers",
   "print-original": "/print-original",
   "print-tickets": "/print-tickets",
+  "open-drawer": "/open-drawer",
 };
 
 /** Respuesta del Agent; con error si no lo pudo hacer. */
@@ -76,6 +77,20 @@ export function toStationPrintersConfig(saved: Record<string, unknown>): Station
     printMode: saved?.printMode === "windows" ? "windows" : "escpos",
     openDrawer: saved?.openDrawer !== false,
   };
+}
+
+/**
+ * Abre el cajón de dinero en cuanto se abre el cobro con Efectivo (sin esperar
+ * al ticket). Regresa true si el Agent lo abrió; false si no pudo o es un Agent
+ * viejo sin este trabajo (entonces se abre con el ticket, como antes).
+ */
+export async function openCashDrawer(): Promise<boolean> {
+  try {
+    const r = await callAgent<{ success?: boolean; error?: string; opened?: boolean }>("open-drawer", {}, "No se pudo abrir el cajón.");
+    return r.opened === true;
+  } catch {
+    return false;
+  }
 }
 
 /** Tickets propios de un pedido de delivery: uno por estación y el de la bolsa (Caja). */
