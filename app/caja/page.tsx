@@ -49,6 +49,7 @@ type SavedOrder = {
 
 const SHIFT_KEY = "bpos_active_shift";
 const ORDERS_KEY = "bpos_orders";
+const PLATFORM_METHODS = new Set(["Didi Food", "Uber Eats", "Rappi", "Plataforma"]);
 
 export default function CajaPage() {
   const [openingCash, setOpeningCash] = useState("");
@@ -123,6 +124,8 @@ export default function CajaPage() {
   const transferSales = shiftOrders.reduce((sum, order) => sum + paidWith(order, "Transferencia"), 0);
   // Pedidos del menú digital pagados en línea (el dinero ya está en Mercado Pago)
   const mpSales = shiftOrders.reduce((sum, order) => sum + paidWith(order, "Mercado Pago"), 0);
+  // Ventas de DiDi, Uber y Rappi: las cobra la plataforma, no entran a la caja (sí a las ventas del turno)
+  const platformSales = shiftOrders.reduce((sum, order) => sum + (PLATFORM_METHODS.has(order.details.paymentMethod || "") ? order.total : 0), 0);
   // Propinas (aparte de las ventas): las de efectivo están en el cajón
   const tipsTotal = shiftOrders.reduce((sum, order) => sum + tipOf(order), 0);
   const tipsCash = shiftOrders.reduce((sum, order) => sum + tipPaidWith(order, "Efectivo"), 0);
@@ -507,7 +510,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
               value={`$${shift.openingCash.toFixed(2)}`}
             />
             <Metric title="Pedidos del turno" value={shift.orderCounter.toString()} />
-            <Metric title="Ventas turno" value={`$${totalSales.toFixed(2)}`} />
+            <Metric title="Ventas turno" value={`${totalSales.toFixed(2)}`} detail={platformSales > 0 ? `incluye ${platformSales.toFixed(2)} de plataformas (no entran a caja)` : undefined} />
             <Metric
               title="Efectivo esperado"
               value={`$${expectedCash.toFixed(2)}`}
@@ -675,11 +678,12 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
   );
 }
 
-function Metric({ title, value }: { title: string; value: string }) {
+function Metric({ title, value, detail }: { title: string; value: string; detail?: string }) {
   return (
     <div className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
       <p className="text-sm text-zinc-400">{title}</p>
       <p className="mt-2 text-2xl font-black text-orange-500">{value}</p>
+      {detail ? <p className="mt-1 text-xs text-zinc-500">{detail}</p> : null}
     </div>
   );
 }
