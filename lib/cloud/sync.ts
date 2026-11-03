@@ -37,6 +37,7 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_sidebar_pinned",
   "bpos_touch_keypad",
   "bpos_theme",
+  "bpos_pos_draft", // pedido en curso de ESTA caja (otra caja tiene el suyo)
 ]);
 
 /** Llaves compartidas por todas las sucursales del negocio */
