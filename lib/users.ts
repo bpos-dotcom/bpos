@@ -10,6 +10,8 @@ export type SystemUser = {
   pinHash?: string;
   role: UserRole;
   active: boolean;
+  /** App de meseros: auto = según el checador (marcó entrada); allow = siempre; block = cortado */
+  waiterAccess?: "auto" | "allow" | "block";
   createdAt?: string;
   updatedAt?: string;
   createdBy?: string;

@@ -53,6 +53,12 @@ const adminModules = [
     description: "Las mesas de tu restaurante por zona (salón, terraza...): en el POS eliges la mesa, mandas rondas a cocina, sacas la precuenta y cobras.",
   },
   {
+    title: "Meseros",
+    href: "/configuracion/meseros",
+    icon: "🧑‍🍳",
+    description: "App de meseros en el celular: vincula sus teléfonos con un código, toman la orden en la mesa y la mandan a cocina. Se corta por turno (checador) y fuera de horario.",
+  },
+  {
     title: "Reparto",
     href: "/configuracion/reparto",
     icon: "🛵",
