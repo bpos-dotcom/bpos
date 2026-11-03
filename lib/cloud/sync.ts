@@ -89,8 +89,16 @@ const DEVICE_KEY = "bpos_device_id";
 const DOC_ID = "__doc__";
 const PAGE_SIZE = 1000;
 const UPSERT_BATCH = 200;
-/** Se vuelve a leer un poco hacia atrás por si un cambio llegó fuera de orden */
-const SEQ_OVERLAP = 200;
+/**
+ * Se vuelve a leer un poco hacia atrás por si un cambio llegó fuera de orden.
+ * Normalmente poquito (cada revisión cuenta como tráfico de Supabase: con 200
+ * se bajaban ~0.5 MB cada 20 s por equipo y se pasó el límite del plan); la
+ * revisión amplia, una vez cada 10 minutos.
+ */
+const SEQ_OVERLAP = 20;
+const SEQ_OVERLAP_WIDE = 200;
+const WIDE_EVERY_MS = 10 * 60 * 1000;
+let lastWidePull = 0;
 
 export function shouldSync(key: string | null | undefined): key is string {
   return (
@@ -498,7 +506,9 @@ export function pull(): Promise<void> {
         dirty.delete(key);
         saveDirty();
       }
-      const rows = await fetchSince(Math.max(0, meta.lastSeq - SEQ_OVERLAP));
+      const wide = Date.now() - lastWidePull > WIDE_EVERY_MS;
+      if (wide) lastWidePull = Date.now();
+      const rows = await fetchSince(Math.max(0, meta.lastSeq - (wide ? SEQ_OVERLAP_WIDE : SEQ_OVERLAP)));
       if (rows.length > 0) {
         applyRows(rows);
         meta.lastSeq = Math.max(meta.lastSeq, ...rows.map((r) => r.seq));
@@ -656,10 +666,10 @@ export function startSync(acc: ReadyAccount) {
   );
   channel.subscribe();
 
-  // Respaldo: revisión periódica, al volver la conexión y al regresar a la pestaña
+  // Respaldo: revisión periódica (el tiempo real ya avisa de cada cambio), al volver la conexión y al regresar a la pestaña
   setInterval(() => {
     if (document.visibilityState === "visible") void pull();
-  }, 20000);
+  }, 60000);
   window.addEventListener("online", () => {
     void flush();
     schedulePull(100);
