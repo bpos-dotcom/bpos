@@ -437,6 +437,14 @@ export function publicHoursLabel(menu: Pick<DigitalMenuSettings, "hours" | "more
   return text ? text[0].toUpperCase() + text.slice(1) : "";
 }
 
+/** ¿Hay servicio los 7 días (sumando todos los bloques, aunque cambien las horas)? */
+export function opensEveryDay(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">) {
+  const blocks = openHoursBlocks(menu);
+  if (blocks.length === 0) return true;
+  const days = new Set(blocks.flatMap((b) => (b.days.length ? b.days : [0, 1, 2, 3, 4, 5, 6])));
+  return days.size === 7;
+}
+
 /** Próximo momento en que se reciben pedidos (null si ya está abierto o no hay horario) */
 export function nextOpening(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">, now = new Date()): Date | null {
   if (isOpenNow(menu, now)) return null;
