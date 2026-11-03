@@ -1,5 +1,6 @@
 "use client";
 
+import { ask } from "@/components/layout/Dialogs";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
@@ -290,7 +291,7 @@ export default function CajaPage() {
       }
       if (!response.ok) throw new Error("sin respuesta");
     } catch {
-      if (!confirm("No se pudo revisar si hay pedidos de delivery sin equivalencia. ¿Cerrar caja de todos modos?")) return;
+      if (!(await ask("No se pudo revisar si hay pedidos de delivery sin equivalencia. ¿Cerrar caja de todos modos?", { ok: "Cerrar caja" }))) return;
     }
     doCloseShift();
   }
@@ -404,10 +405,11 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
   const cutEmail = getCutEmail();
   const phone = settings.cutWhatsappEnabled ? getOwnerWhatsapp() : "";
   const sendsBy = [cutEmail ? `correo a ${cutEmail}` : "", phone ? "WhatsApp" : ""].filter(Boolean).join(" y ");
-  const confirmed = confirm(
+  const confirmed = await ask(
     `¿Cerrar turno${sendsBy ? ` y enviar corte por ${sendsBy}` : ""}?\n\nFolio: ${cutFolio}\nEsperado: $${expectedCash.toFixed(
       2
-    )}\nContado: $${counted.toFixed(2)}\nDiferencia: $${cutDifference.toFixed(2)}`
+    )}\nContado: $${counted.toFixed(2)}\nDiferencia: $${cutDifference.toFixed(2)}`,
+    { ok: "Cerrar turno" }
   );
 
   if (!confirmed) return;

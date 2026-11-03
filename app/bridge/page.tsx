@@ -1,5 +1,6 @@
 "use client";
 
+import { ask } from "@/components/layout/Dialogs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlanGate } from "@/components/cloud/PlanGate";
@@ -703,7 +704,7 @@ function BridgeScreen() {
 
   /** Borra finalizados y con venta creada: el mismo ticket puede volver a entrar (pruebas, reimpresión) */
   async function clearHistory() {
-    if (!window.confirm("¿Borrar el historial de pedidos finalizados? Los pendientes se quedan. Un ticket que vuelva a llegar ya no contará como duplicado.")) return;
+    if (!(await ask("¿Borrar el historial de pedidos finalizados? Los pendientes se quedan. Un ticket que vuelva a llegar ya no contará como duplicado.", { ok: "Borrar" }))) return;
     setClearingHistory(true);
     try {
       const response = await bridgeFetch("/api/bridge/orders?finished=1", { method: "DELETE" });

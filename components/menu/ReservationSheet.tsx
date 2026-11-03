@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Reservar mesa desde el menú digital: nombre, WhatsApp, día, hora,
  * personas y nota. Se guarda con bpos_menu_reserve (migración 0024) y el
@@ -95,7 +96,7 @@ export function ReservationSheet({ slug, settings, color, onClose }: { slug: str
   }
 
   async function cancel() {
-    if (!saved || !confirm("¿Cancelar tu reservación?")) return;
+    if (!saved || !(await ask("¿Cancelar tu reservación?", { ok: "Sí, cancelar", cancel: "No" }))) return;
     await getSupabase().rpc("bpos_menu_reservation_cancel", { p_id: saved.id, p_token: saved.token });
     try {
       localStorage.removeItem(key);

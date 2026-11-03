@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * POS · Club de clientes: el cajero busca al socio por teléfono o escanea
  * el QR de su tarjeta (el lector escribe el código). Con el socio elegido
@@ -51,7 +52,7 @@ export function ClubPanel({ member, onChange }: { member: ClubMember | null; onC
   }
 
   async function redeem(use: { points?: number; stamps?: number }, note: string) {
-    if (!member || !confirm(`¿Canjear "${note}" para ${member.name}?`)) return;
+    if (!member || !(await ask(`¿Canjear "${note}" para ${member.name}?`, { ok: "Canjear" }))) return;
     setBusy(true);
     try {
       const b = await redeemLoyalty(member.account_id, use, note, `pos:${Date.now()}`, getCurrentUser()?.name || "");

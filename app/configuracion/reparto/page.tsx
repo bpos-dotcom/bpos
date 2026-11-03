@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Configuración → Reparto: repartidores del negocio con su WhatsApp. Al salir
  * un pedido a domicilio (menú digital o POS) se elige a uno y le llega todo
@@ -91,7 +92,7 @@ export default function RepartoPage() {
                       {d.active ? "Activo" : "Inactivo"}
                     </button>
                     <button
-                      onClick={() => confirm(`¿Quitar a ${d.name}?`) && persist(drivers.filter((x) => x.id !== d.id))}
+                      onClick={async () => (await ask(`¿Quitar a ${d.name}?`, { ok: "Quitar" })) && persist(drivers.filter((x) => x.id !== d.id))}
                       className="rounded-xl border border-zinc-800 px-3 py-2 text-sm text-zinc-400 hover:border-red-500"
                       aria-label={`Quitar a ${d.name}`}
                     >

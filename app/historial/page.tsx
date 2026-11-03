@@ -127,7 +127,7 @@ export default function OrderHistoryPage() {
           }}
           onPrint={printSaleTicket}
           onWhatsapp={sendSaleWhatsapp}
-          onMarkPaid={(order, method) => markSavedOrderPaid(order, method, user)}
+          onMarkPaid={(order, method) => void markSavedOrderPaid(order, method, user)}
           onChangePayment={(order, method) => changeSavedOrderPayment(order, method, user)}
         />
 

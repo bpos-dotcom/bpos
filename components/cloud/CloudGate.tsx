@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 import Link from "next/link";
 
 import { useCallback, useEffect, useState } from "react";
@@ -650,10 +651,11 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
           {account.branches.length > 1 && (
             <select
               value={account.branchId}
-              onChange={(e) => {
-                if (!confirm("¿Cambiar la sucursal de este dispositivo?"))
+              onChange={async (e) => {
+                const next = e.target.value;
+                if (!(await ask("¿Cambiar la sucursal de este dispositivo?", { ok: "Cambiar" })))
                   return;
-                selectBranch(e.target.value);
+                selectBranch(next);
                 resetDeviceSync();
                 window.location.reload();
               }}
@@ -694,12 +696,7 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
             </button>
             <button
               onClick={async () => {
-                if (
-                  !confirm(
-                    "¿Desconectar este dispositivo de la nube? Tendrás que volver a entrar con la cuenta.",
-                  )
-                )
-                  return;
+                if (!(await ask("¿Desconectar este dispositivo de la nube? Tendrás que volver a entrar con la cuenta.", { ok: "Desconectar" }))) return;
                 await flush().catch(() => undefined);
                 await signOutDevice();
                 resetDeviceSync();

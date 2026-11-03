@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Configuración → Asistencia: horas trabajadas por empleado y día según el
  * checador (bpos.com.mx/checador), con corrección de registros y
@@ -63,8 +64,8 @@ export default function AsistenciaPage() {
     [punches, range, userFilter]
   );
 
-  function remove(p: Punch) {
-    if (!confirm(`¿Borrar la ${p.type} de ${p.userName} del ${new Date(p.at).toLocaleString("es-MX")}?`)) return;
+  async function remove(p: Punch) {
+    if (!(await ask(`¿Borrar la ${p.type} de ${p.userName} del ${new Date(p.at).toLocaleString("es-MX")}?`, { ok: "Borrar" }))) return;
     savePunches(punches.filter((x) => x.id !== p.id));
     addAuditEvent({ category: "Seguridad", action: "timeclock.deleted", description: `${current.name} borró la ${p.type} de ${p.userName} (${new Date(p.at).toLocaleString("es-MX")})`, userId: String(current.id), userName: current.name, entityId: p.id });
   }

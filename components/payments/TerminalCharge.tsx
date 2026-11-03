@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Cobro con la terminal Point desde el POS: manda el monto a la terminal de
  * la sucursal y espera a que el cliente pague. La venta se guarda solo
@@ -133,8 +134,8 @@ export function useTerminalCharge() {
           )}
           {(state.step === "failed" || state.step === "waiting") && (
             <button
-              onClick={() => {
-                if (confirm("¿Ya cobraste con tarjeta de otra forma? La venta se guarda como pagada con tarjeta.")) finish("manual");
+              onClick={async () => {
+                if (await ask("¿Ya cobraste con tarjeta de otra forma? La venta se guarda como pagada con tarjeta.", { ok: "Sí, ya cobré" })) finish("manual");
               }}
               className="rounded-2xl border border-zinc-700 py-3 font-black text-zinc-200"
             >
