@@ -3,7 +3,7 @@
  * Bloque 12 · App del dueño.
  * Ventas de todas las sucursales en tiempo real, utilidad, productos top,
  * alertas críticas y notificaciones. Pensada para el celular: se instala
- * como app (ver app/manifest.ts).
+ * como app (ver app/dueno/manifest.webmanifest y lib/app-manifest.ts).
  */
 import Link from "next/link";
 import { ThemeToggle } from "@/components/layout/TopCorner";
