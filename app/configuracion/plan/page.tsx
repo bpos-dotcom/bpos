@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Configuración → Mi plan (bloque 15): plan del negocio, prueba gratis, pago
  * mensual con Mercado Pago (contratar, revisar y cancelar). El plan solo lo
@@ -113,7 +114,7 @@ export default function PlanPage() {
   }
 
   async function cancel() {
-    if (!confirm("¿Cancelar tu suscripción? Ya no se cobrará el próximo mes y B-POS sigue funcionando hasta lo que ya pagaste.")) return;
+    if (!(await ask("¿Cancelar tu suscripción? Ya no se cobrará el próximo mes y B-POS sigue funcionando hasta lo que ya pagaste.", { ok: "Cancelar suscripción", cancel: "Volver" }))) return;
     setMessage("");
     setBusy("cancel");
     try {

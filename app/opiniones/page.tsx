@@ -1,4 +1,5 @@
 "use client";
+import { askText } from "@/components/layout/Dialogs";
 /**
  * Opiniones (Entrega 3): lo que califican tus clientes al recibir su pedido
  * del menú digital. Promedio, estrellas, las de 4-5 que se invitaron a
@@ -28,7 +29,7 @@ function ReviewCard({ review, onChanged }: { review: Review; onChanged: () => vo
   const pending = needsAttention(review);
 
   async function attend() {
-    const answer = prompt("¿Cómo se atendió? (ej. le repusimos su pedido, le dimos un cupón)", "");
+    const answer = await askText("¿Cómo se atendió?", { placeholder: "Ej. le repusimos su pedido, le dimos un cupón", ok: "Guardar" });
     if (answer === null) return;
     setBusy(true);
     try {

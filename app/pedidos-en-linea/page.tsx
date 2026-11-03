@@ -1,4 +1,5 @@
 "use client";
+import { askText } from "@/components/layout/Dialogs";
 /**
  * Pedidos en línea: lo que mandan los clientes desde el menú digital de la
  * sucursal. Nuevos (aceptar con tiempo estimado o rechazar con motivo),
@@ -103,7 +104,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   }
 
   async function reject() {
-    const reason = prompt("¿Por qué no puedes tomar el pedido? (se le muestra al cliente)", "Por ahora no podemos tomar tu pedido. ¡Disculpa!");
+    const reason = await askText("¿Por qué no puedes tomar el pedido? (se le muestra al cliente)", { defaultValue: "Por ahora no podemos tomar tu pedido. ¡Disculpa!", ok: "Rechazar pedido", cancel: "Volver" });
     if (reason === null) return;
     await step(
       "rechazado",

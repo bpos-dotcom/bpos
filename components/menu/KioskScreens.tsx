@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Configuración → Menú digital → "Pantalla en el local (kiosco)".
  *
@@ -263,8 +264,8 @@ export function KioskScreens({ published }: { published: boolean }) {
                     </label>
                     <button
                       disabled={busy}
-                      onClick={() => {
-                        if (confirm("¿Desvincular el Agent de esta pantalla? Dejará de imprimir el ticket del kiosco.")) {
+                      onClick={async () => {
+                        if (await ask("¿Desvincular el Agent de esta pantalla? Dejará de imprimir el ticket del kiosco.", { ok: "Desvincular" })) {
                           void run(() => call(`/api/kiosco/pantallas?agentOf=${encodeURIComponent(k.id)}`, { method: "DELETE" }), "Agent desvinculado.");
                         }
                       }}
@@ -277,8 +278,8 @@ export function KioskScreens({ published }: { published: boolean }) {
               </div>
               <button
                 disabled={busy}
-                onClick={() => {
-                  if (confirm(`¿Desvincular la pantalla "${k.name}"? Dejará de poder pedir y cobrar.`)) {
+                onClick={async () => {
+                  if (await ask(`¿Desvincular la pantalla "${k.name}"? Dejará de poder pedir y cobrar.`, { ok: "Desvincular" })) {
                     void run(() => call(`/api/kiosco/pantallas?id=${encodeURIComponent(k.id)}`, { method: "DELETE" }), "Pantalla desvinculada.");
                   }
                 }}

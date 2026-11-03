@@ -1,5 +1,6 @@
 "use client";
 
+import { ask } from "@/components/layout/Dialogs";
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
@@ -58,7 +59,7 @@ export default function CashHistoryPage() {
       alert("No hay correo del negocio. El administrador lo captura en Configuración → Empresa.");
       return;
     }
-    if (!confirm(`¿Enviar el corte ${record.folio} a ${to}?`)) return;
+    if (!(await ask(`¿Enviar el corte ${record.folio} a ${to}?`, { ok: "Enviar" }))) return;
     try {
       await emailCashCut({ folio: record.folio, message: record.cutMessage || buildFallbackMessage(record) }, to);
       const user = getCurrentUser();

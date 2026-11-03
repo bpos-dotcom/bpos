@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Configuración → Métodos de pago → Mercado Pago: el dueño vincula SU cuenta
  * (el dinero llega directo a ella) y elige la terminal Point de la sucursal.
@@ -139,8 +140,8 @@ export function MercadoPagoCard() {
           {status.canLink && (
             <button
               disabled={busy}
-              onClick={() => {
-                if (confirm("¿Desvincular tu cuenta de Mercado Pago? El POS dejará de mandar cobros a la terminal.")) void run(unlinkMp, "Cuenta desvinculada.");
+              onClick={async () => {
+                if (await ask("¿Desvincular tu cuenta de Mercado Pago? El POS dejará de mandar cobros a la terminal.", { ok: "Desvincular" })) void run(unlinkMp, "Cuenta desvinculada.");
               }}
               className="rounded-2xl border border-zinc-700 px-4 py-2 text-sm font-black text-zinc-300 hover:border-red-500"
             >

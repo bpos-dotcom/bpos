@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Configuración → Mesas: las mesas del restaurante, por zona (Salón, Terraza,
  * Barra...). En el POS, el botón "Mesas" las muestra para abrir una cuenta
@@ -61,9 +62,9 @@ export default function MesasPage() {
     persist(tables.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
 
-  function remove(id: string) {
+  async function remove(id: string) {
     const t = tables.find((x) => x.id === id);
-    if (!t || !confirm(`¿Quitar la mesa ${t.name} (${t.zone})?`)) return;
+    if (!t || !(await ask(`¿Quitar la mesa ${t.name} (${t.zone})?`, { ok: "Quitar" }))) return;
     persist(tables.filter((x) => x.id !== id));
   }
 

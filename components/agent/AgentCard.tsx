@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Configuración → Sistema: B-POS Agent de la sucursal. Muestra si está
  * conectado, sus impresoras, y da el código para vincular una computadora
@@ -57,7 +58,7 @@ export function AgentCard({ className = "" }: { className?: string }) {
   }
 
   async function unlink(id: string, name: string) {
-    if (!confirm(`¿Desvincular "${name || "B-POS Agent"}"?\n\nEsa computadora dejará de imprimir y de recibir pedidos de delivery hasta que la vuelvas a vincular.`)) return;
+    if (!(await ask(`¿Desvincular "${name || "B-POS Agent"}"?\n\nEsa computadora dejará de imprimir y de recibir pedidos de delivery hasta que la vuelvas a vincular.`, { ok: "Desvincular" }))) return;
     try {
       await unlinkAgent(id);
       await reload();

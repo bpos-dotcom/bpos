@@ -1,5 +1,6 @@
 "use client";
 
+import { ask } from "@/components/layout/Dialogs";
 import { ProductPicker } from "@/components/products/ProductPicker";
 import { aiFetch } from "@/lib/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -438,9 +439,7 @@ export default function BridgeAliases({
   }
 
   async function deleteAlias(alias: BridgeAlias) {
-    const confirmed = window.confirm(
-      `¿Eliminar la equivalencia “${alias.externalName}”?`
-    );
+    const confirmed = await ask(`¿Eliminar la equivalencia “${alias.externalName}”?`, { ok: "Eliminar" });
 
     if (!confirmed) {
       return;

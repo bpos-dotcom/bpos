@@ -1,5 +1,6 @@
 "use client";
 
+import { ask } from "@/components/layout/Dialogs";
 import { useCallback, useEffect, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
@@ -52,9 +53,10 @@ export default function RespaldosPage() {
       const backup = await readBackupFile(file);
       const date = new Date(backup.createdAt).toLocaleString("es-MX");
       if (
-        !confirm(
-          `¿Restaurar el respaldo del ${date} (${backup.records.length} registros)?\n\nSe vuelven a escribir sus ventas, productos, inventario y configuración en todos los dispositivos. Lo que se haya creado después de esa fecha se conserva.`
-        )
+        !(await ask(
+          `¿Restaurar el respaldo del ${date} (${backup.records.length} registros)?\n\nSe vuelven a escribir sus ventas, productos, inventario y configuración en todos los dispositivos. Lo que se haya creado después de esa fecha se conserva.`,
+          { ok: "Restaurar" }
+        ))
       )
         return;
       if (!(await authorizeWithAdminPin("restaurar un respaldo", getCurrentUser()))) return;

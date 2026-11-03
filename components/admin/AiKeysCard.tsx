@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Administrador de B-POS → Claves de IA: proveedor, modelo y clave por
  * función (solo el dueño de la plataforma). La clave se pega aquí, se guarda
@@ -84,7 +85,7 @@ function FeatureCard({ f, models, onSaved }: { f: Feature; models: Data["models"
   }
 
   async function remove() {
-    if (!confirm("¿Quitar esta clave? La función volverá a usar la clave de Vercel (Claude Opus), si existe.")) return;
+    if (!(await ask("¿Quitar esta clave? La función volverá a usar la clave de Vercel (Claude Opus), si existe.", { ok: "Quitar" }))) return;
     const b = await call({ action: "quitar" });
     if (b) onSaved(b as Data);
   }

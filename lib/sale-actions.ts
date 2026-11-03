@@ -1,4 +1,5 @@
 "use client";
+import { ask, askText, notify } from "@/components/layout/Dialogs";
 /**
  * Acciones sobre una venta guardada que se usan desde el POS y desde
  * Historial de pedidos: ticket en ventana (navegador) y reenvío por WhatsApp.
@@ -208,10 +209,10 @@ function replaceOrder(updated: SavedOrder) {
 export async function cancelSavedOrder(order: SavedOrder, user: CurrentUser | null): Promise<boolean> {
   if (isCancelled(order)) return false;
   if (!(await requirePermissionOrAdmin(user, "pos.cancel", "cancelar una venta"))) return false;
-  const reason = prompt(`Motivo para cancelar el pedido #${formatOrderNumber(order)}:`);
+  const reason = await askText(`Motivo para cancelar el pedido #${formatOrderNumber(order)}`, { placeholder: "Motivo", ok: "Cancelar pedido", cancel: "Volver" });
   if (reason === null) return false;
   if (!reason.trim()) {
-    alert("El motivo es obligatorio para cancelar una venta.");
+    notify("El motivo es obligatorio para cancelar una venta.", "error");
     return false;
   }
   const by = user?.name || "Usuario";
@@ -229,8 +230,8 @@ export async function cancelSavedOrder(order: SavedOrder, user: CurrentUser | nu
 }
 
 /** Cuenta en espera: ya pagó (el repartidor trajo el dinero, o pasó a recoger) */
-export function markSavedOrderPaid(order: SavedOrder, method: string, user: CurrentUser | null) {
-  if (!confirm(`¿Pedido #${formatOrderNumber(order)} pagado con ${method.toLowerCase()} por ${order.total.toFixed(2)}?`)) return;
+export async function markSavedOrderPaid(order: SavedOrder, method: string, user: CurrentUser | null) {
+  if (!(await ask(`¿Pedido #${formatOrderNumber(order)} pagado con ${method.toLowerCase()} por ${order.total.toFixed(2)}?`))) return;
   const paid: SavedOrder = { ...order, pendingPayment: false, paidAt: new Date().toISOString(), details: { ...order.details, paymentMethod: method, payments: { [method]: order.total } } };
   replaceOrder(paid);
   if (order.clubAccountId) {

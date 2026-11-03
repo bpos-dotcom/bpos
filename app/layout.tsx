@@ -4,6 +4,7 @@ import Script from "next/script";
 import "./globals.css";
 import { CloudGate } from "@/components/cloud/CloudGate";
 import { TouchKeyboard } from "@/components/TouchKeyboard";
+import { Dialogs } from "@/components/layout/Dialogs";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 
 const geistSans = Geist({
@@ -45,6 +46,7 @@ export default function RootLayout({
         </Script>
         <CloudGate>{children}</CloudGate>
         <TouchKeyboard />
+        <Dialogs />
       </body>
     </html>
   );

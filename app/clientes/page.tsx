@@ -1,4 +1,5 @@
 "use client";
+import { ask } from "@/components/layout/Dialogs";
 /**
  * Clientes (Entrega 4): se arman solos con las ventas que traen nombre o
  * teléfono, con su historial, cuánto han gastado y qué piden. Pestaña de
@@ -482,8 +483,8 @@ function CouponsTab({ coupons }: { coupons: Coupon[] }) {
                   {c.active ? "Pausar" : "Activar"}
                 </button>
                 <button
-                  onClick={() => {
-                    if (confirm(`¿Borrar el cupón ${c.code}? Las ventas que lo usaron no cambian.`)) deleteCoupon(c.id);
+                  onClick={async () => {
+                    if (await ask(`¿Borrar el cupón ${c.code}? Las ventas que lo usaron no cambian.`, { ok: "Borrar" })) deleteCoupon(c.id);
                   }}
                   className="rounded-xl border border-red-500/50 px-3 py-1.5 text-xs font-black text-red-300"
                 >

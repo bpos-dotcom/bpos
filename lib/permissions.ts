@@ -1,4 +1,5 @@
 "use client";
+import { askText, notify } from "@/components/layout/Dialogs";
 import type { UserRole, CurrentUser } from "@/lib/auth";
 import { addAuditEvent } from "@/lib/audit";
 import { findActiveAdminByPin } from "@/lib/users";
@@ -37,10 +38,10 @@ export function resetUserPermissions(userId:number){const saved=JSON.parse(local
 export function hasPermission(user:Pick<CurrentUser,"id"|"role">|null|undefined,key:PermissionKey){return !!user&&user.id>0&&(user.role==="Admin"||getUserPermissions(user.id,user.role).includes(key));}
 // El PIN se revisa contra su hash (lib/pin-hash.ts): por eso esperan (async)
 export async function authorizeWithAdminPin(action:string, requestedBy?:CurrentUser|null):Promise<boolean>{
- const pin=window.prompt(`Se requiere autorización de administrador para: ${action}\n\nIngresa PIN de administrador:`);
+ const pin=await askText(`Autorización de administrador para: ${action}`,{placeholder:"PIN de administrador",password:true,ok:"Autorizar"});
  if(!pin)return false;
  const admin=await findActiveAdminByPin(pin);
- if(!admin){addAuditEvent({category:"Seguridad",action:"authorization.denied",description:`Autorización rechazada para ${action}`,userId:requestedBy?String(requestedBy.id):undefined,userName:requestedBy?.name,metadata:{action}});alert("PIN de administrador incorrecto.");return false;}
+ if(!admin){addAuditEvent({category:"Seguridad",action:"authorization.denied",description:`Autorización rechazada para ${action}`,userId:requestedBy?String(requestedBy.id):undefined,userName:requestedBy?.name,metadata:{action}});notify("PIN de administrador incorrecto.","error");return false;}
  addAuditEvent({category:"Seguridad",action:"authorization.approved",description:`${admin.name} autorizó: ${action}`,userId:String(admin.id),userName:admin.name,metadata:{action,requestedBy:requestedBy?.name}});
  return true;
 }
