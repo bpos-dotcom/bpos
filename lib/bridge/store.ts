@@ -10,6 +10,9 @@ import type { BridgeContext } from "@/lib/bridge/api-guard";
 import { BRIDGE_DATA_DIR } from "@/lib/bridge/data-dir";
 import { bridgeOrders, saveBridgeOrders } from "@/lib/bridge/orders-store";
 
+/** DiDi reinicia sus números cada día: el mismo número de hace más de 12 h es otro pedido */
+const SAME_ORDER_WINDOW_MS = 12 * 60 * 60 * 1000;
+
 export type StoredBridgeOrder = {
   platform?: string;
   orderId?: string | null;
@@ -65,6 +68,14 @@ function cloudStore(ctx: Extract<BridgeContext, { mode: "cloud" }>): BridgeStore
       return (data ?? []).map((row) => row.data as StoredBridgeOrder);
     },
     async addOrder(order) {
+      // Mismo número de otro día (DiDi reinicia cada día) y ya terminado: se quita para que entre el nuevo
+      await db
+        .from("bpos_bridge_orders")
+        .delete()
+        .eq("branch_id", branchId)
+        .eq("order_key", orderKey(order))
+        .in("status", ["Finalizado", "Venta creada"])
+        .lt("received_at", new Date(Date.now() - SAME_ORDER_WINDOW_MS).toISOString());
       const { data, error } = await db
         .from("bpos_bridge_orders")
         .upsert(
@@ -142,6 +153,9 @@ const diskStore: BridgeStore = {
   },
   async addOrder(order) {
     const list = bridgeOrders<StoredBridgeOrder>();
+    const stale = (o: StoredBridgeOrder) =>
+      (o.status === "Finalizado" || o.status === "Venta creada") && Date.now() - (Date.parse(String(o.bridgeReceivedAt || "")) || 0) > SAME_ORDER_WINDOW_MS;
+    for (let i = list.length - 1; i >= 0; i--) if (orderKey(list[i]) === orderKey(order) && stale(list[i])) list.splice(i, 1);
     if (list.some((o) => orderKey(o) === orderKey(order))) return false;
     list.unshift(order);
     saveBridgeOrders();

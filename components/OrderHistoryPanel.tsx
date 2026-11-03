@@ -49,6 +49,8 @@ export function saleSource(order: Pick<SavedOrder, "externalPlatform">): Exclude
   return "local";
 }
 
+const SOURCE_LABEL: Record<Exclude<SaleSource, "todos">, string> = { local: "Local", uber: "Uber Eats", didi: "DiDi Food", rappi: "Rappi" };
+
 /** Métodos a los que se puede cambiar una venta ya cobrada */
 export const CHANGEABLE_METHODS = ["Efectivo", "Tarjeta", "Transferencia"];
 
@@ -119,9 +121,18 @@ export function OrderHistoryPanel({
             >
               <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_auto]">
                 <div>
-                  <p className="font-black">
-                    Pedido #{order.id.toString().padStart(6, "0")}
-                  </p>
+                  {order.externalOrderNumber ? (
+                    <>
+                      <p className="font-black text-orange-300">
+                        {SOURCE_LABEL[saleSource(order)]} · pedido #{order.externalOrderNumber}
+                      </p>
+                      <p className="text-sm font-bold text-zinc-400">Pedido #{order.id.toString().padStart(6, "0")}</p>
+                    </>
+                  ) : (
+                    <p className="font-black">
+                      Pedido #{order.id.toString().padStart(6, "0")}
+                    </p>
+                  )}
 
                   <p className="mt-1 text-sm text-zinc-400">
                     {new Date(order.createdAt).toLocaleString()}
