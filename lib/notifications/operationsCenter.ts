@@ -57,6 +57,9 @@ export function upsertOperationsAlert(
     createdAt: alert.createdAt || existing?.createdAt || new Date().toISOString(),
     status: alert.status || existing?.status || "pending",
   };
+  // Sin cambios no se vuelve a guardar: guardar avisa a las pantallas (que vuelven a revisar) y
+  // sincroniza con la nube; repetirlo sin cambios hacía un ciclo de miles de consultas por hora
+  if (existing && JSON.stringify(existing) === JSON.stringify(next)) return existing;
   if (index >= 0) alerts[index] = next;
   else alerts.unshift(next);
   writeAlerts(alerts);

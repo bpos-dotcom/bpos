@@ -138,19 +138,36 @@ export function Sidebar() {
 
   const bridgeVersion = useRef("");
   const lastFullCheck = useRef(0);
+  const checking = useRef(false);
+
+  /** Solo lo de este equipo (alertas guardadas): sin consultar la nube. Es lo que corre con cada aviso de cambio. */
+  const refreshLocal = useCallback(() => {
+    const alerts = getOperationsAlerts();
+    const critical = alerts.filter((item) => item.priority === "critical" && item.status === "pending");
+    const warnings = alerts.filter((item) => item.priority === "warning" && item.status !== "resolved");
+    setCriticalCount(critical.length);
+    setLowStockCount(warnings.length);
+    setCriticalSignature(critical.map((item) => item.id).sort().join("|"));
+    setWarningSignature(warnings.map((item) => item.id).sort().join("|"));
+  }, []);
+
+  /** Revisión con la nube (Bridge): solo con el reloj, una a la vez */
   const refreshOperations = useCallback(async () => {
+    if (checking.current) return;
+    checking.current = true;
     try {
       syncCriticalInventoryAlerts();
       syncLowStockAlert();
 
       const versionResponse = await bridgeFetch("/api/bridge/version", { cache: "no-store" }).catch(() => null);
       const version = versionResponse?.ok ? String(((await versionResponse.json().catch(() => ({}))) as { version?: string }).version || "") : "";
-      const changed = !version || version !== bridgeVersion.current || Date.now() - lastFullCheck.current > FULL_EVERY_MS;
+      // Sin huella (falló la consulta) no se baja todo en cada vuelta: como máximo cada 30 s
+      const changed = version ? version !== bridgeVersion.current || Date.now() - lastFullCheck.current > FULL_EVERY_MS : Date.now() - lastFullCheck.current > 30_000;
       const response = changed ? await bridgeFetch("/api/bridge/pending", { cache: "no-store" }) : null;
+      if (changed) lastFullCheck.current = Date.now();
       const payload = response ? ((await response.json()) as PendingResponse) : null;
       if (response && payload && response.ok && payload.success) {
         bridgeVersion.current = version;
-        lastFullCheck.current = Date.now();
         const nextCount = Number(payload.count ?? 0);
         const nextSignature = String(payload.signature ?? "");
         setPendingCount(nextCount);
@@ -160,17 +177,13 @@ export function Sidebar() {
         syncDeliveryPendingAlert(nextCount, nextSignature);
       }
 
-      const alerts = getOperationsAlerts();
-      const critical = alerts.filter((item) => item.priority === "critical" && item.status === "pending");
-      const warnings = alerts.filter((item) => item.priority === "warning" && item.status !== "resolved");
-      setCriticalCount(critical.length);
-      setLowStockCount(warnings.length);
-      setCriticalSignature(critical.map((item) => item.id).sort().join("|"));
-      setWarningSignature(warnings.map((item) => item.id).sort().join("|"));
+      refreshLocal();
     } catch {
       // La navegación continúa disponible si una fuente temporalmente no responde.
+    } finally {
+      checking.current = false;
     }
-  }, []);
+  }, [refreshLocal]);
 
   useEffect(() => {
     setAcknowledgedSignature(localStorage.getItem(ACK_KEY) || "");
@@ -183,7 +196,8 @@ export function Sidebar() {
     const auditTimer = window.setInterval(() => void flushCloudAudit(), 60_000);
     void flushCloudAudit();
     const timer = window.setInterval(() => void refreshOperations(), POLL_MS);
-    const refresh = () => void refreshOperations();
+    // Los avisos de cambio solo vuelven a leer lo local (antes disparaban otra revisión con la nube → ciclo)
+    const refresh = () => refreshLocal();
     window.addEventListener(OPERATIONS_ALERT_EVENT, refresh);
     window.addEventListener("bpos:inventory-alerts-updated", refresh);
     window.addEventListener("bpos:critical-errors-updated", refresh);
@@ -196,7 +210,7 @@ export function Sidebar() {
       window.removeEventListener("bpos:inventory-alerts-updated", refresh);
       window.removeEventListener("bpos:critical-errors-updated", refresh);
     };
-  }, [refreshOperations]);
+  }, [refreshOperations, refreshLocal]);
 
   // Avisos con el sonido, veces y color de Configuración → Notificaciones
   const alerts = useAlertSettings();
