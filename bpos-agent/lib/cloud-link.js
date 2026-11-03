@@ -1,3 +1,4 @@
+const crypto = require("crypto");
 // B-POS 2.0 · Conexión de B-POS Agent con la nube.
 // B-POS se usa en la web; este Agent se vincula a una sucursal con un código
 // de 8 letras (Configuración → Sistema) y desde entonces, cada 2 segundos:
@@ -142,6 +143,9 @@ async function flushOutbox() {
   if (!list.length) return;
   const left = [];
   for (const order of list) {
+    // Pedidos que quedaron en la bandeja sin número (versiones anteriores): se les pone uno para que suban
+    if (!order.platform) order.platform = "otro";
+    if (!order.orderId) order.orderId = `SINID-${crypto.createHash("sha1").update(String(order.rawText || order.id || "")).digest("hex").slice(0, 8).toUpperCase()}`;
     try {
       await rpc("bpos_agent_submit_order", { p_token: link.token, p_order: order });
       console.log(`Pedido en espera subido a la nube: ${order.platform}:${order.orderId}`);

@@ -6,6 +6,7 @@ const cors = require("cors");
 const net = require("net");
 const PDFParser = require("pdf2json");
 const parserEngine = require("./lib/parser-engine");
+const { fallbackOrderId } = require("./lib/parsers/common");
 const parseTicket = parserEngine.parseTicket || parserEngine;
 const { extractPdfText } = require("./lib/pdf-reader");
 const { printer: ThermalPrinter, types: PrinterTypes } = require("node-thermal-printer");
@@ -158,6 +159,9 @@ async function handlePrintJob(buffer) {
     const parsed = parseTicket(ticket.text);
     // El número del OCR especializado (encabezado) es más confiable en DiDi y XPS
     if (ticket.ocrOrderId && (parsed.platform === "didi" || ticket.format === "xps")) parsed.orderId = ticket.ocrOrderId;
+    // Sin número no sube a la nube (se quedaba "en espera" para siempre). Uber usa
+    // claves con letras (F8787): un número suelto del OCR suele ser el total, no sirve.
+    if (!parsed.orderId) parsed.orderId = (parsed.platform !== "uber" && ticket.ocrOrderId) || fallbackOrderId(ticket.text);
     // DiDi pone el nombre del cliente debajo del número: el OCR del encabezado lo lee mejor
     if (!parsed.customer?.name && ticket.ocrHeader) {
       const name = customerFromHeader(ticket.ocrHeader);
