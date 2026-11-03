@@ -22,8 +22,9 @@ import {
   mapsLink,
   normalizeDigitalMenu,
   onlineGroups,
-  openHoursLabel,
+  opensInLabel,
   orderWhatsappText,
+  publicHoursLabel,
   paidOnline,
   scheduledLabel,
   sortCategories,
@@ -348,7 +349,8 @@ function Menu({
     if (lines.length) setCheckout(true);
   }
 
-  const hoursText = openHoursLabel(menu);
+  const hoursText = publicHoursLabel(menu);
+  const opensIn = open ? "" : opensInLabel(menu, now);
   /** Cuántos de cada producto lleva el cliente (todas sus variantes) */
   const inCart = new Map<number, number>();
   for (const l of cart) inCart.set(Number(l.productId), (inCart.get(Number(l.productId)) || 0) + l.quantity);
@@ -454,11 +456,13 @@ function Menu({
         )}
         {reserving && <ReservationSheet slug={data.slug} settings={menu.reservations} color={color} onClose={() => setReserving(false)} />}
         {!canOrderNow && menu.acceptOrders && (
-          <p className="mt-4 rounded-2xl bg-zinc-200 px-4 py-3 text-sm text-zinc-700">
-            {canSchedule
-              ? `Ahora estamos cerrados${hoursText ? ` · Horario: ${hoursText}` : ""}. Puedes armar tu pedido y programarlo para cuando abramos (con tu cuenta).`
-              : `Ahora no estamos recibiendo pedidos${hoursText ? ` · Horario: ${hoursText}` : ""}. Puedes ver el menú.`}
-          </p>
+          <div className="mt-4 rounded-2xl bg-zinc-200 px-4 py-3 text-sm text-zinc-700">
+            <p className="font-bold text-zinc-900">
+              Ahora estamos cerrados{opensIn ? ` · Abrimos ${opensIn}` : ""}
+            </p>
+            {hoursText && <p className="mt-0.5">Abrimos {hoursText[0].toLowerCase() + hoursText.slice(1)}</p>}
+            <p className="mt-1">{canSchedule ? "Puedes armar tu pedido y programarlo para cuando abramos (con tu cuenta)." : "Puedes ver el menú."}</p>
+          </div>
         )}
 
         {/* Portada */}

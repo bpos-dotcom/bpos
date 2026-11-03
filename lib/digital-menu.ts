@@ -389,9 +389,80 @@ export function openHoursBlocks(menu: Pick<DigitalMenuSettings, "hours" | "moreH
   return [menu.hours, ...(menu.moreHours || [])].map((h) => cleanSchedule(h)).filter((h): h is SaleSchedule => Boolean(h));
 }
 
-/** "Lun, Mar, Mié, Jue, Vie · 13:30 a 23:30 · Sáb, Dom · 12:00 a 00:00" */
+/** Etiqueta interna (POS): "Solo Lun, Mar · 13:30 a 23:30 · Solo Sáb · 12:00 a 00:00" */
 export function openHoursLabel(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">) {
   return openHoursBlocks(menu).map((b) => scheduleLabel(b)).join(" · ");
+}
+
+const DAY_SHORT = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const DAY_LONG = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
+
+/** "13:30" → "1:30 pm" */
+export function hour12(hhmm: string) {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm || "");
+  if (!m) return hhmm;
+  const h = Number(m[1]) % 24;
+  return `${h % 12 || 12}:${m[2]} ${h < 12 ? "am" : "pm"}`;
+}
+
+/** Días seguidos en rangos: [0,1,2,3,4] → "Dom a Jue" · [5,6] → "Vie y Sáb" · [1,3] → "Lun y Mié" */
+function dayRanges(days: number[]) {
+  if (days.length === 0 || days.length === 7) return "todos los días";
+  // Se prueba empezando la semana en domingo y en lunes; gana la que haga menos grupos
+  const grouped = (order: number[]) => {
+    const groups: number[][] = [];
+    for (const d of order) {
+      if (!days.includes(d)) continue;
+      const last = groups[groups.length - 1];
+      if (last && order.indexOf(d) === order.indexOf(last[last.length - 1]) + 1) last.push(d);
+      else groups.push([d]);
+    }
+    return groups;
+  };
+  const a = grouped([0, 1, 2, 3, 4, 5, 6]);
+  const b = grouped([1, 2, 3, 4, 5, 6, 0]);
+  const groups = b.length < a.length ? b : a;
+  const parts = groups.map((g) => (g.length >= 3 ? `${DAY_SHORT[g[0]]} a ${DAY_SHORT[g[g.length - 1]]}` : g.map((d) => DAY_SHORT[d]).join(" y ")));
+  return parts.length > 1 ? `${parts.slice(0, -1).join(", ")} y ${parts[parts.length - 1]}` : parts[0];
+}
+
+/** Para el cliente: "Dom a Jue 1:30 pm a 11:30 pm · Vie y Sáb 1:30 pm a 12:30 am" / "Todos los días 1:30 pm a 11:30 pm" */
+export function publicHoursLabel(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">) {
+  const text = openHoursBlocks(menu)
+    .map((b) => {
+      const hours = b.from || b.to ? `${hour12(b.from || "00:00")} a ${hour12(b.to || "00:00")}` : "";
+      return [dayRanges(b.days), hours].filter(Boolean).join(" ");
+    })
+    .join(" · ");
+  return text ? text[0].toUpperCase() + text.slice(1) : "";
+}
+
+/** Próximo momento en que se reciben pedidos (null si ya está abierto o no hay horario) */
+export function nextOpening(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">, now = new Date()): Date | null {
+  if (isOpenNow(menu, now)) return null;
+  // Se revisa minuto a minuto hasta 8 días (los horarios son a minutos)
+  const t = new Date(now);
+  t.setSeconds(0, 0);
+  for (let i = 0; i < 8 * 24 * 60; i++) {
+    t.setMinutes(t.getMinutes() + 1);
+    if (isOpenNow(menu, t)) return new Date(t);
+  }
+  return null;
+}
+
+/** "en 2 h 35 min" · "mañana a la 1:30 pm" · "el viernes a la 1:30 pm" */
+export function opensInLabel(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">, now = new Date()) {
+  const next = nextOpening(menu, now);
+  if (!next) return "";
+  const mins = Math.round((next.getTime() - now.getTime()) / 60000);
+  const at = next.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
+  const sameDay = next.toDateString() === now.toDateString();
+  if (mins < 60) return `en ${mins} min`;
+  if (sameDay || mins < 12 * 60) return `en ${Math.floor(mins / 60)} h${mins % 60 ? ` ${mins % 60} min` : ""}`;
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const day = next.toDateString() === tomorrow.toDateString() ? "mañana" : `el ${DAY_LONG[next.getDay()]}`;
+  return `${day} a la${/^1:/.test(at) ? "" : "s"} ${at}`;
 }
 
 /** Liga sugerida a partir del nombre del negocio: "Burger Planet" → "burger-planet" */
