@@ -11,6 +11,7 @@ import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
  *   POST   { accion: "codigo", branchId }        código de 6 dígitos, 15 minutos (sesión del negocio)
  *   POST   { accion: "vincular", slug, code, name }   desde el celular: crea la cuenta del dispositivo
  *                                                      y regresa con qué entrar (correo y contraseña)
+ *   PATCH  { accion: "visto" }                    el celular avisa que sigue en uso (sesión del dispositivo)
  *   DELETE ?id=<dispositivo>                     desvincular: borra la cuenta del dispositivo (sesión del negocio)
  */
 export const runtime = "nodejs";
@@ -67,6 +68,20 @@ export async function POST(request: NextRequest) {
     if (body?.accion === "codigo") return aiReply(request, { success: true, ...(await newCode(request, String(body.branchId || ""))) });
     if (body?.accion === "vincular") return aiReply(request, { success: true, ...(await link(String(body.slug || ""), String(body.code || ""), String(body.name || ""))) });
     throw new Friendly("Acción desconocida.");
+  } catch (error) {
+    return fail(request, error);
+  }
+}
+
+export async function PATCH(request: NextRequest) {
+  try {
+    const auth = request.headers.get("authorization") || "";
+    const token = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+    if (!token) throw new Friendly("Sin sesión.", 401);
+    const { data, error } = await supabaseAdmin().auth.getUser(token);
+    if (error || !data.user) throw new Friendly("Sesión no válida.", 401);
+    await supabaseAdmin().from("bpos_waiter_devices").update({ last_seen_at: new Date().toISOString() }).eq("user_id", data.user.id).is("revoked_at", null);
+    return aiReply(request, { success: true });
   } catch (error) {
     return fail(request, error);
   }

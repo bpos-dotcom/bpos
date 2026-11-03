@@ -37,6 +37,10 @@ export type DeliveryTicket = {
   charges: { label: string; amount: number }[];
   total: number | null;
   payment?: string; // método de pago (ventas del POS)
+  /** Mesero que atiende la mesa (app de meseros) */
+  waiter?: string;
+  /** Renglones informativos al pie del ticket del cliente (precuenta: propina sugerida, por persona) */
+  footerRows?: { label: string; value: string }[];
 };
 
 const QUANTIFIED = /^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/;

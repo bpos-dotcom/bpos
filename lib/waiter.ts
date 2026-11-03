@@ -69,6 +69,8 @@ export type WaiterDeviceRow = { id: string; name: string; created_at: string; la
 export const listWaiterDevices = (branchId: string) => call<{ devices: WaiterDeviceRow[] }>("GET", `?branch=${encodeURIComponent(branchId)}`).then((r) => r.devices);
 export const newWaiterCode = (branchId: string) => call<{ code: string; expiresAt: string }>("POST", "", { accion: "codigo", branchId });
 export const revokeWaiterDevice = (id: string) => call<unknown>("DELETE", `?id=${encodeURIComponent(id)}`);
+/** El celular avisa que sigue en uso (Configuración → Meseros muestra "última vez") */
+export const waiterDeviceSeen = () => call<unknown>("PATCH", "", { accion: "visto" }).catch(() => undefined);
 /** Desde el celular (sin sesión): vincula y regresa con qué entrar */
 export const linkWaiterDevice = (slug: string, code: string, name: string) =>
   call<{ email: string; password: string; deviceId: string; branchId: string; name: string }>("POST", "", { accion: "vincular", slug, code, name });
@@ -188,11 +190,55 @@ export async function sendToKitchen(cart: CartItem[], table: Table, diners: numb
   return { order, round: 1, failed };
 }
 
-/** Precuenta de la mesa en la impresora de Caja (sin cobrar) */
-export async function printTablePrecuenta(order: SavedOrder, user: CurrentUser) {
-  const failed = await printSale({ ...order, details: { ...order.details, precuenta: true } } as SavedOrder, { stations: [], customer: true }, true);
+/** Precuenta de la mesa en la impresora de Caja (sin cobrar); `split` personas: cuánto toca a cada una */
+export async function printTablePrecuenta(order: SavedOrder, user: CurrentUser, split = 0) {
+  const failed = await printSale({ ...order, details: { ...order.details, precuenta: true, ...(split > 1 ? { precuentaSplit: split } : {}) } } as SavedOrder, { stations: [], customer: true }, true);
   addAuditEvent({ category: "Venta", action: "sale.precuenta", description: `${user.name} (mesero) sacó la precuenta de ${tableLabel(order.details.table)} (Pedido #${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })})`, userId: String(user.id), userName: user.name, entityId: String(order.id) });
   return failed;
+}
+
+/** Cambia cuántas personas hay en la mesa */
+export function changeDiners(order: SavedOrder, diners: number, user: CurrentUser) {
+  const orders = loadSavedOrders();
+  saveOrders(orders.map((o) => (o.id === order.id ? { ...o, details: { ...o.details, diners } } : o)));
+  addAuditEvent({ category: "Venta", action: "sale.table.diners", description: `${user.name} (mesero) cambió a ${diners} personas ${tableLabel(order.details.table)} (Pedido #${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })})`, userId: String(user.id), userName: user.name, entityId: String(order.id) });
+}
+
+/** Pasa la cuenta a otra mesa libre */
+export function moveTable(order: SavedOrder, to: Table, user: CurrentUser) {
+  const orders = loadSavedOrders();
+  if (openTableOrder(orders, to.id)) throw new Error(`La mesa ${to.name} ya tiene cuenta abierta.`);
+  const from = order.details.table;
+  const tableRef = { id: to.id, name: to.name, zone: to.zone };
+  saveOrders(orders.map((o) => (o.id === order.id ? { ...o, details: { ...o.details, table: tableRef, customerName: o.details.customerName === `Mesa ${from?.name}` ? `Mesa ${to.name}` : o.details.customerName } } : o)));
+  addAuditEvent({ category: "Venta", action: "sale.table.moved", description: `${user.name} (mesero) pasó ${tableLabel(from)} a ${tableLabel(tableRef)} (Pedido #${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })})`, userId: String(user.id), userName: user.name, entityId: String(order.id) });
+}
+
+/**
+ * Quita un platillo ya mandado (requiere PIN de admin, lo pide la pantalla).
+ * Si la cuenta se queda vacía, se cancela. El inventario no se regresa
+ * (si el platillo ya se preparó, es merma; se ajusta desde Inventario).
+ */
+export function removeSentItem(order: SavedOrder, index: number, by: string, user: CurrentUser) {
+  const orders = loadSavedOrders();
+  const item = order.items[index];
+  if (!item) return;
+  const items = order.items.filter((_, i) => i !== index);
+  const subtotal = items.reduce((s, i) => s + i.price * i.quantity, 0);
+  const updated: SavedOrder = items.length
+    ? { ...order, items, subtotal, total: Math.max(0, subtotal - (order.details.discount || 0)) + (order.details.deliveryFee || 0) }
+    : { ...order, items, subtotal: 0, total: 0, cancelled: true, cancelReason: `Se quitó todo desde la app de meseros (autorizó ${by})` };
+  saveOrders(orders.map((o) => (o.id === order.id ? updated : o)));
+  notifyKdsUpdated(order.id);
+  addAuditEvent({ category: "Venta", action: "sale.item.removed", description: `${user.name} (mesero) quitó ${item.quantity}x ${item.name} de ${tableLabel(order.details.table)} (Pedido #${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}); autorizó ${by}${items.length ? "" : ". La cuenta quedó vacía y se canceló"}`, userId: String(user.id), userName: user.name, entityId: String(order.id), metadata: { item: item.name, quantity: item.quantity, price: item.price, authorizedBy: by } });
+  return updated;
+}
+
+/** Platillos listos en cocina que el mesero todavía no ha visto (para avisarle) */
+export function readyItems(order: SavedOrder): string[] {
+  const o = order as SavedOrder & { kdsCompleted?: boolean };
+  if (o.kdsCompleted) return order.items.map((i) => `${i.quantity}x ${i.name}`);
+  return order.items.filter((i) => (i as { kdsDone?: boolean }).kdsDone && (i.round || 1) === (order.rounds || 1)).map((i) => `${i.quantity}x ${i.name}`);
 }
 
 /** Intento bloqueado (sin turno / fuera de horario): queda en la bitácora y le avisa al dueño */
