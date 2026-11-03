@@ -72,8 +72,8 @@ type AliasSelection = {
   token: number;
 };
 
-// Cada vuelta baja pedidos y equivalencias de la nube: cada 5 s y solo con la pantalla a la vista
-const REFRESH_MS = 5000;
+// Cada 2 s se revisa la huella del Bridge (unos bytes) y solo si cambió se bajan pedidos y equivalencias
+const REFRESH_MS = 2000;
 // Pedidos más viejos no se mandan a estaciones (ej. al abrir el Bridge horas después)
 const STATION_PRINT_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
@@ -225,8 +225,17 @@ function BridgeScreen() {
 
   useEffect(() => {
     void loadData();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void loadData();
+    let lastVersion = "";
+    const timer = window.setInterval(async () => {
+      try {
+        const r = await bridgeFetch("/api/bridge/version", { cache: "no-store" });
+        const v = r.ok ? String(((await r.json()) as { version?: string }).version || "") : "";
+        if (v && v === lastVersion) return;
+        lastVersion = v;
+      } catch {
+        // sin huella: se baja todo como antes
+      }
+      void loadData();
     }, REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [loadData]);
