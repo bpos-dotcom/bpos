@@ -37,9 +37,65 @@ export type Customer = {
   notes: string;
   segment: Segment;
   visits: CustomerVisit[];
+  /** Pedidos que llegaron por el menú digital o el kiosco */
+  onlineOrders: number;
+  /** Última vez que el negocio le escribió desde Clientes (campañas) */
+  contactedAt: string;
 };
 
 const NOTES_KEY = "bpos_customers";
+const CONTACTS_KEY = "bpos_customer_contacts";
+
+/** { "tel:8711234567": "2026-11-03T..." } última vez que se le escribió desde Campañas */
+export function getContacted(): Record<string, string> {
+  if (typeof window === "undefined") return {};
+  try {
+    const map = JSON.parse(localStorage.getItem(CONTACTS_KEY) || "{}");
+    return map && typeof map === "object" ? (map as Record<string, string>) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function markContacted(key: string) {
+  const map = getContacted();
+  map[key] = new Date().toISOString();
+  localStorage.setItem(CONTACTS_KEY, JSON.stringify(map));
+  window.dispatchEvent(new Event(CUSTOMERS_EVENT));
+}
+
+/**
+ * Teléfonos (10 dígitos) de los clientes que ya tienen cuenta en el menú
+ * digital (verificada). La nube solo deja ver los del negocio (RLS).
+ */
+export async function fetchAccountPhones(): Promise<Set<string>> {
+  const { getSupabase } = await import("@/lib/supabase/client");
+  const { data, error } = await getSupabase().from("bpos_customer_accounts").select("phone").not("email_verified_at", "is", null).limit(5000);
+  if (error) throw new Error(error.message);
+  return new Set(((data as { phone: string }[]) || []).map((a) => phoneKey(a.phone)).filter(Boolean));
+}
+
+export type CampaignKind = "dormidos" | "sin-cuenta";
+
+export const CAMPAIGNS: Record<CampaignKind, { label: string; hint: string }> = {
+  dormidos: { label: "😴 Dormidos", hint: "Clientes con teléfono que llevan más de 45 días sin pedir. Mándales un cupón para que regresen." },
+  "sin-cuenta": { label: "🛒 Pidieron en línea sin cuenta", hint: "Hicieron su primer pedido en el menú digital o el kiosco sin crear cuenta. Invítalos a registrarse (y al club si lo tienes)." },
+};
+
+/** Los clientes a los que va cada campaña (solo con teléfono) */
+export function campaignCustomers(kind: CampaignKind, customers: Customer[], accountPhones: Set<string>) {
+  return customers.filter((c) => {
+    if (!c.phone) return false;
+    if (kind === "dormidos") return c.segment === "dormido";
+    return c.onlineOrders >= 1 && c.orders === c.onlineOrders && !accountPhones.has(c.phone);
+  });
+}
+
+/** Mensaje de la campaña con {nombre} ya puesto */
+export function fillCampaign(template: string, customer: Pick<Customer, "name">) {
+  const first = customer.name === "Cliente" ? "" : customer.name.split(" ")[0];
+  return template.replace(/\{nombre\}/g, first).replace(/¡Hola !/g, "¡Hola!").replace(/  +/g, " ");
+}
 export const CUSTOMERS_EVENT = "bpos:customers-updated";
 const DAY = 24 * 60 * 60 * 1000;
 
@@ -80,11 +136,14 @@ const phoneKey = (phone: string) => {
 type SaleLike = ReportOrder & {
   cancelled?: boolean;
   onlineFolio?: string;
+  onlineOrderId?: string;
   details?: ReportOrder["details"] & { customerPhone?: string; customerAddress?: string; couponCode?: string };
 };
 
 export function buildCustomers(orders: SaleLike[], now = Date.now()): Customer[] {
   const notes = new Map(getCustomerNotes().map((n) => [n.id, n]));
+  const contacted = getContacted();
+  const isOnline = (s: SaleLike) => Boolean(s.onlineFolio || s.onlineOrderId) || s.source === "Menú digital" || s.source === "Kiosco";
   const groups = new Map<string, SaleLike[]>();
   for (const order of orders) {
     if (order.cancelled) continue;
@@ -128,6 +187,8 @@ export function buildCustomers(orders: SaleLike[], now = Date.now()): Customer[]
         items: s.items.map((i) => `${i.quantity} ${i.name}`).join(", "),
         coupon: s.details?.couponCode || "",
       })),
+      onlineOrders: sales.filter(isOnline).length,
+      contactedAt: contacted[key] || "",
     };
   });
 

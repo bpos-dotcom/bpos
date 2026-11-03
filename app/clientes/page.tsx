@@ -7,9 +7,24 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { getBusinessSettings } from "@/lib/business-settings";
-import { CUSTOMERS_EVENT, SEGMENTS, buildCustomers, customerWhatsapp, saveCustomerNote, type Customer, type Segment } from "@/lib/customers";
+import {
+  CAMPAIGNS,
+  CUSTOMERS_EVENT,
+  SEGMENTS,
+  buildCustomers,
+  campaignCustomers,
+  customerWhatsapp,
+  fetchAccountPhones,
+  fillCampaign,
+  markContacted,
+  saveCustomerNote,
+  type CampaignKind,
+  type Customer,
+  type Segment,
+} from "@/lib/customers";
 import { COUPONS_EVENT, couponLabel, couponState, deleteCoupon, getCoupons, newCoupon, normalizeCode, saveCoupon, type Coupon } from "@/lib/coupons";
 import { getDigitalMenu } from "@/lib/digital-menu";
+import { clubName, getLoyalty, howItWorks, welcomeLabel } from "@/lib/loyalty";
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { loadReportSources } from "@/lib/reports";
 
@@ -111,16 +126,124 @@ function CustomerDetail({ customer, coupons, onClose }: { customer: Customer; co
   );
 }
 
+// ------------------------------------------------------------ campañas por WhatsApp
+
+/** Mensaje inicial de cada campaña (editable). {nombre} se cambia por el nombre del cliente. */
+function defaultCampaignText(kind: CampaignKind, coupon: Coupon | undefined) {
+  const s = getBusinessSettings();
+  const business = s.businessName || "nosotros";
+  const slug = getDigitalMenu().slug;
+  const menuLink = slug ? `${PUSH_SERVER}/m/${slug}` : "";
+  const gift = coupon ? `Usa el cupón *${coupon.code}* y obtén ${couponLabel(coupon)}.` : "";
+  if (kind === "dormidos") {
+    return [`¡Hola {nombre}! Te extrañamos en ${business} 🧡`, gift || "Tenemos novedades en el menú que te van a gustar.", menuLink ? `Pide aquí: ${menuLink}` : ""].filter(Boolean).join("\n");
+  }
+  const loyalty = getLoyalty();
+  const club = loyalty.enabled ? ` y únete a ${clubName(loyalty, business)}: ${welcomeLabel(loyalty) || howItWorks(loyalty)}` : "";
+  return [
+    `¡Hola {nombre}! Gracias por tu pedido en ${business} 🧡`,
+    `Crea tu cuenta en nuestro menú para pedir más rápido la próxima vez${club}.`,
+    gift,
+    menuLink ? `Entra aquí y toca "Mi cuenta": ${menuLink}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function CampaignPanel({ kind, customers, coupons, accountPhones, onClose }: { kind: CampaignKind; customers: Customer[]; coupons: Coupon[]; accountPhones: Set<string> | null; onClose: () => void }) {
+  const [couponId, setCouponId] = useState("");
+  const usable = coupons.filter((c) => couponState(c) === "activo");
+  const coupon = usable.find((c) => c.id === couponId);
+  const [text, setText] = useState(() => defaultCampaignText(kind, undefined));
+  const [hideContacted, setHideContacted] = useState(true);
+  const list = campaignCustomers(kind, customers, accountPhones || new Set()).filter((c) => !hideContacted || !c.contactedAt);
+  const recentlyContacted = (c: Customer) => Boolean(c.contactedAt);
+
+  function pickCoupon(id: string) {
+    setCouponId(id);
+    setText(defaultCampaignText(kind, usable.find((c) => c.id === id)));
+  }
+
+  function write(c: Customer) {
+    const url = customerWhatsapp(c, fillCampaign(text, c));
+    if (!url) return;
+    window.open(url, "_blank");
+    markContacted(c.key);
+  }
+
+  return (
+    <div className={`${card} border-[#25d366]/50`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h3 className="text-lg font-black">📣 {CAMPAIGNS[kind].label}</h3>
+          <p className="text-sm text-zinc-400">{CAMPAIGNS[kind].hint}</p>
+        </div>
+        <button onClick={onClose} className="rounded-xl border border-zinc-800 px-3 py-2 font-black">✕</button>
+      </div>
+      {kind === "sin-cuenta" && accountPhones === null && <p className="mt-2 text-sm text-yellow-200">Revisando en la nube quién ya tiene cuenta…</p>}
+
+      <div className="mt-4 grid gap-3 md:grid-cols-2">
+        <label className={label}>
+          Regalo (opcional)
+          <select value={couponId} onChange={(e) => pickCoupon(e.target.value)} className={`${input} mt-1 text-sm`}>
+            <option value="">Sin cupón</option>
+            {usable.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.code} · {couponLabel(c)}
+              </option>
+            ))}
+          </select>
+          {usable.length === 0 && <span className="mt-1 block text-xs text-zinc-500">Crea cupones en la pestaña Cupones para regalar un descuento.</span>}
+        </label>
+        <label className={label}>
+          Mensaje ({"{nombre}"} se cambia por el nombre de cada cliente)
+          <textarea value={text} onChange={(e) => setText(e.target.value)} rows={5} maxLength={1000} className={`${input} mt-1 text-sm`} />
+        </label>
+      </div>
+      <p className="mt-2 text-xs text-zinc-500">
+        WhatsApp no permite mandar en bloque desde una liga: se abre un chat por cliente con el mensaje listo y tú solo tocas enviar. Cada uno queda marcado como &quot;ya le escribí&quot;.
+      </p>
+      <label className="mt-3 flex items-center gap-2 text-sm font-bold">
+        <input type="checkbox" checked={hideContacted} onChange={(e) => setHideContacted(e.target.checked)} className="h-5 w-5 accent-orange-500" /> Ocultar a los que ya les escribí
+      </label>
+
+      <div className="mt-3 divide-y divide-zinc-900 rounded-2xl border border-zinc-800">
+        {list.slice(0, 300).map((c) => (
+          <div key={c.key} className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 text-sm">
+            <div>
+              <p className="font-black">{c.name}</p>
+              <p className="text-xs text-zinc-500">
+                {c.phone} · {c.orders} pedido{c.orders === 1 ? "" : "s"} · último {daysAgo(c.lastAt)}
+                {c.contactedAt ? ` · le escribiste ${daysAgo(c.contactedAt)}` : ""}
+              </p>
+            </div>
+            <button onClick={() => write(c)} className={`rounded-xl px-4 py-2 font-black ${recentlyContacted(c) ? "border border-zinc-700 text-zinc-300" : "bg-[#25d366] text-white"}`}>
+              {recentlyContacted(c) ? "Escribir otra vez" : "Abrir WhatsApp"}
+            </button>
+          </div>
+        ))}
+        {list.length === 0 && <p className="p-6 text-center text-sm text-zinc-500">{hideContacted ? "Nadie pendiente: ya les escribiste a todos (o no hay clientes así)." : "No hay clientes en esta campaña."}</p>}
+      </div>
+    </div>
+  );
+}
+
 function CustomersTab({ coupons }: { coupons: Coupon[] }) {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState<Segment | "todos">("todos");
   const [sort, setSort] = useState<"reciente" | "gasto" | "pedidos">("reciente");
   const [open, setOpen] = useState<Customer | null>(null);
+  const [campaign, setCampaign] = useState<CampaignKind | null>(null);
+  /** Teléfonos con cuenta en el menú digital (null = todavía no se consulta) */
+  const [accountPhones, setAccountPhones] = useState<Set<string> | null>(null);
 
   useEffect(() => {
     const load = () => setCustomers(buildCustomers(loadReportSources().orders));
     load();
+    fetchAccountPhones()
+      .then(setAccountPhones)
+      .catch(() => setAccountPhones(new Set()));
     window.addEventListener("bpos:orders-updated", load);
     window.addEventListener(CUSTOMERS_EVENT, load);
     return () => {
@@ -164,6 +287,23 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
         ))}
       </div>
       {segment !== "todos" && <p className="text-sm text-zinc-400">{SEGMENTS[segment].hint}</p>}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-sm font-bold text-zinc-400">📣 Campañas por WhatsApp:</span>
+        {(Object.keys(CAMPAIGNS) as CampaignKind[]).map((k) => {
+          const n = campaignCustomers(k, customers, accountPhones || new Set()).length;
+          return (
+            <button
+              key={k}
+              onClick={() => setCampaign(campaign === k ? null : k)}
+              className={`rounded-2xl border px-4 py-2 text-sm font-black ${campaign === k ? "border-[#25d366] bg-[#25d366] text-black" : "border-zinc-800 text-zinc-300"}`}
+            >
+              {CAMPAIGNS[k].label} ({k === "sin-cuenta" && accountPhones === null ? "…" : n})
+            </button>
+          );
+        })}
+      </div>
+      {campaign && <CampaignPanel key={campaign} kind={campaign} customers={customers} coupons={coupons} accountPhones={accountPhones} onClose={() => setCampaign(null)} />}
 
       <div className="flex flex-wrap gap-2">
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔎 Buscar por nombre o teléfono" className={`${input} min-w-0 flex-1`} />
