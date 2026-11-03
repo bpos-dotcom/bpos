@@ -32,8 +32,10 @@ type RoutingProduct = {
   station?: KitchenStation | string;
   noOwnTicket?: boolean;
   extraStations?: { station: KitchenStation; text: string }[];
-  modifierGroups?: { name: string; min: number; included: number; options: { productId?: number }[] }[];
+  modifierGroups?: { name: string; min: number; included: number; options: { name?: string; productId?: number }[] }[];
 };
+
+const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
 export function stationsByLine(
   interpretation: OrderInterpretation | undefined,
@@ -47,19 +49,37 @@ export function stationsByLine(
   const productStation = new Map(products.map((p) => [String(p.id), (p.station || "Cocina") as KitchenStation]));
   // Partes de un producto: un renglón por cada grupo con productos enlazados
   // (con varias opciones va con el nombre del grupo, "Refresco"; el sabor viene en el ticket)
-  const linkedParts = (product: RoutingProduct | undefined) =>
+  // `said`: lo que el cliente eligió en la plataforma para ese renglón (sus sub-líneas).
+  // Un grupo opcional ("¿Deseas agregar algún extra?") solo sale si eligió una
+  // de sus opciones enlazadas; "No, gracias" no imprime nada. Antes salía
+  // siempre, como si hubiera pedido las papas.
+  const linkedParts = (product: RoutingProduct | undefined, said: string[]) =>
     (product?.modifierGroups || []).flatMap((g) => {
-      const first = g.options.find((o) => o.productId);
-      if (!first?.productId) return [];
-      const linked = products.find((x) => String(x.id) === String(first.productId));
+      const linkedOptions = g.options.filter((o) => o.productId);
+      if (!linkedOptions.length) return [];
+      const nameOf = (o: { name?: string; productId?: number }) => products.find((x) => String(x.id) === String(o.productId))?.name || o.name || "";
+      const chosen = linkedOptions.find((o) => {
+        const name = plain(nameOf(o));
+        return name && said.some((s) => s.includes(name) || name.includes(s));
+      });
+      const required = Math.max(Number(g.min) || 0, Number(g.included) || 0) >= 1;
+      if (!chosen && !required) return [];
+      // Obligatorio sin elección en el ticket: el nombre del grupo si hay varias opciones
+      const option = chosen || linkedOptions[0];
       return [
         {
-          name: g.options.length > 1 ? g.name : linked?.name || g.name,
+          name: chosen || linkedOptions.length === 1 ? nameOf(option) || g.name : g.name,
           quantity: Math.max(1, Number(g.min) || Number(g.included) || 1),
-          station: productStation.get(String(first.productId)) || ("Cocina" as KitchenStation),
+          station: productStation.get(String(option.productId)) || ("Cocina" as KitchenStation),
         },
       ];
     });
+  // Sub-líneas de cada combo (lo que eligió el cliente), por renglón del producto
+  const saidByLine = new Map<number, string[]>();
+  interpretation.ignored.forEach((i) => {
+    if (i.parentIndex === undefined) return;
+    saidByLine.set(i.parentIndex, [...(saidByLine.get(i.parentIndex) || []), plain(i.externalName)]);
+  });
 
   // Estación más usada por los productos que llevan cada ingrediente
   const ingredientStation = new Map<string, KitchenStation>();
@@ -91,7 +111,7 @@ export function stationsByLine(
     // Partes por estación solo con equivalencia compuesta (interpretaciones
     // viejas sin la marca: como antes, por tener grupos de opciones)
     const compound = p.compound === undefined ? true : p.compound;
-    const parts = compound ? linkedParts(product) : [];
+    const parts = compound ? linkedParts(product, saidByLine.get(p.sourceIndex) || []) : [];
     const own: KitchenStation[] = !parts.length || !product?.noOwnTicket ? [productStation.get(String(p.productId)) || "Cocina"] : [];
     [...own, ...parts.map((part) => part.station)].forEach((s) => {
       l.stations.add(s);

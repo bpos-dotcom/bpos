@@ -42,7 +42,8 @@ export type DeliveryTicket = {
 const QUANTIFIED = /^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/;
 // "MX$135.00", "$135", "135,00 MXN" (Uber, sin signo) y "(40,50 MXN)" (descuento entre paréntesis)
 const TRAILING_MONEY = /\s*(-?)\s*\(?\s*(?:(?:MX\$|\$)\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:MXN)?|(\d[\d,]*(?:[.,]\d{2}))\s*MXN)\s*\)?\s*$/i;
-const CHARGE = /^(sub\s*total|total(?:\s+a\s+pagar|\s+pagado)?|dto\.?\s+de\s+producto|descuento[^$]*|promoci[oó]n[^$]*|tarifa\s+de\s+(?:entrega|servicio)|costo\s+de\s+env[ií]o|env[ií]o|propina|cargo[^$]*)\s*[:\-]?\s*-?\s*(?:MX\$|\$)/i;
+// Cargos con signo ("Total MX$367.00") o, como Uber, sin signo ("Total pagado por el usuario 367,00 MXN")
+const CHARGE = /^(sub\s*total|total(?:\s+a\s+pagar|\s+pagado(?:\s+por\s+el\s+usuario)?)?|dto\.?\s+de\s+producto|descuento[^$]*|promoci[oó]n[^$]*|tarifa\s+de\s+(?:entrega|servicio)|costo\s+de\s+env[ií]o|env[ií]o|propina|cargo[^$]*|oferta[^$]*|importe\s+pagado|monto\s+pagado)\s*[:\-]?\s*-?\s*\(?\s*(?:MX\$|\$|\d[\d,]*[.,]\d{2}\s*MXN\s*\)?\s*$)/i;
 const NOTE = /^(sin|con|extra|poco|mucho|bien|t[eé]rmino|nota|notas|por favor|aparte)\b/i;
 const END_OF_ITEMS = /^(pago\s+(?:de|en|con)\b|hora\s+de|m[eé]todo\s+de\s+pago|forma\s+de\s+pago|importe\s+pagado|fecha\s+de\s+la\s+transacci[oó]n|previsto\s+a\s+las|gracias\s+por)/i;
 
@@ -51,7 +52,9 @@ function splitPrice(text: string): { text: string; price: number | null } {
   if (!match) return { text: text.trim(), price: null };
   // Con signo: "1,234.50" (coma de miles). Sin signo (Uber): "135,00" (coma decimal)
   const amount = match[2] !== undefined ? Number(match[2].replace(/,/g, "")) : Number(match[3].replace(",", "."));
-  return { text: text.slice(0, match.index).trim().replace(/[.\s]+$/, ""), price: match[1] ? -amount : amount };
+  // Entre paréntesis ("Oferta especial (110,10 MXN)") también es descuento
+  const negative = Boolean(match[1]) || match[0].includes("(");
+  return { text: text.slice(0, match.index).trim().replace(/[.\s]+$/, ""), price: negative ? -amount : amount };
 }
 
 // Nombres que las plataformas ponen cuando no hay nombre real (no se imprimen)
@@ -159,7 +162,7 @@ export function buildDeliveryTicket(
     if (!item.stations.length && !allIgnored) item.stations.push(fallback);
   });
 
-  const totalCharge = [...charges].reverse().find((c) => /^total/i.test(c.label));
+  const totalCharge = [...charges].reverse().find((c) => /^(total|importe\s+pagado|monto\s+pagado)/i.test(c.label));
   return {
     kind: "delivery",
     platform: platformLabel(order.platform),
@@ -167,7 +170,7 @@ export function buildDeliveryTicket(
     customer: realCustomerName(order.customer?.name),
     receivedAt: order.bridgeReceivedAt || order.receivedAt || new Date().toISOString(),
     items,
-    charges: charges.filter((c) => !/^total/i.test(c.label)),
+    charges: charges.filter((c) => c !== totalCharge),
     total: totalCharge ? totalCharge.amount : typeof order.total === "number" && order.total > 0 ? order.total : null,
   };
 }
