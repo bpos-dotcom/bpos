@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
-import { getOwnerWhatsapp } from "@/lib/business-settings";
+import { getBusinessSettings, getOwnerWhatsapp } from "@/lib/business-settings";
+import { emailCashCut } from "@/lib/cash-cut-email";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import { getCashCloseHistory, type CashCloseRecord } from "@/lib/cash-history";
@@ -47,6 +48,29 @@ export default function CashHistoryPage() {
       userName: user?.name || "Usuario del sistema",
       metadata: { phone },
     });
+  }
+
+  /** Reenvía el corte por correo al de Configuración → Empresa (o al que se capture aquí) */
+  async function resendEmail(record: CashCloseRecord) {
+    const s = getBusinessSettings();
+    const suggested = s.cutEmail || s.businessEmail;
+    const to = window.prompt("¿A qué correo mandar el corte?", suggested)?.trim().toLowerCase();
+    if (!to) return;
+    try {
+      await emailCashCut({ folio: record.folio, message: record.cutMessage || buildFallbackMessage(record) }, to);
+      const user = getCurrentUser();
+      addAuditEvent({
+        category: "Caja",
+        action: "cash.close.emailed",
+        description: `Corte ${record.folio} enviado por correo a ${to}.`,
+        entityId: record.id,
+        userName: user?.name || "Usuario del sistema",
+        metadata: { to },
+      });
+      alert(`Corte ${record.folio} enviado a ${to}.`);
+    } catch (error) {
+      alert(error instanceof Error ? error.message : "No se pudo mandar el correo.");
+    }
   }
 
   function printRecord(record: CashCloseRecord) {
@@ -100,6 +124,7 @@ export default function CashHistoryPage() {
             <div className="mt-5 flex flex-wrap gap-3">
               <button onClick={() => setSelected(record)} className="rounded-xl bg-orange-500 px-4 py-2 font-black text-black">Ver detalle</button>
               <button onClick={() => resend(record)} className="rounded-xl border border-green-500/40 px-4 py-2 font-black text-green-300">Reenviar WhatsApp</button>
+              <button onClick={() => void resendEmail(record)} className="rounded-xl border border-sky-500/40 px-4 py-2 font-black text-sky-300">Enviar por correo</button>
               <button onClick={() => printRecord(record)} className="rounded-xl border border-zinc-700 px-4 py-2 font-black text-zinc-200">Imprimir</button>
             </div>
           </article>

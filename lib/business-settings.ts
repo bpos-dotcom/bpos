@@ -32,6 +32,10 @@ export type BusinessSettings = {
   /** Propinas al cobrar (opcional): se preguntan en el cobro con estos porcentajes sugeridos */
   tipsEnabled: boolean;
   tipSuggestions: number[];
+  /** Corte de caja al cerrar turno: por correo (llega solo, desde el servidor) y/o abriendo WhatsApp con el mensaje */
+  cutEmailEnabled: boolean;
+  cutEmail: string; // "" = el correo del negocio
+  cutWhatsappEnabled: boolean;
 };
 
 export type TicketSize = "normal" | "grande" | "extra";
@@ -62,6 +66,9 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   ticketShowChoices: true,
   tipsEnabled: false,
   tipSuggestions: [10, 15, 20],
+  cutEmailEnabled: false,
+  cutEmail: "",
+  cutWhatsappEnabled: true,
 };
 
 function normalizePhone(value: string) {
@@ -96,7 +103,18 @@ function normalize(parsed: Partial<BusinessSettings>): BusinessSettings {
     tipSuggestions: Array.isArray(parsed.tipSuggestions)
       ? Array.from(new Set(parsed.tipSuggestions.map((n) => Math.round(Number(n))).filter((n) => n > 0 && n <= 100))).sort((a, b) => a - b).slice(0, 4)
       : DEFAULT_SETTINGS.tipSuggestions,
+    cutEmailEnabled: parsed.cutEmailEnabled === true,
+    cutEmail: text(parsed.cutEmail, "").trim().toLowerCase().slice(0, 120),
+    cutWhatsappEnabled: parsed.cutWhatsappEnabled !== false,
   };
+}
+
+/** Correo al que llega el corte de caja automático ("" si no está activado o no hay correo). */
+export function getCutEmail() {
+  const s = getBusinessSettings();
+  if (!s.cutEmailEnabled) return "";
+  const email = s.cutEmail || s.businessEmail;
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) ? email : "";
 }
 
 export function getBusinessSettings(): BusinessSettings {

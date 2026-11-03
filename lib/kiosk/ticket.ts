@@ -40,6 +40,9 @@ export function ticketSettings(raw: unknown, businessName: string): BusinessSett
     ticketShowChoices: r.ticketShowChoices !== false,
     tipsEnabled: false,
     tipSuggestions: [],
+    cutEmailEnabled: false,
+    cutEmail: "",
+    cutWhatsappEnabled: true,
   };
 }
 

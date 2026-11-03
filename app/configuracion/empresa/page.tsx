@@ -136,6 +136,11 @@ export default function EmpresaConfigPage() {
       alert("Captura un número de WhatsApp válido, con lada. Ejemplo: 5631820373.");
       return;
     }
+    const cutEmail = (settings.cutEmail || settings.businessEmail).trim();
+    if (settings.cutEmailEnabled && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cutEmail)) {
+      alert("Captura el correo que recibirá el corte de caja (o el correo del negocio).");
+      return;
+    }
 
     setSettings(saveBusinessSettings(settings));
     setSaved(true);
@@ -173,6 +178,37 @@ export default function EmpresaConfigPage() {
                 inputMode="tel"
               />
               <span className="mt-2 block text-xs text-zinc-500">Guardado como: {formatWhatsappForDisplay(settings.ownerWhatsapp)}</span>
+            </label>
+          </div>
+
+          <h2 className="mt-10 text-2xl font-black text-orange-500">Corte de caja</h2>
+          <p className="mt-2 text-zinc-400">
+            Al cerrar turno, el corte puede llegar solo por correo (lo manda B-POS, sin tocar nada) y/o abrirse en WhatsApp para
+            mandarlo al dueño con un toque.
+          </p>
+          <div className="mt-6 grid gap-5">
+            <label className="flex items-center gap-3 text-sm font-bold text-zinc-300">
+              <input type="checkbox" checked={settings.cutEmailEnabled} onChange={(e) => set({ cutEmailEnabled: e.target.checked })} />
+              Enviar el corte por correo automáticamente al cerrar caja
+            </label>
+            {settings.cutEmailEnabled && (
+              <label>
+                <span className={label}>Correo que recibe el corte</span>
+                <input
+                  value={settings.cutEmail}
+                  onChange={(e) => set({ cutEmail: e.target.value })}
+                  className={input}
+                  placeholder={settings.businessEmail || "dueno@negocio.com"}
+                  type="email"
+                />
+                <span className="mt-2 block text-xs text-zinc-500">
+                  {settings.cutEmail ? "" : settings.businessEmail ? `Vacío = el correo del negocio (${settings.businessEmail}).` : "Captura un correo o llena el correo del negocio más abajo."}
+                </span>
+              </label>
+            )}
+            <label className="flex items-center gap-3 text-sm font-bold text-zinc-300">
+              <input type="checkbox" checked={settings.cutWhatsappEnabled} onChange={(e) => set({ cutWhatsappEnabled: e.target.checked })} />
+              Abrir WhatsApp con el corte al cerrar caja (al WhatsApp del dueño)
             </label>
           </div>
 
