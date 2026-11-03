@@ -235,6 +235,14 @@ async function printTickets(req) {
   const record = { at: new Date().toISOString(), targets: req.tickets.map((t) => t.target), reason: req.force ? "reimpresion" : "bridge" };
   printed.set(key, record);
 
+  // Cobro en efectivo: el cajón se abre ANTES de armar e imprimir los tickets
+  // (renderizar el ticket tarda); si está activado en Impresoras y hay impresora de Caja
+  const drawerTicket = req.tickets.find((t) => t.drawer === true && t.target === "Caja");
+  if (drawerTicket && getConfig().openDrawer !== false) {
+    const cajaPrinter = printerFor("Caja");
+    if (cajaPrinter) await openCashDrawer(cajaPrinter).catch((error) => console.warn(`No se pudo abrir el cajón en "${cajaPrinter}":`, error.message));
+  }
+
   const results = [];
   for (const ticket of req.tickets) {
     const printer = printerFor(ticket.target);
@@ -247,10 +255,6 @@ async function printTickets(req) {
       await printImage(await renderHtmlTicket(ticket.html), printer);
       results.push({ target: ticket.target, printer, ok: true });
       console.log(`Ticket ${key} (${ticket.target}) impreso en "${printer}"`);
-      // Cobro en efectivo en Caja: se abre el cajón de dinero (si está activado en Impresoras)
-      if (ticket.drawer === true && ticket.target === "Caja" && getConfig().openDrawer !== false) {
-        await openCashDrawer(printer).catch((error) => console.warn(`No se pudo abrir el cajón en "${printer}":`, error.message));
-      }
     } catch (error) {
       results.push({ target: ticket.target, printer, ok: false, error: error.message });
       console.error(`No se pudo imprimir ${key} (${ticket.target}) en "${printer}":`, error.message);
