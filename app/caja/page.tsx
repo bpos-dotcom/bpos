@@ -196,8 +196,7 @@ export default function CajaPage() {
   }
 
   async function openShift() {
-    const user = getCurrentUser();
-    if (!(await requirePermissionOrAdmin(user, "cash.open", "abrir caja"))) return;
+    // Abrir caja lo hace el empleado que llega: sin PIN (quien ya entró a Caja puede abrir); queda en bitácora quién abrió
     const amount = Number(openingCash);
 
     if (amount <= 0) {

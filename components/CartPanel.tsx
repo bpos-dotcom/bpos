@@ -344,7 +344,7 @@ export function CartPanel({
         </button>
 
         <p className="text-center text-xs text-zinc-600">
-          Limpiar pedido requiere autorización Admin.
+          Limpiar pedido requiere PIN de administrador y queda en bitácora.
         </p>
       </div>
 

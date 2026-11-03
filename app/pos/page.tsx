@@ -49,6 +49,8 @@ import {
 } from "@/lib/order-sequence";
 
 const STORAGE_KEY = "bpos_orders";
+/** Pedido en curso (carrito y datos) para que no se pierda al cambiar de página */
+const DRAFT_KEY = "bpos_pos_draft";
 const USERS_KEY = "bpos_users";
 
 type SystemUser = {
@@ -120,6 +122,34 @@ function PosScreen() {
     paymentMethod: "Efectivo",
     discount: 0,
   });
+
+  // El pedido en curso se guarda en el navegador: si el cajero cambia de página o
+  // recarga, al volver sigue ahí. Solo se vacía al cobrar, mandar a espera o con
+  // "Limpiar pedido" (PIN de administrador y bitácora): así nadie "cancela" un
+  // pedido sin dejar rastro nomás saliendo del POS.
+  const draftLoaded = useRef(false);
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(DRAFT_KEY);
+      if (raw) {
+        const draft = JSON.parse(raw) as { cart?: CartItem[]; details?: OrderDetails };
+        if (Array.isArray(draft.cart) && draft.cart.length) setCart(draft.cart);
+        if (draft.details && typeof draft.details.orderType === "string") setDetails(draft.details);
+      }
+    } catch {
+      // borrador dañado: se empieza vacío
+    }
+    draftLoaded.current = true;
+  }, []);
+  useEffect(() => {
+    if (!draftLoaded.current) return;
+    try {
+      if (cart.length) localStorage.setItem(DRAFT_KEY, JSON.stringify({ cart, details }));
+      else localStorage.removeItem(DRAFT_KEY);
+    } catch {
+      // sin espacio: el pedido sigue en pantalla
+    }
+  }, [cart, details]);
 
   useEffect(() => {
     setProducts(
@@ -385,11 +415,19 @@ function PosScreen() {
   async function clearCart() {
     if (cart.length === 0) return;
 
-    if (currentUser?.role !== "Admin") {
-      const authorized = await authorizeAdmin("limpiar pedido");
-      if (!authorized) return;
-    }
+    // Siempre con PIN (también en sesión de Admin) y con registro: limpiar un pedido es como cancelarlo
+    const authorized = await authorizeAdmin("limpiar pedido");
+    if (!authorized) return;
 
+    const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    addAuditEvent({
+      category: "Venta",
+      action: "cart.cleared",
+      description: `${currentUser?.name || "Usuario"} limpió el pedido en curso ($${total.toFixed(2)}): ${cart.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`,
+      userId: currentUser?.id ? String(currentUser.id) : undefined,
+      userName: currentUser?.name,
+      metadata: { total, items: cart.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })) },
+    });
     setCart([]);
   }
 
