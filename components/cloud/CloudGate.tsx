@@ -33,6 +33,8 @@ import { saveBusinessSettings } from "@/lib/business-settings";
 import { SignupForm } from "@/components/cloud/SignupForm";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
+/** Más que esto sin respuesta de la nube al abrir: se entra con la cuenta guardada en este equipo */
+const CLOUD_SLOW_MS = 8000;
 
 const input =
   "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600";
@@ -95,7 +97,18 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
     setState({ step: "loading", text: "Conectando con la nube..." });
     let account: CloudAccount;
     try {
-      account = await loadCloudAccount();
+      // Si la nube tarda (Supabase lento), no se queda trabado: con la cuenta y los datos ya
+      // guardados en este equipo entra en 8 s y la sincronización se pone al día sola.
+      const cachedReady = readCachedAccount();
+      const canStartFromCache = Boolean(cachedReady && localStorage.getItem("bpos_sync_meta"));
+      const slow = new Promise<"lenta">((resolve) => setTimeout(() => resolve("lenta"), CLOUD_SLOW_MS));
+      const first = await (canStartFromCache ? Promise.race([loadCloudAccount(), slow]) : loadCloudAccount());
+      if (first === "lenta") {
+        startSync(cachedReady!);
+        setState({ step: "ready", account: cachedReady! });
+        return;
+      }
+      account = first;
     } catch (error) {
       const cached = readCachedAccount();
       setState({
