@@ -11,11 +11,11 @@
  *  horario de servicio. El admin abre una excepción con su PIN.
  */
 import { useParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CartItem } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
 import type { SavedOrder } from "@/components/OrderHistoryPanel";
-import { notify } from "@/components/layout/Dialogs";
+import { ask, askText, notify } from "@/components/layout/Dialogs";
 import type { Product } from "@/data/products";
 import { getAdminProducts } from "@/lib/admin";
 import { clearCurrentUser, getSessionUser, setCurrentUser, type CurrentUser } from "@/lib/auth";
@@ -29,7 +29,7 @@ import { verifyPin } from "@/lib/pin-hash";
 import { isOnSale } from "@/lib/sale-schedule";
 import { getTables, openTableOrder, tableLabel, tableZones, type Table } from "@/lib/tables";
 import { getUsers, type SystemUser } from "@/lib/users";
-import { linkWaiterDevice, openTableOrders, printTablePrecuenta, readWaiterDevice, reportBlockedAttempt, saveWaiterDevice, sendToKitchen, setOverride, waiterBlock, waiterUsers } from "@/lib/waiter";
+import { changeDiners, linkWaiterDevice, moveTable, openTableOrders, printTablePrecuenta, readWaiterDevice, readyItems, removeSentItem, reportBlockedAttempt, saveWaiterDevice, sendToKitchen, setOverride, waiterBlock, waiterDeviceSeen, waiterUsers } from "@/lib/waiter";
 
 type Step = { kind: "loading"; text: string } | { kind: "pair" } | { kind: "login" } | { kind: "app"; user: CurrentUser };
 
@@ -214,13 +214,17 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
   const [orders, setOrders] = useState<SavedOrder[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [zone, setZone] = useState("");
+  const [mine, setMine] = useState(false);
   const [table, setTable] = useState<Table | null>(null);
   const [diners, setDiners] = useState(2);
   const [category, setCategory] = useState("");
+  const [query, setQuery] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
   const [choosing, setChoosing] = useState<Product | null>(null);
+  const [moving, setMoving] = useState(false);
   const [sending, setSending] = useState(false);
   const [tick, setTick] = useState(0);
+  const readySeen = useRef<Record<number, string>>({});
 
   useEffect(() => {
     const load = () => {
@@ -232,12 +236,38 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
     load();
     const events = ["bpos:orders-updated", "bpos:tables-updated", "bpos:products-updated", "bpos:timeclock-updated", "bpos:users-updated", "storage", "focus"];
     events.forEach((e) => window.addEventListener(e, load));
-    const timer = setInterval(load, 30_000);
+    const timer = setInterval(load, 20_000);
+    // "Última vez" del celular en Configuración → Meseros
+    void waiterDeviceSeen();
+    const seen = setInterval(() => void waiterDeviceSeen(), 5 * 60_000);
     return () => {
       events.forEach((e) => window.removeEventListener(e, load));
       clearInterval(timer);
+      clearInterval(seen);
     };
   }, []);
+
+  // Cocina marcó listo algo de una mesa de este mesero: aviso y vibración
+  useEffect(() => {
+    for (const o of orders) {
+      if (o.details.waiter && o.details.waiter !== user.name) continue;
+      const ready = readyItems(o);
+      const key = ready.join("|");
+      if (!key) continue;
+      if (readySeen.current[o.id] === undefined) {
+        readySeen.current[o.id] = key; // lo que ya estaba listo al abrir no se avisa
+        continue;
+      }
+      if (readySeen.current[o.id] === key) continue;
+      readySeen.current[o.id] = key;
+      notify(`🍽️ ${tableLabel(o.details.table)}: listo para llevar · ${ready.slice(-3).join(", ")}`);
+      try {
+        navigator.vibrate?.([200, 100, 200]);
+      } catch {
+        // sin vibración
+      }
+    }
+  }, [orders, user.name]);
 
   const me = useMemo(() => getUsers().find((u) => u.id === user.id) || { id: user.id, name: user.name, waiterAccess: undefined }, [user, tick]); // eslint-disable-line react-hooks/exhaustive-deps -- tick: recarga al cambiar usuarios o checador
   const block = useMemo(() => waiterBlock(me), [me, tick]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -247,6 +277,7 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
   const categories = useMemo(() => sortCategories(Array.from(new Set(available.map((p) => p.category))), menu.categoryOrder), [available, menu]);
   const open = table ? openTableOrder(orders, table.id) : undefined;
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);
+  const isMine = (o: SavedOrder | undefined) => Boolean(o && o.details.waiter === user.name);
 
   function addLine(product: Product, sel: Pick<CartItem, "parts" | "modifiers" | "ownTicket" | "comment" | "extraStations">) {
     const id = lineIdFor(product.id, sel.parts, sel.modifiers) + (sel.comment ? `|c:${sel.comment}` : "");
@@ -263,6 +294,24 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
   }
   function changeQty(id: string, delta: number) {
     setCart((c) => c.map((i) => (lineId(i) === id ? { ...i, quantity: i.quantity + delta } : i)).filter((i) => i.quantity > 0));
+  }
+  /** Nota para cocina en un renglón ("sin cebolla"); con otra nota es otro renglón */
+  async function noteLine(id: string) {
+    const item = cart.find((i) => lineId(i) === id);
+    if (!item) return;
+    const text = await askText(`Nota para cocina · ${item.name}`, { placeholder: "Ej. sin cebolla, término medio", defaultValue: item.comment || "", ok: "Guardar" });
+    if (text === null) return;
+    const comment = text.trim();
+    setCart((c) => {
+      const base = (item.lineId || "").replace(/\|c:.*$/, "") || lineIdFor(item.id, item.parts, item.modifiers);
+      const nextId = base + (comment ? `|c:${comment}` : "");
+      const rest = c.filter((i) => lineId(i) !== id);
+      const same = rest.find((i) => lineId(i) === nextId);
+      const moved = { ...item, lineId: nextId, ...(comment ? { comment } : {}) } as CartItem;
+      if (!comment) delete moved.comment;
+      if (same) return rest.map((i) => (lineId(i) === nextId ? { ...i, quantity: i.quantity + item.quantity } : i));
+      return [...rest, moved];
+    });
   }
 
   async function allowOrExplain(): Promise<boolean> {
@@ -297,13 +346,51 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
 
   async function precuenta() {
     if (!open) return;
+    const persons = open.details.diners && open.details.diners > 1 ? await askText("¿Dividir entre cuántas personas? (vacío: sin dividir)", { numeric: true, placeholder: String(open.details.diners), ok: "Imprimir" }) : "";
+    if (persons === null) return;
+    const split = Math.max(0, Math.min(50, Number(persons) || 0));
     try {
-      const failed = await printTablePrecuenta(open, user);
+      const failed = await printTablePrecuenta(open, user, split);
       if (failed.length) notify(`No salió la precuenta: ${failed.join(" · ")}`, "error");
-      else notify("Precuenta impresa en caja.");
+      else notify(split > 1 ? `Precuenta impresa en caja, dividida entre ${split}.` : "Precuenta impresa en caja.");
     } catch {
       notify("No se pudo imprimir la precuenta. Avisa en caja.", "error");
     }
+  }
+
+  async function editDiners() {
+    if (!open) return;
+    const v = await askText("¿Cuántas personas?", { numeric: true, defaultValue: String(open.details.diners || 2), ok: "Cambiar" });
+    const n = Number(v);
+    if (!v || !Number.isFinite(n) || n < 1 || n > 99) return;
+    changeDiners(open, Math.round(n), user);
+    setOrders(openTableOrders());
+  }
+
+  function doMove(to: Table) {
+    if (!open) return;
+    try {
+      moveTable(open, to, user);
+      setOrders(openTableOrders());
+      setMoving(false);
+      setTable(to);
+      notify(`Cuenta pasada a ${tableLabel(to)}.`);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "No se pudo mover.", "error");
+    }
+  }
+
+  async function removeItem(index: number) {
+    if (!open) return;
+    const item = open.items[index];
+    if (!(await ask(`¿Quitar ${item.quantity}x ${item.name} de la cuenta? Lo autoriza un administrador con su PIN.`, { ok: "Quitar" }))) return;
+    if (!(await authorizeWithAdminPin(`quitar ${item.name} de ${tableLabel(open.details.table)}`, user))) return;
+    const updated = removeSentItem(open, index, "Admin", user);
+    setOrders(openTableOrders());
+    if (updated?.cancelled) {
+      notify("La cuenta quedó vacía y se canceló.");
+      setTable(null);
+    } else notify(`${item.name} quitado de la cuenta.`);
   }
 
   const header = (
@@ -319,45 +406,54 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
     <div className="mt-3 rounded-2xl border border-red-500/40 bg-red-950/60 px-4 py-3 text-sm font-bold text-red-100">{block.message}</div>
   ) : null;
 
-  // --- lista de mesas
+  // --- lista de mesas (las mías primero)
   if (!table) {
-    const shown = tables.filter((t) => !zone || t.zone === zone);
+    const shown = tables
+      .filter((t) => !zone || t.zone === zone)
+      .filter((t) => !mine || isMine(openTableOrder(orders, t.id)))
+      .sort((a, b) => Number(isMine(openTableOrder(orders, b.id))) - Number(isMine(openTableOrder(orders, a.id))));
     return (
       <div>
         {header}
         {banner}
-        {zones.length > 1 && (
-          <div className="mt-4 flex gap-2 overflow-x-auto">
-            {["", ...zones].map((z) => (
+        <div className="mt-4 flex gap-2 overflow-x-auto">
+          <button onClick={() => setMine((m) => !m)} className={`shrink-0 rounded-xl px-3 py-2 text-sm font-black ${mine ? "bg-orange-500 text-black" : "border border-zinc-800 text-zinc-300"}`}>Mis mesas</button>
+          {zones.length > 1 &&
+            ["", ...zones].map((z) => (
               <button key={z || "todas"} onClick={() => setZone(z)} className={`shrink-0 rounded-xl px-3 py-2 text-sm font-black ${zone === z ? "bg-orange-500 text-black" : "border border-zinc-800 text-zinc-300"}`}>
                 {z || "Todas"}
               </button>
             ))}
-          </div>
-        )}
+        </div>
         {tables.length === 0 && <p className="mt-8 text-center text-sm text-zinc-400">No hay mesas. En la caja: Configuración → Mesas.</p>}
+        {tables.length > 0 && shown.length === 0 && <p className="mt-8 text-center text-sm text-zinc-400">No tienes mesas abiertas.</p>}
         <div className="mt-4 grid grid-cols-3 gap-3">
           {shown.map((t) => {
             const o = openTableOrder(orders, t.id);
+            const ready = o ? readyItems(o).length : 0;
             return (
-              <button key={t.id} onClick={() => { setTable(t); setCategory(""); setCart([]); }} className={`rounded-2xl border p-3 text-left ${o ? "border-orange-500/60 bg-orange-500/10" : "border-zinc-800 bg-zinc-950"}`}>
+              <button key={t.id} onClick={() => { setTable(t); setCategory(""); setQuery(""); setCart([]); }} className={`relative rounded-2xl border p-3 text-left ${o ? (isMine(o) ? "border-orange-500 bg-orange-500/15" : "border-zinc-600 bg-zinc-900") : "border-zinc-800 bg-zinc-950"}`}>
                 <p className="text-xl font-black">{t.name}</p>
                 <p className="text-[11px] text-zinc-500">{t.zone}</p>
                 <p className={`mt-2 text-sm font-black ${o ? "text-orange-300" : "text-green-400"}`}>{o ? money(o.total) : "Libre"}</p>
+                {o?.details.waiter && !isMine(o) && <p className="truncate text-[10px] text-zinc-500">{o.details.waiter}</p>}
+                {ready > 0 && <span className="absolute right-2 top-2 rounded-full bg-green-500 px-1.5 text-[10px] font-black text-black">🍽️</span>}
               </button>
             );
           })}
         </div>
+        <p className="mt-6 text-center text-[11px] text-zinc-600">Agrega esta página a tu pantalla de inicio para abrirla como app.</p>
       </div>
     );
   }
 
   // --- una mesa
-  const list = available.filter((p) => !category || p.category === category);
+  const q = query.trim().toLowerCase();
+  const list = available.filter((p) => (!category || p.category === category) && (!q || p.name.toLowerCase().includes(q)));
   return (
     <div>
       <div className="flex items-center justify-between gap-3">
-        <button onClick={() => { setTable(null); setCart([]); }} className="rounded-xl border border-zinc-800 px-3 py-2 text-sm font-black">← Mesas</button>
+        <button onClick={() => { setTable(null); setCart([]); setMoving(false); }} className="rounded-xl border border-zinc-800 px-3 py-2 text-sm font-black">← Mesas</button>
         <p className="text-lg font-black">{tableLabel(table, open?.details.diners || undefined)}</p>
         <button onClick={onLogout} className="text-xs font-black text-zinc-500">Salir</button>
       </div>
@@ -369,15 +465,36 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
             <p className="font-black text-orange-300">Cuenta abierta · #{formatOrderNumber(open as SavedOrder & { localOrderNumber?: number })}</p>
             <p className="font-black">{money(open.total)}</p>
           </div>
+          {open.details.waiter && <p className="text-xs text-zinc-500">Mesero: {open.details.waiter}</p>}
           <ul className="mt-2 space-y-1 text-sm text-zinc-300">
-            {open.items.map((i, idx) => (
-              <li key={idx} className="flex justify-between gap-2">
-                <span>{i.quantity} × {i.name}{i.comment ? <span className="text-zinc-500"> · {i.comment}</span> : null}</span>
-                <span className="text-zinc-500">r{i.round || 1}</span>
-              </li>
-            ))}
+            {open.items.map((i, idx) => {
+              const done = (i as { kdsDone?: boolean }).kdsDone || (open as SavedOrder & { kdsCompleted?: boolean }).kdsCompleted;
+              return (
+                <li key={idx} className="flex items-center justify-between gap-2">
+                  <span className="min-w-0 flex-1">
+                    {done ? "✅ " : ""}{i.quantity} × {i.name}{i.comment ? <span className="text-zinc-500"> · {i.comment}</span> : null}
+                  </span>
+                  <span className="text-xs text-zinc-500">r{i.round || 1}</span>
+                  <button onClick={() => void removeItem(idx)} aria-label={`Quitar ${i.name}`} className="h-7 w-7 rounded-lg border border-zinc-700 text-xs font-black text-red-300">✕</button>
+                </li>
+              );
+            })}
           </ul>
-          <button onClick={() => void precuenta()} className="mt-3 w-full rounded-xl border border-zinc-700 py-2 text-sm font-black">🧾 Precuenta</button>
+          <div className="mt-3 grid grid-cols-3 gap-2">
+            <button onClick={() => void precuenta()} className="rounded-xl border border-zinc-700 py-2 text-sm font-black">🧾 Precuenta</button>
+            <button onClick={() => void editDiners()} className="rounded-xl border border-zinc-700 py-2 text-sm font-black">👥 Personas</button>
+            <button onClick={() => setMoving((m) => !m)} className="rounded-xl border border-zinc-700 py-2 text-sm font-black">{moving ? "Cancelar" : "↔️ Mover"}</button>
+          </div>
+          {moving && (
+            <div className="mt-3">
+              <p className="text-xs font-bold text-zinc-400">Pasar la cuenta a:</p>
+              <div className="mt-2 grid grid-cols-4 gap-2">
+                {tables.filter((t) => t.id !== table.id && !openTableOrder(orders, t.id)).map((t) => (
+                  <button key={t.id} onClick={() => doMove(t)} className="rounded-xl border border-zinc-800 bg-black py-2 text-sm font-black">{t.name}</button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-950 p-4">
@@ -390,7 +507,8 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
         </div>
       )}
 
-      <div className="mt-4 flex gap-2 overflow-x-auto">
+      <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔍 Buscar platillo" className="mt-4 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-3" />
+      <div className="mt-3 flex gap-2 overflow-x-auto">
         {["", ...categories].map((c) => (
           <button key={c || "todo"} onClick={() => setCategory(c)} className={`shrink-0 rounded-xl px-3 py-2 text-sm font-black ${category === c ? "bg-orange-500 text-black" : "border border-zinc-800 text-zinc-300"}`}>
             {c || "Todo"}
@@ -407,6 +525,7 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
             </button>
           );
         })}
+        {list.length === 0 && <p className="col-span-2 py-6 text-center text-sm text-zinc-500">Nada con ese nombre.</p>}
       </div>
 
       {choosing && (
@@ -424,12 +543,15 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
       {cart.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-40 border-t border-zinc-800 bg-black/95 p-4 backdrop-blur">
           <div className="mx-auto max-w-lg">
-            <ul className="max-h-40 space-y-1 overflow-auto text-sm">
+            <ul className="max-h-44 space-y-1 overflow-auto text-sm">
               {cart.map((i) => {
                 const id = lineId(i);
                 return (
                   <li key={id} className="flex items-center justify-between gap-2">
-                    <span className="min-w-0 flex-1 truncate">{i.name}{i.comment ? <span className="text-zinc-500"> · {i.comment}</span> : null}</span>
+                    <button onClick={() => void noteLine(id)} className="min-w-0 flex-1 truncate text-left" title="Nota para cocina">
+                      {i.name}
+                      <span className="text-zinc-500">{i.comment ? ` · ${i.comment}` : " · 📝"}</span>
+                    </button>
                     <div className="flex items-center gap-2">
                       <button onClick={() => changeQty(id, -1)} className="h-8 w-8 rounded-lg border border-zinc-700 font-black">−</button>
                       <span className="w-5 text-center font-black">{i.quantity}</span>

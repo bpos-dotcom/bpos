@@ -21,7 +21,7 @@ export type SaleForTickets = {
   localOrderNumber?: number;
   createdAt: string;
   items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean; comment?: string; extraStations?: ExtraStation[] }[];
-  details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number; payments?: Record<string, number>; table?: { name: string }; diners?: number; precuenta?: boolean };
+  details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number; payments?: Record<string, number>; table?: { name: string }; diners?: number; precuenta?: boolean; waiter?: string; /** precuenta dividida entre N personas */ precuentaSplit?: number };
   /** En espera (por cobrar): todavía no entra dinero */
   pendingPayment?: boolean;
   tipPayments?: Record<string, number>;
@@ -92,7 +92,22 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
     charges: discount > 0 ? [{ label: "Subtotal", amount: subtotal }, { label: "Descuento", amount: -discount }] : [],
     total: Number(sale.total),
     payment: delivery ? undefined : sale.details?.paymentMethod,
+    ...(sale.details?.waiter ? { waiter: sale.details.waiter } : {}),
   };
+}
+
+/** Precuenta: propina sugerida (Configuración → Empresa) y cuánto toca por persona si se divide. */
+function precuentaRows(sale: SaleForTickets): { label: string; value: string }[] {
+  if (!sale.details?.precuenta) return [];
+  const settings = getBusinessSettings();
+  const total = Number(sale.total) || 0;
+  const rows: { label: string; value: string }[] = [];
+  const split = Number(sale.details.precuentaSplit) || 0;
+  if (split > 1) rows.push({ label: `Por persona (${split})`, value: `$${(total / split).toFixed(2)}` });
+  if (settings.tipsEnabled && settings.tipSuggestions.length) {
+    rows.push({ label: "Propina sugerida", value: settings.tipSuggestions.map((p) => `${p}% $${((total * p) / 100).toFixed(0)}`).join(" · ") });
+  }
+  return rows;
 }
 
 /** Estaciones que tienen algo en la venta. */
@@ -105,7 +120,7 @@ export function saleStations(sale: SaleForTickets): KitchenStation[] {
 export async function buildSaleTickets(sale: SaleForTickets, choice: { stations: KitchenStation[]; customer: boolean; drawer?: boolean }): Promise<OrderTicket[]> {
   const settings = getBusinessSettings();
   const paper = paperWidth();
-  const ticket = saleTicket(sale);
+  const ticket = { ...saleTicket(sale), footerRows: precuentaRows(sale) };
   const tickets: OrderTicket[] = choice.stations
     .filter((station) => ticket.items.some((i) => i.stations.includes(station)))
     .map((station) => ({ target: station, html: stationTicketHtml(ticket, station, settings, paper) }));

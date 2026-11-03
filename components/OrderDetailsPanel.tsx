@@ -17,6 +17,8 @@ export type OrderDetails = {
   /** Pedido de mesa (comer aquí): la mesa elegida y cuántas personas */
   table?: { id: string; name: string; zone: string };
   diners?: number;
+  /** Mesero que abrió la cuenta desde la app de meseros */
+  waiter?: string;
 };
 
 type OrderDetailsPanelProps = {

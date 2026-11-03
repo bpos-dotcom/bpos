@@ -79,7 +79,8 @@ function header(ticket: DeliveryTicket, settings: BusinessSettings) {
   return `${logo}
     <div class="center platform">${esc(ticket.platform)}</div>
     <div class="center order">Pedido #${esc(ticket.orderId)}</div>
-    <div class="center meta">${who}${esc(time(ticket.receivedAt))}</div>`;
+    <div class="center meta">${who}${esc(time(ticket.receivedAt))}</div>
+    ${ticket.waiter ? `<div class="center meta">Mesero: ${esc(ticket.waiter)}</div>` : ""}`;
 }
 
 function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boolean, station?: KitchenStation) {
@@ -165,6 +166,7 @@ export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings
     ${charges}
     ${ticket.total !== null ? `<div class="row total"><span class="name">TOTAL</span><span class="price">${money(ticket.total)}</span></div>` : ""}
     ${ticket.payment ? `<div class="row"><span class="name">Pago</span><span class="price">${esc(ticket.payment)}</span></div>` : ""}
+    ${(ticket.footerRows || []).map((r) => `<div class="row"><span class="name">${esc(r.label)}</span><span class="price">${esc(r.value)}</span></div>`).join("")}
     <div class="rule"></div>
     ${settings.ticketNotice && ticket.kind !== "mostrador" ? `<div class="notice">${esc(noticeText(ticket, settings))}</div>` : ""}
     ${qrSvg ? `<div class="qr">${qrSvg}</div>${settings.ticketQrCaption ? `<div class="qr-caption">${esc(settings.ticketQrCaption)}</div>` : ""}` : ""}

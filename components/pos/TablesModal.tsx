@@ -67,7 +67,7 @@ export function TablesModal({ tables, orders, currentTableId, onClose, onOpenTab
               <>
                 <p className="mt-1 text-sm text-zinc-400">
                   Pedido #{formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}
-                  {order.details.diners ? ` · ${order.details.diners} personas` : ""} · abierta hace {minutesSince(order.createdAt)} min · {order.rounds || 1} {(order.rounds || 1) === 1 ? "ronda" : "rondas"}
+                  {order.details.diners ? ` · ${order.details.diners} personas` : ""} · abierta hace {minutesSince(order.createdAt)} min · {order.rounds || 1} {(order.rounds || 1) === 1 ? "ronda" : "rondas"}{order.details.waiter ? ` · mesero: ${order.details.waiter}` : ""}
                 </p>
                 <ul className="mt-3 max-h-48 space-y-1 overflow-y-auto text-sm text-zinc-300">
                   {order.items.map((item, i) => (
