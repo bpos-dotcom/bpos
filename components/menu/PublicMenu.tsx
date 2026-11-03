@@ -22,6 +22,7 @@ import {
   mapsLink,
   normalizeDigitalMenu,
   onlineGroups,
+  openHoursLabel,
   orderWhatsappText,
   paidOnline,
   scheduledLabel,
@@ -35,7 +36,6 @@ import {
   type MenuTheme,
 } from "@/lib/digital-menu";
 import { couponDiscount } from "@/lib/coupons";
-import { isOnSale, scheduleLabel } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
 import { AddressMap } from "@/components/menu/AddressMap";
 import { AccountSheet, useCustomer, type Customer, type CustomerOrder } from "@/components/menu/CustomerAccount";
@@ -348,7 +348,7 @@ function Menu({
     if (lines.length) setCheckout(true);
   }
 
-  const hoursText = menu.hours ? scheduleLabel(menu.hours) : "";
+  const hoursText = openHoursLabel(menu);
   /** Cuántos de cada producto lleva el cliente (todas sus variantes) */
   const inCart = new Map<number, number>();
   for (const l of cart) inCart.set(Number(l.productId), (inCart.get(Number(l.productId)) || 0) + l.quantity);
@@ -959,12 +959,12 @@ function Checkout({
       const times: { value: string; label: string }[] = [];
       for (let m = 0; m < 24 * 60; m += 15) {
         const t = new Date(base.getTime() + m * 60000);
-        if (t.getTime() >= earliest && isOnSale(menu.hours, t)) times.push({ value: t.toISOString(), label: t.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" }) });
+        if (t.getTime() >= earliest && isOpenNow(menu, t)) times.push({ value: t.toISOString(), label: t.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" }) });
       }
       const label = i === 0 ? "Hoy" : i === 1 ? "Mañana" : base.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
       return { day: i, label, times };
     }).filter((d) => d.times.length > 0);
-  }, [sched.enabled, sched.minMinutes, sched.maxDays, menu.hours, openedAt]);
+  }, [sched.enabled, sched.minMinutes, sched.maxDays, menu, openedAt]);
   const dayTimes = slots.find((d) => d.day === day)?.times || slots[0]?.times || [];
   const scheduledFor = when === "programar" && customer.account ? (dayTimes.some((t) => t.value === slot) ? slot : "") : "";
 
