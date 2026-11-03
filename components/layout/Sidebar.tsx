@@ -27,6 +27,7 @@ import { UpdateNotice } from "@/components/layout/UpdateNotice";
 const navItems = [
   { label: "Dashboard", href: "/dashboard", icon: "📊" },
   { label: "POS", href: "/pos", icon: "🛒" },
+  { label: "Historial de pedidos", href: "/historial", icon: "📋" },
   { label: "Pedidos en línea", href: "/pedidos-en-linea", icon: "🌐" },
   { label: "B-POS Bridge", href: "/bridge", icon: "🌉" },
   { label: "Centro de Operaciones", href: "/centro-operaciones", icon: "🚨" },
