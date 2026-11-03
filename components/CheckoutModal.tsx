@@ -130,6 +130,7 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
   // sin esperar a capturar el pago ni a que salga el ticket.
   // (Va antes del `return null`: los hooks deben correr en cada render.)
   const drawerOpened = useRef(false);
+  const [drawerBusy, setDrawerBusy] = useState(false);
   const wantsDrawer = paymentMethod === "Efectivo" || paymentMethod === "Mixto";
   useEffect(() => {
     if (!isOpen) {
@@ -480,7 +481,24 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
 
         {(isCash || isMixed) && (
           <div className="mt-4">
-            <label className="mb-2 block text-sm font-bold text-zinc-400">Efectivo recibido</label>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <label className="block text-sm font-bold text-zinc-400">Efectivo recibido</label>
+              <button
+                type="button"
+                disabled={drawerBusy}
+                onClick={() => {
+                  setDrawerBusy(true);
+                  void openCashDrawer().then((opened) => {
+                    setDrawerBusy(false);
+                    if (opened) drawerOpened.current = true;
+                    else alert("No se pudo abrir el cajón. Revisa que B-POS Agent esté conectado y que Caja tenga impresora en Configuración → Impresoras.");
+                  });
+                }}
+                className="rounded-xl border border-zinc-700 px-3 py-1.5 text-xs font-black text-zinc-300 hover:border-orange-500 disabled:opacity-50"
+              >
+                {drawerBusy ? "Abriendo…" : "💵 Abrir cajón"}
+              </button>
+            </div>
             <AmountInput label="Efectivo recibido" value={cashReceived} onChange={setCashReceived} quick={cashQuickAmounts(toPay)} className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white" />
           </div>
         )}

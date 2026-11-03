@@ -7,7 +7,7 @@
  */
 import { useEffect, useState } from "react";
 import { loadCloudAccount, type ReadyAccount } from "@/lib/cloud/account";
-import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
+import { getSupabase, isCloudConfigured, SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 
 export type AgentPrinter = { name: string; displayName?: string; isDefault?: boolean };
 
@@ -78,6 +78,30 @@ export async function unlinkAgent(id: string) {
 }
 
 /**
+ * "Toca la puerta" a los Agents de la sucursal por Realtime (broadcast) para
+ * que revisen la cola ya, sin esperar su siguiente vuelta (cada 2 s). Es solo
+ * un aviso: si no llega, el Agent lo toma en su vuelta normal.
+ */
+let agentIdsCache: { at: number; ids: string[] } | null = null;
+async function wakeAgents() {
+  try {
+    if (!agentIdsCache || Date.now() - agentIdsCache.at > 60_000) {
+      const agents = await listAgents();
+      agentIdsCache = { at: Date.now(), ids: agents.filter((a) => a.online && !a.kiosk_id).map((a) => a.id) };
+    }
+    if (agentIdsCache.ids.length === 0) return;
+    await fetch(`${SUPABASE_URL}/realtime/v1/api/broadcast`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+      body: JSON.stringify({ messages: agentIdsCache.ids.map((id) => ({ topic: `agent-${id}`, event: "job", payload: {} })) }),
+      keepalive: true,
+    });
+  } catch {
+    // sin aviso: el Agent lo toma en su siguiente vuelta
+  }
+}
+
+/**
  * Manda un trabajo al Agent de la sucursal y espera su resultado.
  * Lanza error si no hay Agent conectado o no contesta a tiempo.
  */
@@ -90,12 +114,13 @@ export async function runAgentJob<T = Record<string, unknown>>(kind: AgentJobKin
     .select("id")
     .single();
   if (error) throw new Error(error.message);
+  void wakeAgents();
 
   const until = Date.now() + timeoutMs;
-  let delay = 600;
+  let delay = 350;
   while (Date.now() < until) {
     await new Promise((resolve) => setTimeout(resolve, delay));
-    delay = Math.min(delay + 300, 1500);
+    delay = Math.min(delay + 250, 1500);
     const { data: row } = await supabase.from("bpos_agent_jobs").select("status, result").eq("id", job.id).maybeSingle();
     if (row?.status === "done") return (row.result ?? {}) as T;
     if (row?.status === "error") {
