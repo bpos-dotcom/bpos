@@ -91,7 +91,7 @@ export async function GET(request: NextRequest) {
   if ("denied" in auth) return auth.denied;
   const store = bridgeStore(auth.ctx);
 
-  const [aliases, orders] = (await Promise.all([store.aliases(), store.orders()])) as [BridgeAlias[], BridgeOrder[]];
+  const [aliases, orders] = (await Promise.all([store.aliases(), store.activeOrders()])) as [BridgeAlias[], BridgeOrder[]];
   const pending: Array<{
     platform: string;
     orderId: string;

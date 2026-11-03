@@ -48,7 +48,8 @@ const navItems = [
 const ACK_KEY = "bpos_bridge_pending_ack";
 const PINNED_KEY = "bpos_sidebar_pinned"; // solo de este dispositivo
 const AUTO_CLOSE_MS = 10_000;
-const POLL_MS = 3000;
+// Pendientes del Bridge: cada revisión consulta la nube (cuenta como tráfico de Supabase)
+const POLL_MS = 15_000;
 
 type PendingResponse = {
   success?: boolean;
@@ -172,7 +173,9 @@ export function Sidebar() {
     // Bitácora pendiente de subir (ej. se hizo algo sin internet)
     const auditTimer = window.setInterval(() => void flushCloudAudit(), 60_000);
     void flushCloudAudit();
-    const timer = window.setInterval(() => void refreshOperations(), POLL_MS);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void refreshOperations();
+    }, POLL_MS);
     const refresh = () => void refreshOperations();
     window.addEventListener(OPERATIONS_ALERT_EVENT, refresh);
     window.addEventListener("bpos:inventory-alerts-updated", refresh);
