@@ -39,6 +39,7 @@ export const PUSH_ACTIONS = new Set([
   "backup.restored",
   "user.created",
   "permissions.updated",
+  "drawer.unjustified",
 ]);
 
 export type PushEvent = {
@@ -81,6 +82,9 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
         url: "/dueno",
       };
     }
+    case "drawer.unjustified":
+      if (!prefs.seguridad) return null;
+      return { title: "⚠️ Cajón abierto sin venta en efectivo", body: event.description, tag, url: "/configuracion/auditoria" };
     case "backup.restored":
     case "user.created":
     case "permissions.updated":
