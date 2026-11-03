@@ -88,6 +88,12 @@ async function main() {
   check("dos horarios: sábado 11:00 cerrado", !dm.isOpenNow(dos, new Date("2026-10-31T11:00:00")));
   check("dos horarios: viernes 12:00 cerrado", !dm.isOpenNow(dos, new Date("2026-10-30T12:00:00")));
   check("dos horarios: texto", dm.openHoursLabel(dos).includes("Sáb"), dm.openHoursLabel(dos));
+  const bp = dm.normalizeDigitalMenu({ hours: { days: [0, 1, 2, 3, 4], from: "13:30", to: "23:30" }, moreHours: [{ days: [5, 6], from: "13:30", to: "00:30" }] });
+  check("texto público rangos", dm.publicHoursLabel(bp) === "Dom a Jue 1:30 pm a 11:30 pm · Vie y Sáb 1:30 pm a 12:30 am", dm.publicHoursLabel(bp));
+  check("texto público todos los días", dm.publicHoursLabel(dm.normalizeDigitalMenu({ hours: { days: [], from: "09:00", to: "21:00" } })) === "Todos los días 9:00 am a 9:00 pm");
+  check("abre en 2 h 30 min", dm.opensInLabel(bp, new Date("2026-11-03T11:00:00")) === "en 2 h 30 min", dm.opensInLabel(bp, new Date("2026-11-03T11:00:00")));
+  check("abre mañana", dm.opensInLabel(bp, new Date("2026-11-03T23:45:00")).startsWith("mañana a la"), dm.opensInLabel(bp, new Date("2026-11-03T23:45:00")));
+  check("abierto: sin próximo", dm.nextOpening(bp, new Date("2026-11-03T15:00:00")) === null);
   check("sin horario: siempre abierto", dm.isOpenNow(dm.normalizeDigitalMenu({ moreHours: [] }), new Date("2026-10-30T03:00:00")));
 
   // Liga
