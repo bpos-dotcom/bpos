@@ -54,3 +54,9 @@ export const ROUTE_PERMISSIONS:{prefix:string;permission:PermissionKey}[]=[
  {prefix:"/pos",permission:"pos.view"},{prefix:"/historial",permission:"pos.view"},{prefix:"/pedidos-en-linea",permission:"pos.view"},{prefix:"/caja/historial",permission:"cash.history"},{prefix:"/caja",permission:"cash.view"},{prefix:"/cocina",permission:"kds.view"},{prefix:"/impresiones",permission:"printing.view"},{prefix:"/inventario",permission:"inventory.view"},{prefix:"/compras",permission:"purchases.view"},{prefix:"/bridge",permission:"bridge.view"},{prefix:"/reportes",permission:"reports.view"},{prefix:"/opiniones",permission:"reviews.view"},{prefix:"/clientes",permission:"customers.view"},{prefix:"/finanzas",permission:"finance.view"},{prefix:"/dueno",permission:"owner.view"},{prefix:"/configuracion/auditoria",permission:"audit.view"},{prefix:"/configuracion/usuarios",permission:"users.manage"},{prefix:"/configuracion",permission:"settings.view"},{prefix:"/dashboard",permission:"dashboard.view"},
 ];
 export function permissionForPath(pathname:string){return ROUTE_PERMISSIONS.find(x=>pathname.startsWith(x.prefix))?.permission;}
+
+/** Primera pantalla que puede abrir el usuario al entrar: el POS si puede vender; si no, lo primero que tenga permitido. */
+const HOME_ROUTES:{path:string;permission:PermissionKey}[]=[
+ {path:"/pos",permission:"pos.view"},{path:"/cocina",permission:"kds.view"},{path:"/dueno",permission:"owner.view"},{path:"/dashboard",permission:"dashboard.view"},{path:"/caja",permission:"cash.view"},{path:"/inventario",permission:"inventory.view"},{path:"/compras",permission:"purchases.view"},{path:"/reportes",permission:"reports.view"},{path:"/clientes",permission:"customers.view"},{path:"/configuracion",permission:"settings.view"},
+];
+export function homePathFor(user:Pick<CurrentUser,"id"|"role">|null|undefined){return HOME_ROUTES.find(r=>hasPermission(user,r.permission))?.path||"/acceso-denegado";}
