@@ -15,7 +15,7 @@ import { DRIVERS_EVENT, getDrivers, type Driver } from "@/lib/drivers";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { allocate } from "@/lib/sale-payments";
 import { openCashDrawer } from "@/lib/localService";
-import { drawerShouldOpen, getDrawerSettings } from "@/lib/cash-drawer";
+import { drawerShouldOpen, getDrawerSettings, reportDrawerWithoutCashSale } from "@/lib/cash-drawer";
 
 export type PaymentMethod = string;
 
@@ -188,7 +188,17 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
     setDiscount("");
     setPicked({});
   }
+  /** El cajón se abrió y no hubo venta en efectivo: aviso al dueño (robo hormiga) */
+  function checkDrawer(reason: "cancelado" | "sin-efectivo" | "pendiente") {
+    if (!drawerOpened.current) return;
+    const method = paymentMethod;
+    if (reason === "sin-efectivo" && getDrawerSettings().methods.includes(method)) return; // cobró con una forma que sí abre el cajón
+    drawerOpened.current = false;
+    void reportDrawerWithoutCashSale({ reason, paymentMethod: method, total, orderType });
+  }
+
   function close() {
+    checkDrawer("cancelado");
     resetAll();
     setSplitMode("none");
     setPaymentMethod("Efectivo");
@@ -259,6 +269,7 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
       alert("El pago no cubre el total.");
       return;
     }
+    checkDrawer("sin-efectivo");
     onConfirm(result({}));
     resetAll();
   }
@@ -269,6 +280,7 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
       alert("Escribe la dirección a donde se lleva el pedido.");
       return;
     }
+    checkDrawer("pendiente");
     onConfirm(result({ pending: true, cashReceived: 0, cardAmount: 0, transferAmount: 0, payments: {}, tip: 0, tipPayments: {} }));
     resetAll();
   }

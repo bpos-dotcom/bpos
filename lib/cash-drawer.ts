@@ -52,3 +52,40 @@ export function drawerShouldOpen(paymentMethod: string, orderType: string | unde
   if (settings.orderTypes.length > 0 && !settings.orderTypes.includes(orderType || "Mostrador")) return false;
   return true;
 }
+
+/**
+ * Robo hormiga: el cajón se abrió (al abrir el cobro o con el botón) y la
+ * venta no se concretó, o se concretó sin efectivo. Queda en la bitácora
+ * (nube, no se puede borrar), como alerta en el Centro de operaciones y le
+ * llega al dueño por push (preferencia "seguridad").
+ */
+export async function reportDrawerWithoutCashSale(input: { reason: "cancelado" | "sin-efectivo" | "pendiente"; paymentMethod: string; total: number; orderType?: string }) {
+  if (typeof window === "undefined") return;
+  const [{ addAuditEvent }, { getCurrentUser }, { upsertOperationsAlert }] = await Promise.all([import("@/lib/audit"), import("@/lib/auth"), import("@/lib/notifications/operationsCenter")]);
+  const user = getCurrentUser();
+  const money = `$${input.total.toFixed(2)}`;
+  const why =
+    input.reason === "cancelado"
+      ? `se abrió el cajón y el cobro de ${money} se canceló sin venta`
+      : input.reason === "pendiente"
+        ? `se abrió el cajón y el pedido de ${money} se mandó a cocina sin cobrar`
+        : `se abrió el cajón y la venta de ${money} se cobró con ${input.paymentMethod} (sin efectivo)`;
+  const description = `${user.name}: ${why}${input.orderType ? ` (${input.orderType})` : ""}.`;
+  const event = addAuditEvent({
+    category: "Seguridad",
+    action: "drawer.unjustified",
+    description,
+    userId: user.id > 0 ? String(user.id) : undefined,
+    userName: user.name,
+    metadata: { reason: input.reason, paymentMethod: input.paymentMethod, total: input.total, orderType: input.orderType },
+  });
+  upsertOperationsAlert({
+    id: `drawer:${event.id}`,
+    priority: "warning",
+    title: "Cajón abierto sin venta en efectivo",
+    message: description,
+    source: "Punto de venta",
+    moduleHref: "/configuracion/auditoria",
+    metadata: event.metadata,
+  });
+}
