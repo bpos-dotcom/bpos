@@ -50,12 +50,15 @@ export default function CashHistoryPage() {
     });
   }
 
-  /** Reenvía el corte por correo al de Configuración → Empresa (o al que se capture aquí) */
+  /** Reenvía el corte por correo SOLO al de Configuración → Empresa (no se puede escribir otro: evita desvíos del empleado) */
   async function resendEmail(record: CashCloseRecord) {
     const s = getBusinessSettings();
-    const suggested = s.cutEmail || s.businessEmail;
-    const to = window.prompt("¿A qué correo mandar el corte?", suggested)?.trim().toLowerCase();
-    if (!to) return;
+    const to = (s.cutEmail || s.businessEmail || "").trim().toLowerCase();
+    if (!to) {
+      alert("No hay correo del negocio. El administrador lo captura en Configuración → Empresa.");
+      return;
+    }
+    if (!confirm(`¿Enviar el corte ${record.folio} a ${to}?`)) return;
     try {
       await emailCashCut({ folio: record.folio, message: record.cutMessage || buildFallbackMessage(record) }, to);
       const user = getCurrentUser();
