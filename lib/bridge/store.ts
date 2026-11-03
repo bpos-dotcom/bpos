@@ -28,6 +28,8 @@ export type BridgeStore = {
   orders(): Promise<StoredBridgeOrder[]>;
   /** Solo los que siguen en proceso (sin Finalizado ni Error): para las alertas de pendientes, sin bajar todo */
   activeOrders(): Promise<StoredBridgeOrder[]>;
+  /** Huella de pedidos y equivalencias (cuántos y el último cambio): si no cambió, no hay que volver a bajarlos */
+  version(): Promise<string>;
   /** false si ya existía (misma plataforma y número) */
   addOrder(order: StoredBridgeOrder): Promise<boolean>;
   saveOrder(order: StoredBridgeOrder): Promise<void>;
@@ -68,6 +70,15 @@ function cloudStore(ctx: Extract<BridgeContext, { mode: "cloud" }>): BridgeStore
         .limit(300);
       fail(error);
       return (data ?? []).map((row) => row.data as StoredBridgeOrder);
+    },
+    async version() {
+      const [orders, aliases] = await Promise.all([
+        db.from("bpos_bridge_orders").select("updated_at", { count: "exact" }).eq("branch_id", branchId).order("updated_at", { ascending: false }).limit(1),
+        db.from("bpos_bridge_aliases").select("updated_at", { count: "exact" }).eq("business_id", businessId).order("updated_at", { ascending: false }).limit(1),
+      ]);
+      fail(orders.error);
+      fail(aliases.error);
+      return `${orders.count ?? 0}:${orders.data?.[0]?.updated_at ?? ""}|${aliases.count ?? 0}:${aliases.data?.[0]?.updated_at ?? ""}`;
     },
     async activeOrders() {
       const { data, error } = await db
@@ -166,6 +177,10 @@ const diskStore: BridgeStore = {
   },
   async activeOrders() {
     return bridgeOrders<StoredBridgeOrder>().filter((o) => o.status !== "Finalizado" && o.status !== "Error");
+  },
+  async version() {
+    // Sin nube (pruebas en esta PC): leer el archivo es barato, siempre "cambió"
+    return String(Date.now());
   },
   async addOrder(order) {
     const list = bridgeOrders<StoredBridgeOrder>();

@@ -48,8 +48,10 @@ const navItems = [
 const ACK_KEY = "bpos_bridge_pending_ack";
 const PINNED_KEY = "bpos_sidebar_pinned"; // solo de este dispositivo
 const AUTO_CLOSE_MS = 10_000;
-// Pendientes del Bridge: cada revisión consulta la nube (cuenta como tráfico de Supabase)
-const POLL_MS = 15_000;
+// Pendientes del Bridge: cada 3 s (también minimizado, para que pite) se revisa solo la huella
+// (unos bytes); los pendientes completos se bajan cuando cambia o cada 5 minutos
+const POLL_MS = 3000;
+const FULL_EVERY_MS = 5 * 60_000;
 
 type PendingResponse = {
   success?: boolean;
@@ -134,14 +136,21 @@ export function Sidebar() {
 
   const currentUser = getCurrentUser();
 
+  const bridgeVersion = useRef("");
+  const lastFullCheck = useRef(0);
   const refreshOperations = useCallback(async () => {
     try {
       syncCriticalInventoryAlerts();
       syncLowStockAlert();
 
-      const response = await bridgeFetch("/api/bridge/pending", { cache: "no-store" });
-      const payload = (await response.json()) as PendingResponse;
-      if (response.ok && payload.success) {
+      const versionResponse = await bridgeFetch("/api/bridge/version", { cache: "no-store" }).catch(() => null);
+      const version = versionResponse?.ok ? String(((await versionResponse.json().catch(() => ({}))) as { version?: string }).version || "") : "";
+      const changed = !version || version !== bridgeVersion.current || Date.now() - lastFullCheck.current > FULL_EVERY_MS;
+      const response = changed ? await bridgeFetch("/api/bridge/pending", { cache: "no-store" }) : null;
+      const payload = response ? ((await response.json()) as PendingResponse) : null;
+      if (response && payload && response.ok && payload.success) {
+        bridgeVersion.current = version;
+        lastFullCheck.current = Date.now();
         const nextCount = Number(payload.count ?? 0);
         const nextSignature = String(payload.signature ?? "");
         setPendingCount(nextCount);
@@ -173,9 +182,7 @@ export function Sidebar() {
     // Bitácora pendiente de subir (ej. se hizo algo sin internet)
     const auditTimer = window.setInterval(() => void flushCloudAudit(), 60_000);
     void flushCloudAudit();
-    const timer = window.setInterval(() => {
-      if (document.visibilityState === "visible") void refreshOperations();
-    }, POLL_MS);
+    const timer = window.setInterval(() => void refreshOperations(), POLL_MS);
     const refresh = () => void refreshOperations();
     window.addEventListener(OPERATIONS_ALERT_EVENT, refresh);
     window.addEventListener("bpos:inventory-alerts-updated", refresh);
