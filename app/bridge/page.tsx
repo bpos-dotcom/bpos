@@ -72,7 +72,8 @@ type AliasSelection = {
   token: number;
 };
 
-const REFRESH_MS = 2000;
+// Cada vuelta baja pedidos y equivalencias de la nube: cada 5 s y solo con la pantalla a la vista
+const REFRESH_MS = 5000;
 // Pedidos más viejos no se mandan a estaciones (ej. al abrir el Bridge horas después)
 const STATION_PRINT_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
@@ -224,7 +225,9 @@ function BridgeScreen() {
 
   useEffect(() => {
     void loadData();
-    const timer = window.setInterval(() => void loadData(), REFRESH_MS);
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === "visible") void loadData();
+    }, REFRESH_MS);
     return () => window.clearInterval(timer);
   }, [loadData]);
 

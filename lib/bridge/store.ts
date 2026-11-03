@@ -26,6 +26,8 @@ export type StoredAlias = { id: string; [key: string]: unknown };
 export type BridgeStore = {
   /** Pedidos, el más nuevo primero */
   orders(): Promise<StoredBridgeOrder[]>;
+  /** Solo los que siguen en proceso (sin Finalizado ni Error): para las alertas de pendientes, sin bajar todo */
+  activeOrders(): Promise<StoredBridgeOrder[]>;
   /** false si ya existía (misma plataforma y número) */
   addOrder(order: StoredBridgeOrder): Promise<boolean>;
   saveOrder(order: StoredBridgeOrder): Promise<void>;
@@ -64,6 +66,17 @@ function cloudStore(ctx: Extract<BridgeContext, { mode: "cloud" }>): BridgeStore
         .eq("branch_id", branchId)
         .order("received_at", { ascending: false })
         .limit(300);
+      fail(error);
+      return (data ?? []).map((row) => row.data as StoredBridgeOrder);
+    },
+    async activeOrders() {
+      const { data, error } = await db
+        .from("bpos_bridge_orders")
+        .select("data")
+        .eq("branch_id", branchId)
+        .not("status", "in", "(Finalizado,Error)")
+        .order("received_at", { ascending: false })
+        .limit(100);
       fail(error);
       return (data ?? []).map((row) => row.data as StoredBridgeOrder);
     },
@@ -150,6 +163,9 @@ function writeAliasFile(aliases: StoredAlias[]) {
 const diskStore: BridgeStore = {
   async orders() {
     return bridgeOrders<StoredBridgeOrder>();
+  },
+  async activeOrders() {
+    return bridgeOrders<StoredBridgeOrder>().filter((o) => o.status !== "Finalizado" && o.status !== "Error");
   },
   async addOrder(order) {
     const list = bridgeOrders<StoredBridgeOrder>();
