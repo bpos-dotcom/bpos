@@ -6,7 +6,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { buildShoppingListMessage, clearLowStockAfterShiftClose, getPendingLowStock, markShoppingListSent, shoppingListWasSentForShift } from "@/lib/inventory";
 import { getOwnerWhatsapp } from "@/lib/business-settings";
 import { getCurrentUser } from "@/lib/auth";
-import { requirePermissionOrAdmin } from "@/lib/permissions";
+import { requirePermission, requirePermissionOrAdmin } from "@/lib/permissions";
 import { addAuditEvent } from "@/lib/audit";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { saveCashCloseRecord } from "@/lib/cash-history";
@@ -54,6 +54,8 @@ const PLATFORM_METHODS = new Set(["Didi Food", "Uber Eats", "Rappi", "Plataforma
 export default function CajaPage() {
   const [openingCash, setOpeningCash] = useState("");
   const [cashCounted, setCashCounted] = useState("");
+  /** Último corte cerrado: liga de WhatsApp por si el navegador bloqueó la ventana (el PIN tarda y se pierde el "clic") */
+  const [lastCut, setLastCut] = useState<{ folio: string; url: string } | null>(null);
   const [differenceReason, setDifferenceReason] = useState("");
   const [movementType, setMovementType] =
     useState<CashMovement["type"]>("Gasto");
@@ -287,7 +289,8 @@ export default function CajaPage() {
   async function doCloseShift() {
   if (!shift) return;
   const permissionUser = getCurrentUser();
-  if (!(await requirePermissionOrAdmin(permissionUser, "cash.close", "cerrar caja"))) return;
+  // Cerrar caja no pide PIN extra al Admin (lo pidió el dueño); el corte se confirma en el siguiente paso
+  if (!(await requirePermission(permissionUser, "cash.close", "cerrar caja"))) return;
 
   if (pendingLowStock.length > 0 && !shoppingListWasSentForShift(shift.openedAt)) {
     alert("No podrás cerrar caja hasta enviar la lista de compras por WhatsApp.");
@@ -405,7 +408,11 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
     message
   )}`;
 
-  window.open(whatsappUrl, "_blank");
+  // Después del PIN y la confirmación el navegador puede tomar la ventana como emergente y bloquearla:
+  // el corte queda con su botón para abrir WhatsApp con un clic (y en Historial de cortes para reenviar)
+  const popup = window.open(whatsappUrl, "_blank");
+  setLastCut({ folio: cutFolio, url: whatsappUrl });
+  if (!popup) alert("El navegador bloqueó la ventana de WhatsApp. Usa el botón \"Enviar corte por WhatsApp\" que aparece en pantalla.");
 
   const closedAt = new Date().toISOString();
   const currentUser = getCurrentUser();
@@ -475,6 +482,14 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
       </div>
       {!shift ? (
         <section className="mx-auto max-w-xl rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
+          {lastCut && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-green-500/40 bg-green-500/10 p-4">
+              <p className="text-sm font-bold text-green-200">Corte {lastCut.folio} cerrado. ¿Ya llegó al WhatsApp del dueño?</p>
+              <a href={lastCut.url} target="_blank" rel="noreferrer" className="rounded-xl bg-green-500 px-4 py-2 text-sm font-black text-black">
+                📲 Enviar corte por WhatsApp
+              </a>
+            </div>
+          )}
           <p className="text-sm font-bold text-orange-500">Caja cerrada</p>
           <h2 className="mt-2 text-3xl font-black">Abrir turno</h2>
           <p className="mt-2 text-zinc-400">
