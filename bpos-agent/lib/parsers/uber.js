@@ -204,12 +204,17 @@ function extractItems(lines) {
   return items;
 }
 
+/**
+ * "MX$1,234.50" (coma de miles) y "256,90 MXN" (Uber, coma decimal): si la
+ * coma va seguida de exactamente dos dígitos al final y no hay punto, es decimal.
+ * Antes "256,90" se leía como 25690 (el ticket salía con un total de $25,690).
+ */
 function parseMoney(value) {
   if (!value) return 0;
 
-  const normalized = value
-    .replace(/[^\d.,-]/g, "")
-    .replace(/,/g, "");
+  const digits = String(value).replace(/[^\d.,-]/g, "");
+  const decimalComma = /,\d{2}$/.test(digits) && !digits.includes(".");
+  const normalized = decimalComma ? digits.replace(/,(?=\d{3})/g, "").replace(",", ".") : digits.replace(/,/g, "");
 
   const number = Number.parseFloat(normalized);
   return Number.isFinite(number) ? number : 0;
@@ -237,15 +242,9 @@ function extractTotal(lines) {
       continue;
     }
 
-    const lastAmount = moneyMatches[moneyMatches.length - 1];
+    const amount = parseMoney(moneyMatches[moneyMatches.length - 1]);
 
-    const normalized = lastAmount
-      .replace(/[^\d.,-]/g, "")
-      .replace(/,/g, "");
-
-    const amount = Number.parseFloat(normalized);
-
-    if (Number.isFinite(amount)) {
+    if (amount > 0) {
       return Math.abs(amount);
     }
   }
