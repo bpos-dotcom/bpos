@@ -55,17 +55,17 @@ export function drawerShouldOpen(paymentMethod: string, orderType: string | unde
 
 /**
  * Robo hormiga: el cajón se abrió (al abrir el cobro o con el botón) y la
- * venta no se concretó (cobro cancelado o mandado a cocina sin cobrar). Si
- * se cobró, con la forma que sea, no se avisa: el cajón se abre solo. Queda en la bitácora
+ * cobro se canceló sin venta. Si se cobró (con la forma que sea) o se mandó
+ * a cuenta en espera, es normal y no se avisa: el cajón se abre solo. Queda en la bitácora
  * (nube, no se puede borrar), como alerta en el Centro de operaciones y le
  * llega al dueño por push (preferencia "seguridad").
  */
-export async function reportDrawerWithoutCashSale(input: { reason: "cancelado" | "pendiente"; paymentMethod: string; total: number; orderType?: string }) {
+export async function reportDrawerWithoutCashSale(input: { paymentMethod: string; total: number; orderType?: string }) {
   if (typeof window === "undefined") return;
   const [{ addAuditEvent }, { getCurrentUser }, { upsertOperationsAlert }] = await Promise.all([import("@/lib/audit"), import("@/lib/auth"), import("@/lib/notifications/operationsCenter")]);
   const user = getCurrentUser();
   const money = `$${input.total.toFixed(2)}`;
-  const why = input.reason === "cancelado" ? `se abrió el cajón y el cobro de ${money} se canceló sin venta` : `se abrió el cajón y el pedido de ${money} se mandó a cocina sin cobrar`;
+  const why = `se abrió el cajón y el cobro de ${money} se canceló sin venta`;
   const description = `${user.name}: ${why}${input.orderType ? ` (${input.orderType})` : ""}.`;
   const event = addAuditEvent({
     category: "Seguridad",
@@ -73,7 +73,7 @@ export async function reportDrawerWithoutCashSale(input: { reason: "cancelado" |
     description,
     userId: user.id > 0 ? String(user.id) : undefined,
     userName: user.name,
-    metadata: { reason: input.reason, paymentMethod: input.paymentMethod, total: input.total, orderType: input.orderType },
+    metadata: { reason: "cancelado", paymentMethod: input.paymentMethod, total: input.total, orderType: input.orderType },
   });
   upsertOperationsAlert({
     id: `drawer:${event.id}`,

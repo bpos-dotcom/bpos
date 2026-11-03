@@ -188,16 +188,16 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
     setDiscount("");
     setPicked({});
   }
-  /** El cajón se abrió y no hubo venta: aviso al dueño (robo hormiga). Si la venta se concretó, con
-   *  cualquier forma de pago, no es sospechoso (el cajón se abre solo) y no se avisa. */
-  function checkDrawer(reason: "cancelado" | "pendiente") {
+  /** El cajón se abrió y el cobro se canceló sin venta: aviso al dueño (robo hormiga). Si la venta se
+   *  concretó (con cualquier forma de pago) o se mandó a cuenta en espera, es normal y no se avisa. */
+  function checkDrawer() {
     if (!drawerOpened.current) return;
     drawerOpened.current = false;
-    void reportDrawerWithoutCashSale({ reason, paymentMethod, total, orderType });
+    void reportDrawerWithoutCashSale({ paymentMethod, total, orderType });
   }
 
   function close() {
-    checkDrawer("cancelado");
+    checkDrawer();
     resetAll();
     setSplitMode("none");
     setPaymentMethod("Efectivo");
@@ -278,7 +278,7 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
       alert("Escribe la dirección a donde se lleva el pedido.");
       return;
     }
-    checkDrawer("pendiente");
+    drawerOpened.current = false; // cuenta en espera: se cobra después, no es sospechoso
     onConfirm(result({ pending: true, cashReceived: 0, cardAmount: 0, transferAmount: 0, payments: {}, tip: 0, tipPayments: {} }));
     resetAll();
   }
