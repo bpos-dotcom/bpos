@@ -26,6 +26,8 @@ import { DIGITAL_MENU_EVENT, getDigitalMenu, sortCategories } from "@/lib/digita
 import { getCurrentUser, CurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
+import { drawerShouldOpen } from "@/lib/cash-drawer";
+import { openCashDrawer } from "@/lib/localService";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { ClubPanel } from "@/components/club/ClubPanel";
@@ -489,7 +491,7 @@ function PosScreen() {
   const splitLinesOf = (o: SavedOrder): SplitLine[] => o.items.map((item, i) => ({ key: item.lineId || `${item.id}-${i}`, name: item.name, price: item.price, quantity: item.quantity }));
 
   /** Cierra una cuenta en espera como pagada: ticket, club, bitácora */
-  function finalizePending(order: SavedOrder, pay: { payments: Record<string, number>; tip: number; tipPayments: Record<string, number>; partialPayments?: SavedOrder["partialPayments"]; couponCode?: string; drawerOpened?: boolean }) {
+  async function finalizePending(order: SavedOrder, pay: { payments: Record<string, number>; tip: number; tipPayments: Record<string, number>; partialPayments?: SavedOrder["partialPayments"]; couponCode?: string; drawerOpened?: boolean }) {
     const paid: SavedOrder = {
       ...order,
       pendingPayment: false,
@@ -508,7 +510,9 @@ function PosScreen() {
     }
     addAuditEvent({ category: "Venta", action: "sale.paid", description: `${currentUser?.name || "Usuario"} cobró ${nameOf(paid)} (Pedido #${folio(paid)}: ${money(paid.total)}, ${paid.details.paymentMethod}${pay.tip > 0 ? `, propina ${money(pay.tip)}` : ""})`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { total: paid.total, paymentMethod: paid.details.paymentMethod, payments: pay.payments, tip: pay.tip } });
     // Ticket del cliente ya con el pago
-    void printSale(paid, { stations: [], customer: true, drawer: !pay.drawerOpened }, true).catch(() => undefined);
+    const drawerWanted = drawerShouldOpen(paid.details.paymentMethod, paid.details.orderType);
+    const drawerOpened = pay.drawerOpened || (drawerWanted && (await openCashDrawer()));
+    void printSale(paid, { stations: [], customer: true, drawer: drawerWanted && !drawerOpened }, true).catch(() => undefined);
     setPayingOrder(null);
     notify(`${nameOf(paid)} cobrada: ${money(paid.total)}${pay.tip > 0 ? ` + ${money(pay.tip)} de propina` : ""}.`);
   }
@@ -606,7 +610,7 @@ function PosScreen() {
         notify(`Parte ${partials.length} cobrada: ${money(amount)}${data.tip > 0 ? ` + ${money(data.tip)} de propina` : ""}. Faltan ${money(withDiscount.total - paidSum)}.`);
         return;
       }
-      finalizePending(withDiscount, {
+      void finalizePending(withDiscount, {
         payments: sumPayments(partials.map((p) => p.payments)),
         tip: round2(partials.reduce((s, p) => s + p.tip, 0)),
         tipPayments: sumPayments(partials.map((p) => p.tipPayments)),
@@ -618,7 +622,7 @@ function PosScreen() {
     }
 
     // --- Todo de una vez ---
-    finalizePending(withDiscount, { payments: data.payments, tip: data.tip, tipPayments: data.tipPayments, couponCode: data.couponCode, drawerOpened: data.drawerOpened });
+    void finalizePending(withDiscount, { payments: data.payments, tip: data.tip, tipPayments: data.tipPayments, couponCode: data.couponCode, drawerOpened: data.drawerOpened });
   }
 
   function nextGlobalOrderId() {
@@ -703,9 +707,12 @@ function PosScreen() {
       })();
     }
     discountInventoryByOrder(newOrder.id, cart);
+    // Cajón: si no se abrió al abrir el cobro y la configuración dice que sí (forma de pago y tipo de pedido),
+    // se abre ahora, antes de armar el ticket; el ticket solo lo abre si el Agent no pudo (Agent viejo)
+    const drawerWanted = !data.pending && drawerShouldOpen(data.paymentMethod, nextDetails.orderType);
+    const drawerOpened = data.drawerOpened || (drawerWanted && (await openCashDrawer()));
     // Comandas por estación y ticket del cliente en Caja, directo a las térmicas
-    // Si el cajón ya se abrió al abrir el cobro, el ticket no lo vuelve a abrir
-    void printSale(newOrder, { stations: saleStations(newOrder), customer: true, drawer: !data.drawerOpened }, false)
+    void printSale(newOrder, { stations: saleStations(newOrder), customer: true, drawer: drawerWanted && !drawerOpened }, false)
       .then((failed) => {
         if (failed.length) notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`, "error");
       })
@@ -771,6 +778,7 @@ function PosScreen() {
           setPayingOrder(null);
         }}
         onConfirm={payingOrder ? payPending : confirmCheckout}
+        orderType={payingOrder ? payingOrder.details.orderType : details.orderType}
         delivery={!payingOrder && details.orderType === "Domicilio" ? { address: details.customerAddress } : undefined}
         heading={payingOrder ? `Cobrar ${payingOrder.details.table ? tableLabel(payingOrder.details.table, payingOrder.details.diners) : "cuenta en espera"} · #${folio(payingOrder)}` : undefined}
       />

@@ -15,6 +15,7 @@ import { DRIVERS_EVENT, getDrivers, type Driver } from "@/lib/drivers";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { allocate } from "@/lib/sale-payments";
 import { openCashDrawer } from "@/lib/localService";
+import { drawerShouldOpen, getDrawerSettings } from "@/lib/cash-drawer";
 
 export type PaymentMethod = string;
 
@@ -60,12 +61,14 @@ type CheckoutModalProps = {
   heading?: string;
   /** Cuenta en espera o de mesa: se puede dividir */
   split?: { lines: SplitLine[]; fullTotal: number; partsPaid: number };
+  /** Tipo de pedido (Mostrador, Domicilio…): decide si el cajón abre solo (Configuración → Impresoras) */
+  orderType?: string;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const money = (n: number) => `$${n.toFixed(2)}`;
 
-export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConfirm, delivery, heading, split }: CheckoutModalProps) {
+export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConfirm, delivery, heading, split, orderType }: CheckoutModalProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [cashReceived, setCashReceived] = useState("");
   const [cardAmount, setCardAmount] = useState("");
@@ -126,12 +129,12 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
     };
   }, []);
 
-  // El cajón se abre en cuanto el cobro es en efectivo (o mixto), una vez por cobro,
-  // sin esperar a capturar el pago ni a que salga el ticket.
+  // El cajón se abre en cuanto se abre el cobro (si así está en Configuración → Impresoras → Caja:
+  // forma de pago y tipo de pedido permitidos), una vez por cobro, sin esperar al ticket.
   // (Va antes del `return null`: los hooks deben correr en cada render.)
   const drawerOpened = useRef(false);
   const [drawerBusy, setDrawerBusy] = useState(false);
-  const wantsDrawer = paymentMethod === "Efectivo" || paymentMethod === "Mixto";
+  const wantsDrawer = isOpen && getDrawerSettings().when === "al-abrir" && drawerShouldOpen(paymentMethod, orderType);
   useEffect(() => {
     if (!isOpen) {
       drawerOpened.current = false;
