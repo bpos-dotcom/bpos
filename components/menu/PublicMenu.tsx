@@ -22,6 +22,7 @@ import {
   mapsLink,
   normalizeDigitalMenu,
   onlineGroups,
+  opensEveryDay,
   opensInLabel,
   orderWhatsappText,
   publicHoursLabel,
@@ -460,7 +461,11 @@ function Menu({
             <p className="font-bold text-zinc-900">
               Ahora estamos cerrados{opensIn ? ` · Abrimos ${opensIn}` : ""}
             </p>
-            {hoursText && <p className="mt-0.5">Abrimos {hoursText[0].toLowerCase() + hoursText.slice(1)}</p>}
+            {hoursText && (
+              <p className="mt-0.5">
+                {opensEveryDay(menu) && !hoursText.startsWith("Todos los días") ? `Abrimos todos los días · ${hoursText}` : `Abrimos ${hoursText[0].toLowerCase() + hoursText.slice(1)}`}
+              </p>
+            )}
             <p className="mt-1">{canSchedule ? "Puedes armar tu pedido y programarlo para cuando abramos (con tu cuenta)." : "Puedes ver el menú."}</p>
           </div>
         )}

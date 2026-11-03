@@ -94,6 +94,8 @@ async function main() {
   check("abre en 2 h 30 min", dm.opensInLabel(bp, new Date("2026-11-03T11:00:00")) === "en 2 h 30 min", dm.opensInLabel(bp, new Date("2026-11-03T11:00:00")));
   check("abre mañana", dm.opensInLabel(bp, new Date("2026-11-03T23:45:00")).startsWith("mañana a la"), dm.opensInLabel(bp, new Date("2026-11-03T23:45:00")));
   check("abierto: sin próximo", dm.nextOpening(bp, new Date("2026-11-03T15:00:00")) === null);
+  check("servicio los 7 días con dos bloques", dm.opensEveryDay(bp));
+  check("solo viernes no es todos los días", !dm.opensEveryDay(horario));
   check("sin horario: siempre abierto", dm.isOpenNow(dm.normalizeDigitalMenu({ moreHours: [] }), new Date("2026-10-30T03:00:00")));
 
   // Liga
