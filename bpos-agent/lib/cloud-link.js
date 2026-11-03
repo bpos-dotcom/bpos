@@ -11,6 +11,7 @@ const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const os = require("os");
+const { startWake, stopWake } = require("./agent-wake");
 
 // Proyecto de Supabase de B-POS. La llave "publishable" es pública por diseño
 // (la seguridad la dan las funciones, que revisan la llave del Agent).
@@ -36,6 +37,9 @@ let pollTimer = null;
 let lastPrintersAt = 0;
 let lastStationConfig = "";
 let outboxTimer = null;
+let polling = false; // hay una vuelta en curso
+let wakePending = false; // llegó un aviso durante la vuelta: revisar otra vez al terminar
+let wakeTopic = ""; // canal del despertador ya abierto (agent-<id>)
 
 function linkFile() {
   return path.join(dataDir, "agent-link.json");
@@ -286,13 +290,39 @@ async function pollOnce() {
 function schedulePoll(ms) {
   clearTimeout(pollTimer);
   pollTimer = setTimeout(async () => {
+    if (polling) return; // la vuelta en curso programa la siguiente al terminar
+    polling = true;
     let next = POLL_OFFLINE_MS;
     try {
       next = await pollOnce();
     } finally {
-      schedulePoll(next);
+      polling = false;
+      ensureWake();
+      schedulePoll(wakePending ? 0 : next);
+      wakePending = false;
     }
   }, ms);
+}
+
+/** Aviso de B-POS: hay un trabajo nuevo, revisar la cola ya. */
+function wake() {
+  if (polling) {
+    wakePending = true;
+    return;
+  }
+  schedulePoll(0);
+}
+
+/** Abre (o cierra) el despertador según el Agent esté vinculado o no. */
+function ensureWake() {
+  const topic = link ? `agent-${link.agentId}` : "";
+  if (topic === wakeTopic) return;
+  wakeTopic = topic;
+  if (!topic) {
+    stopWake();
+    return;
+  }
+  startWake({ url: SUPABASE_URL, key: SUPABASE_KEY, topic, onWake: wake });
 }
 
 /**
@@ -315,6 +345,8 @@ function startCloudLink(opts) {
 }
 
 function stopCloudLink() {
+  stopWake();
+  wakeTopic = "";
   clearTimeout(pollTimer);
   clearInterval(outboxTimer);
 }
