@@ -1,6 +1,7 @@
 "use client";
 
 import { addAuditEvent } from "@/lib/audit";
+import { notify } from "@/components/layout/Toasts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
@@ -320,11 +321,11 @@ function PosScreen() {
     discountInventoryByOrder(`${order.id}-r${round}`, cart);
     void printSale({ ...updated, items: newItems }, { stations: saleStations({ ...updated, items: newItems }), customer: false }, true)
       .then((failed) => {
-        if (failed.length) alert(`Ronda mandada, pero no salió en: ${failed.join(" · ")}. Reimprime desde Impresiones.`);
+        if (failed.length) notify(`Ronda mandada, pero no salió en: ${failed.join(" · ")}. Reimprime desde Impresiones.`, "error");
       })
-      .catch(() => alert("Ronda guardada, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado."));
+      .catch(() => notify("Ronda guardada, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado.", "error"));
     addAuditEvent({ category: "Venta", action: "sale.round", description: `${currentUser?.name || "Usuario"} mandó la ronda ${round} de ${tableLabel(order.details.table)} (Pedido #${formatOrderNumber(updated as SavedOrder & { localOrderNumber?: number })}): ${cart.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { round, total: updated.total } });
-    alert(`Ronda ${round} de ${tableLabel(order.details.table)} mandada a cocina. Total de la mesa: $${updated.total.toFixed(2)}.`);
+    notify(`Ronda ${round} de ${tableLabel(order.details.table)} mandada a cocina. Total de la mesa: $${updated.total.toFixed(2)}.`);
     setCart([]);
     setDetails({ orderType: "Mostrador", customerName: "", customerPhone: "", customerAddress: "", paymentMethod: "Efectivo", discount: 0 });
   }
@@ -509,7 +510,7 @@ function PosScreen() {
     // Ticket del cliente ya con el pago
     void printSale(paid, { stations: [], customer: true, drawer: !pay.drawerOpened }, true).catch(() => undefined);
     setPayingOrder(null);
-    alert(`${nameOf(paid)} cobrada: ${money(paid.total)}${pay.tip > 0 ? ` + ${money(pay.tip)} de propina` : ""}.`);
+    notify(`${nameOf(paid)} cobrada: ${money(paid.total)}${pay.tip > 0 ? ` + ${money(pay.tip)} de propina` : ""}.`);
   }
 
   /**
@@ -578,7 +579,7 @@ function PosScreen() {
         addAuditEvent({ category: "Venta", action: "sale.paid", description: `${by || "Usuario"} cobró parte de ${nameOf(order)} como Pedido #${folio(part)} (${money(part.total)}, ${part.details.paymentMethod}): ${taken.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: by, entityId: String(part.id), metadata: { splitFrom: order.id, total: part.total, payments: data.payments, tip: data.tip } });
         void printSale(part, { stations: [], customer: true }, true).catch(() => undefined);
         setPayingOrder(rest);
-        alert(`Cobrados ${money(part.total)}${data.tip > 0 ? ` + ${money(data.tip)} de propina` : ""} (Pedido #${folio(part)}). Quedan ${money(rest.total)} en ${nameOf(rest)}.`);
+        notify(`Cobrados ${money(part.total)}${data.tip > 0 ? ` + ${money(data.tip)} de propina` : ""} (Pedido #${folio(part)}). Quedan ${money(rest.total)} en ${nameOf(rest)}.`);
         return;
       }
       // Marcó todo: es el cobro completo
@@ -602,7 +603,7 @@ function PosScreen() {
         if (data.couponCode) countCouponUse(data.couponCode);
         addAuditEvent({ category: "Venta", action: "sale.paid", description: `${by || "Usuario"} cobró la parte ${partials.length} de ${nameOf(order)}: ${money(amount)} (${data.paymentMethod}). Faltan ${money(withDiscount.total - paidSum)}.`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: by, entityId: String(order.id), metadata: { part: partials.length, amount, payments: data.payments, tip: data.tip } });
         setPayingOrder(updated);
-        alert(`Parte ${partials.length} cobrada: ${money(amount)}${data.tip > 0 ? ` + ${money(data.tip)} de propina` : ""}. Faltan ${money(withDiscount.total - paidSum)}.`);
+        notify(`Parte ${partials.length} cobrada: ${money(amount)}${data.tip > 0 ? ` + ${money(data.tip)} de propina` : ""}. Faltan ${money(withDiscount.total - paidSum)}.`);
         return;
       }
       finalizePending(withDiscount, {
@@ -706,12 +707,12 @@ function PosScreen() {
     // Si el cajón ya se abrió al abrir el cobro, el ticket no lo vuelve a abrir
     void printSale(newOrder, { stations: saleStations(newOrder), customer: true, drawer: !data.drawerOpened }, false)
       .then((failed) => {
-        if (failed.length) alert(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`);
+        if (failed.length) notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`, "error");
       })
-      .catch(() => alert(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Impresiones.`));
+      .catch(() => notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Impresiones.`, "error"));
     addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por $${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
 
-    alert(
+    notify(
       data.pending
         ? nextDetails.table
           ? `${tableLabel(nextDetails.table, nextDetails.diners)} abierta (Pedido #${formatOrderNumber(newOrder)}). Ya está en cocina; desde Mesas agregas rondas, sacas la precuenta o cobras.`
