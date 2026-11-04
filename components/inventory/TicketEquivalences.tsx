@@ -9,22 +9,13 @@
 import { useState } from "react";
 import { ask } from "@/components/layout/Dialogs";
 import type { Ingredient } from "@/data/inventory";
+import { compatibleUnits, unitFactor } from "@/lib/units";
 import { addPurchaseAlias, deletePurchaseAlias, getPurchaseAliases, getSuppliers, type PurchaseAlias } from "@/lib/purchases";
 
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
 
-/** Unidades en que se puede escribir lo que trae cada presentación (kg y L se convierten) */
-const UNITS: Record<Ingredient["unit"], { label: string; factor: number }[]> = {
-  pza: [{ label: "pza", factor: 1 }],
-  g: [
-    { label: "g", factor: 1 },
-    { label: "kg", factor: 1000 },
-  ],
-  ml: [
-    { label: "ml", factor: 1 },
-    { label: "L", factor: 1000 },
-  ],
-};
+/** Unidades en que se puede escribir lo que trae cada presentación (se convierten a la del ingrediente) */
+const unitsFor = (unit: Ingredient["unit"]) => compatibleUnits(unit).map((u) => ({ label: u, factor: unitFactor(u, unit) || 1 }));
 
 /** Equivalencias de este ingrediente y los proveedores conocidos (de Compras y de otras equivalencias) */
 function load(ingredientId: number) {
@@ -39,11 +30,12 @@ function load(ingredientId: number) {
 export function TicketEquivalences({ ingredient }: { ingredient: Pick<Ingredient, "id" | "name" | "unit"> }) {
   const [data, setData] = useState(() => load(ingredient.id));
   const { aliases, suppliers } = data;
-  const [form, setForm] = useState({ ticketName: "", supplier: "", quantity: "", unit: 0 });
+  // Empieza en la unidad del ingrediente (kg si es en kg)
+  const [form, setForm] = useState(() => ({ ticketName: "", supplier: "", quantity: "", unit: Math.max(0, unitsFor(ingredient.unit).findIndex((u) => u.label === ingredient.unit)) }));
   const [error, setError] = useState("");
   const refresh = () => setData(load(ingredient.id));
 
-  const units = UNITS[ingredient.unit] || UNITS.pza;
+  const units = unitsFor(ingredient.unit);
   const factor = units[form.unit]?.factor || 1;
   const qty = Number(form.quantity) || 0;
 

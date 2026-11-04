@@ -2,7 +2,7 @@ import type { KitchenStation } from "@/data/products";
 export type Ingredient = {
   id: number;
   name: string;
-  unit: "pza" | "g" | "ml";
+  unit: "pza" | "g" | "kg" | "ml" | "L";
   stock: number;
   minimum: number;
   /** Categoría para ordenar la lista (Lácteos, Carnes, Bebidas...); sin categoría va en "Sin categoría" */
