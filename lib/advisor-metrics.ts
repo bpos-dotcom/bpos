@@ -6,7 +6,7 @@
 import { getBusinessSettings } from "@/lib/business-settings";
 import { getCoupons, couponState } from "@/lib/coupons";
 import { buildCustomers } from "@/lib/customers";
-import { breakEven, getExpenses, getFixedExpenses } from "@/lib/finance";
+import { breakEven, getExpenses, getFixedExpenses, getOtherIncome, isPlatformOrder } from "@/lib/finance";
 import { buildReport, loadReportSources, presetRange, type ReportOrder, type Row } from "@/lib/reports";
 import { DAY_NAMES } from "@/lib/sale-schedule";
 
@@ -38,7 +38,11 @@ export function buildMetrics(orders: ReportOrder[], branchLabel: string) {
   const fixed = getFixedExpenses().reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
   const loose = getExpenses().filter((e) => e.date >= monthStart).reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const monthMargin = month.kpis.sales > 0 ? (month.kpis.profit / month.kpis.sales) * 100 : 0;
+  // Como en Finanzas: ingreso = ventas del local y menú + depósitos de las apps (no su precio al cliente); el costo es de todo
+  const monthLocal = buildReport({ ...src, orders: orders.filter((o) => !isPlatformOrder(o)) }, presetRange("mes")).kpis.sales;
+  const deposits = getOtherIncome().filter((i) => i.date >= monthStart).reduce((s, i) => s + (Number(i.amount) || 0), 0);
+  const monthIncome = monthLocal + deposits;
+  const monthMargin = monthIncome > 0 ? ((monthIncome - month.kpis.cost) / monthIncome) * 100 : 0;
   const customers = buildCustomers(orders as Parameters<typeof buildCustomers>[0]);
   const product = (r: Row) => ({ nombre: r.label, piezas: r.quantity, ventas: r2(r.sales), costo: r2(r.cost), margenPct: r.cost ? r2(r.margin) : null });
 
@@ -55,7 +59,10 @@ export function buildMetrics(orders: ReportOrder[], branchLabel: string) {
       foodCostPct: month.kpis.sales ? r2((month.kpis.cost / month.kpis.sales) * 100) : null,
       gastosFijosDelMes: r2(fixed),
       gastosSueltosDelMes: r2(loose),
-      utilidadReal: r2(month.kpis.profit - fixed - loose),
+      ventasLocalYMenu: r2(monthLocal),
+      depositosDeApps: r2(deposits),
+      ventasAppsPrecioAlCliente: r2(month.kpis.sales - monthLocal),
+      utilidadReal: r2(monthIncome - month.kpis.cost - fixed - loose),
       puntoDeEquilibrioMensual: breakEven(fixed + loose, monthMargin) ? r2(breakEven(fixed + loose, monthMargin)!) : null,
       ventasConCostoPct: r2(month.kpis.costCoverage),
     },
