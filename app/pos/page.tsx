@@ -496,6 +496,7 @@ function PosScreen() {
       ...order,
       pendingPayment: false,
       paidAt: new Date().toISOString(),
+      ...(currentUser?.name ? { paidBy: currentUser.name } : {}),
       tip: pay.tip,
       tipPayments: pay.tipPayments,
       ...(pay.partialPayments ? { partialPayments: pay.partialPayments } : {}),
@@ -569,6 +570,8 @@ function PosScreen() {
           subtotal: partSubtotal,
           total: Math.max(0, round2(partSubtotal - discount)),
           paidAt: now,
+          ...(order.soldBy ? { soldBy: order.soldBy } : {}),
+          ...(currentUser?.name ? { paidBy: currentUser.name } : {}),
           splitFrom: order.id,
           tip: data.tip,
           tipPayments: data.tipPayments,
@@ -686,8 +689,9 @@ function PosScreen() {
       details: nextDetails,
       subtotal,
       total,
+      ...(currentUser?.name ? { soldBy: currentUser.name } : {}),
       // En espera: queda "por cobrar"; el club se le suma cuando pague
-      ...(data.pending ? { pendingPayment: true, ...(clubMember?.member ? { clubAccountId: clubMember.account_id } : {}) } : { paidAt: new Date().toISOString(), tip: data.tip, tipPayments: data.tipPayments }),
+      ...(data.pending ? { pendingPayment: true, ...(clubMember?.member ? { clubAccountId: clubMember.account_id } : {}) } : { paidAt: new Date().toISOString(), ...(currentUser?.name ? { paidBy: currentUser.name } : {}), tip: data.tip, tipPayments: data.tipPayments }),
       ...(nextDetails.table ? { rounds: 1 } : {}),
     } as SavedOrder & { localOrderNumber: number; shiftSessionId: string };
 

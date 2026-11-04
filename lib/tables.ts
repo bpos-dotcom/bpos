@@ -9,7 +9,12 @@
  * pueden agregar rondas, sacar la precuenta y cobrarlo (dividido o no).
  */
 
-export type Table = { id: string; name: string; zone: string; seats: number; active: boolean };
+export type TableShape = "cuadrada" | "redonda" | "larga";
+/** x, y: centro de la mesa en el plano de su zona, en % (0-100). Sin x/y se acomoda sola. */
+export type Table = { id: string; name: string; zone: string; seats: number; active: boolean; x?: number; y?: number; shape?: TableShape };
+
+export const TABLE_SHAPES: Record<TableShape, string> = { cuadrada: "Cuadrada", redonda: "Redonda", larga: "Larga / barra" };
+const pos = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(100, Math.round(v * 10) / 10)) : undefined);
 
 export const TABLES_KEY = "bpos_tables";
 export const TABLES_EVENT = "bpos:tables-updated";
@@ -30,6 +35,8 @@ export function getTables(): Table[] {
             zone: String(t.zone || DEFAULT_ZONE).trim().slice(0, 30) || DEFAULT_ZONE,
             seats: Math.max(0, Math.min(99, Math.round(Number(t.seats) || 0))),
             active: t.active !== false,
+            ...(pos(t.x) !== undefined && pos(t.y) !== undefined ? { x: pos(t.x), y: pos(t.y) } : {}),
+            ...(t.shape && t.shape in TABLE_SHAPES ? { shape: t.shape as TableShape } : {}),
           }))
       : [];
   } catch {

@@ -9,6 +9,19 @@ import { useEffect, useState } from "react";
 import type { SavedOrder } from "@/components/OrderHistoryPanel";
 import { openTableOrder, tableZones, type Table } from "@/lib/tables";
 import { formatOrderNumber } from "@/lib/order-sequence";
+import { FloorPlan } from "@/components/tables/FloorPlan";
+
+const VIEW_KEY = "bpos_tables_view"; // de este equipo (no se sincroniza)
+type View = "plano" | "cuadricula";
+function savedView(tables: Table[]): View {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    if (v === "plano" || v === "cuadricula") return v;
+  } catch {
+    // sin almacenamiento
+  }
+  return tables.some((t) => t.active && t.x !== undefined) ? "plano" : "cuadricula";
+}
 
 type Props = {
   tables: Table[];
@@ -28,6 +41,15 @@ export function TablesModal({ tables, orders, currentTableId, onClose, onOpenTab
   const [picked, setPicked] = useState<Table | null>(null);
   const [diners, setDiners] = useState(2);
   const [, setTick] = useState(0);
+  const [view, setViewState] = useState<View>(() => savedView(tables));
+  const setView = (v: View) => {
+    setViewState(v);
+    try {
+      localStorage.setItem(VIEW_KEY, v);
+    } catch {
+      // sin almacenamiento
+    }
+  };
   useEffect(() => {
     const t = setInterval(() => setTick((v) => v + 1), 30_000);
     return () => clearInterval(t);
@@ -39,14 +61,25 @@ export function TablesModal({ tables, orders, currentTableId, onClose, onOpenTab
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur sm:p-6" onClick={onClose}>
       <section className="max-h-[92dvh] w-full max-w-4xl overflow-y-auto rounded-3xl border border-zinc-800 bg-zinc-950 p-5 text-white sm:p-6" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-start justify-between gap-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="text-sm font-bold text-orange-500">Comer aquí</p>
             <h2 className="text-3xl font-black">🪑 Mesas</h2>
           </div>
-          <button onClick={onClose} className="rounded-xl border border-zinc-800 bg-black px-4 py-2 font-black">
-            ✕
-          </button>
+          <div className="flex flex-wrap justify-end gap-2">
+            {active.length > 0 && !picked && (
+              <div className="flex overflow-hidden rounded-xl border border-zinc-800">
+                {(["plano", "cuadricula"] as const).map((v) => (
+                  <button key={v} onClick={() => setView(v)} className={`whitespace-nowrap px-3 py-2 text-sm font-black ${view === v ? "bg-orange-500 text-black" : "bg-black text-zinc-300"}`}>
+                    {v === "plano" ? "🗺️ Plano" : "▦ Cuadrícula"}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button onClick={onClose} className="rounded-xl border border-zinc-800 bg-black px-4 py-2 font-black">
+              ✕
+            </button>
+          </div>
         </div>
 
         {active.length === 0 && (
@@ -125,6 +158,40 @@ export function TablesModal({ tables, orders, currentTableId, onClose, onOpenTab
               </>
             )}
           </div>
+        ) : view === "plano" ? (
+          zones.map((zone) => (
+            <div key={zone} className="mt-6">
+              <h3 className="mb-2 text-sm font-black uppercase tracking-wide text-zinc-500">{zone}</h3>
+              <FloorPlan
+                tables={active.filter((t) => t.zone === zone)}
+                onPick={setPicked}
+                look={(t) => {
+                  const open = openTableOrder(orders, t.id);
+                  const current = t.id === currentTableId ? "ring-2 ring-orange-400" : "";
+                  return open
+                    ? {
+                        className: `border-orange-500 bg-orange-950 text-orange-100 ${current}`,
+                        content: (
+                          <>
+                            <span className="text-base font-black sm:text-lg">{t.name}</span>
+                            <span className="text-xs font-black text-orange-300">${open.total.toFixed(0)}</span>
+                            <span className="text-[10px] text-zinc-400">{minutesSince(open.createdAt)} min</span>
+                          </>
+                        ),
+                      }
+                    : {
+                        className: `border-emerald-500/60 bg-emerald-950 text-emerald-100 hover:bg-emerald-900 ${current}`,
+                        content: (
+                          <>
+                            <span className="text-base font-black sm:text-lg">{t.name}</span>
+                            <span className="text-[10px] text-emerald-300">Libre{t.seats ? ` · ${t.seats}` : ""}</span>
+                          </>
+                        ),
+                      };
+                }}
+              />
+            </div>
+          ))
         ) : (
           zones.map((zone) => (
             <div key={zone} className="mt-6">

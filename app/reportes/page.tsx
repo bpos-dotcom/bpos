@@ -18,8 +18,11 @@ import {
 } from "@/lib/reports";
 import { downloadXlsx, type Cell, type Sheet } from "@/lib/xlsx";
 import { isCloudConfigured } from "@/lib/supabase/client";
+import { getAdminProducts } from "@/lib/admin";
+import { modifierPopularity, slowMovers, staffReport } from "@/lib/staff";
+import { StaffTab } from "@/components/reports/StaffTab";
 
-type Tab = "ventas" | "productos" | "estrella" | "canales" | "sucursales" | "turnos" | "compras" | "inventario";
+type Tab = "ventas" | "productos" | "empleados" | "estrella" | "canales" | "sucursales" | "turnos" | "compras" | "inventario";
 
 const PRESETS: { id: RangePreset; label: string }[] = [
   { id: "hoy", label: "Hoy" },
@@ -133,6 +136,21 @@ export default function ReportesPage() {
       { name: "Categorías", rows: rowsTable(report.byCategory, "Categoría", { qty: true }) },
       { name: "Canales", rows: rowsTable(report.byChannel, "Canal / plataforma", { count: true }) },
       { name: "Métodos de pago", rows: rowsTable(report.byPayment, "Método", { count: true }) },
+      {
+        name: "Empleados",
+        rows: [
+          ["Empleado", "Pedidos", "Venta", "Ticket promedio", "Artículos", "Propinas", "Horas"],
+          ...staffReport(report.orders, range).map((r) => [r.name, r.orders, r.sales, r.average, r.items, r.tips, r.hours]),
+        ],
+      },
+      {
+        name: "Baja rotación",
+        rows: [["Producto", "Categoría", "Cantidad", "Venta"], ...slowMovers(getAdminProducts(), report.byProduct, 1000).map((r) => [r.name, r.category, r.quantity, r.sales])],
+      },
+      {
+        name: "Extras y opciones",
+        rows: [["Grupo", "Opción", "Veces", "Venta extra"], ...modifierPopularity(report.orders, 1000).map((r) => [r.group, r.name, r.times, r.sales])],
+      },
       {
         name: "Pedidos",
         rows: [
@@ -298,6 +316,7 @@ export default function ReportesPage() {
                 [
                   ["ventas", "📈 Ventas"],
                   ["productos", "🍔 Productos"],
+                  ["empleados", "👥 Empleados y propinas"],
                   ["estrella", "⭐ Estrella y comparativo"],
                   ["canales", "🛵 Canales y pagos"],
                   ["sucursales", "🏬 Sucursales"],
@@ -340,8 +359,16 @@ export default function ReportesPage() {
                 <Panel title="Categorías" wide>
                   <Table rows={report.byCategory} first="Categoría" showCosts={showCosts} qty />
                 </Panel>
+                <Panel title="🐢 Baja rotación (lo que menos se vende)">
+                  <SlowTable rows={slowMovers(getAdminProducts(), report.byProduct)} />
+                </Panel>
+                <Panel title="🧂 Extras y opciones más pedidos">
+                  <ModifierTable rows={modifierPopularity(report.orders)} />
+                </Panel>
               </div>
             )}
+
+            {tab === "empleados" && <StaffTab orders={report.orders} range={range} rangeLabel={rangeLabel} />}
 
             {tab === "estrella" && previous && (
               <div className="grid gap-6 xl:grid-cols-2">
@@ -686,6 +713,60 @@ function MenuEngineering({ rows, showCosts }: { rows: Row[]; showCosts: boolean 
   );
 }
 
+
+function SlowTable({ rows }: { rows: ReturnType<typeof slowMovers> }) {
+  if (rows.length === 0) return <p className="text-sm text-zinc-500">No hay productos en el catálogo.</p>;
+  return (
+    <div className="overflow-x-auto">
+      <p className="mb-3 text-xs text-zinc-500">Productos del catálogo con menos piezas vendidas en el periodo. Candidatos a promoción, a cambiar o a quitar del menú.</p>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-left text-zinc-500">
+            <th className="pb-2">Producto</th>
+            <th className="pb-2 text-right">Piezas</th>
+            <th className="pb-2 text-right">Venta</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.name} className="border-t border-zinc-900">
+              <td className="py-2">
+                <b>{r.name}</b> <span className="text-xs text-zinc-500">{r.category}</span>
+              </td>
+              <td className={`py-2 text-right font-black ${r.quantity === 0 ? "text-red-400" : ""}`}>{num(r.quantity)}</td>
+              <td className="py-2 text-right">{money(r.sales)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function ModifierTable({ rows }: { rows: ReturnType<typeof modifierPopularity> }) {
+  if (rows.length === 0) return <p className="text-sm text-zinc-500">Sin extras ni opciones elegidas en el periodo.</p>;
+  const max = Math.max(...rows.map((r) => r.times), 1);
+  return (
+    <div className="space-y-2">
+      {rows.map((r) => (
+        <div key={`${r.group}-${r.name}`} className="text-sm">
+          <div className="flex justify-between gap-3">
+            <span>
+              <b>{r.name}</b> <span className="text-xs text-zinc-500">{r.group}</span>
+            </span>
+            <span className="shrink-0 font-black">
+              {num(r.times)}
+              {r.sales > 0 && <span className="ml-2 text-xs font-bold text-emerald-300">{money(r.sales)}</span>}
+            </span>
+          </div>
+          <div className="mt-1 h-2 rounded-full bg-zinc-900">
+            <div className="h-2 rounded-full bg-orange-500" style={{ width: `${(r.times / max) * 100}%` }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
 function Kpi({ title, value, hint, accent = "text-orange-500" }: { title: string; value: string; hint?: string; accent?: string }) {
   return (
