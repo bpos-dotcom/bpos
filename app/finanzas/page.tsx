@@ -134,12 +134,28 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
   // Un depósito con semana cuenta en esa semana (aunque haya caído después)
   const deposits = income.filter((i) => (i.weekOf ? i.weekOf < to && ymd(new Date(parseYmdLocal(i.weekOf).getTime() + 6 * 86_400_000)) >= from : inRange(i.date)));
   const extras = expenses.filter((e) => inRange(e.date));
+  // Caja (cortes no anulados): el faltante o sobrante de cada corte cuenta el día del corte, y los
+  // gastos pagados con dinero de la caja (movimiento "Gasto") el día que se hicieron. El fondo no cuenta.
+  const cuts = src.shifts.filter((c) => !c.voided && c.closedAt && inRange(ymd(new Date(c.closedAt))));
+  const cashDiffByDay = new Map<string, number>();
+  cuts.forEach((c) => cashDiffByDay.set(ymd(new Date(c.closedAt)), (cashDiffByDay.get(ymd(new Date(c.closedAt))) || 0) + (Number(c.difference) || 0)));
+  const cashSpentByDay = new Map<string, number>();
+  src.shifts
+    .filter((c) => !c.voided)
+    .flatMap((c) => c.movements || [])
+    .filter((m) => m.type === "Gasto" && inRange(ymd(new Date(m.createdAt))))
+    .forEach((m) => cashSpentByDay.set(ymd(new Date(m.createdAt)), (cashSpentByDay.get(ymd(new Date(m.createdAt))) || 0) + (Number(m.amount) || 0)));
   const localByDay = new Map(local.byDay.map((r) => [r.label, r.sales]));
   const costByDay = new Map(all.byDay.map((r) => [r.label, r.cost]));
   const days = rangeDays(range).map((d) => {
     const key = ymd(d);
     const inc = (localByDay.get(key) || 0) + (incomeDays.get(key) || 0);
-    const spent = (costByDay.get(key) || 0) + fixedForDay(fixedMonthly, d) + extras.filter((e) => e.date === key).reduce((s, e) => s + e.amount, 0);
+    const spent =
+      (costByDay.get(key) || 0) +
+      fixedForDay(fixedMonthly, d) +
+      extras.filter((e) => e.date === key).reduce((s, e) => s + e.amount, 0) +
+      (cashSpentByDay.get(key) || 0) -
+      (cashDiffByDay.get(key) || 0);
     return { date: d, key, income: inc, profit: inc - spent };
   });
   const platform = all.orders.filter((o) => isPlatformOrder(o));
@@ -151,6 +167,10 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
     deposits,
     extras,
     extraTotal: extras.reduce((s, e) => s + e.amount, 0),
+    /** Suma de faltantes (−) y sobrantes (+) de los cortes del periodo */
+    cashDiff: [...cashDiffByDay.values()].reduce((s, v) => s + v, 0),
+    cashSpent: [...cashSpentByDay.values()].reduce((s, v) => s + v, 0),
+    cutsWithDiff: cuts.filter((c) => Math.abs(Number(c.difference) || 0) >= 0.01).map((c) => ({ folio: c.folio, closedAt: c.closedAt, difference: Number(c.difference) || 0, reason: c.differenceReason || "" })),
     fixed: fixedForRange(fixedMonthly, range),
     cost: all.kpis.cost,
     platformSales: platform.reduce((s, o) => s + (Number(o.total) || 0), 0),
@@ -217,13 +237,17 @@ export default function FinanzasPage() {
   // Los fijos son por mes: al periodo le toca su parte (completa aunque el periodo vaya a la mitad)
   const fixedPeriod = cur?.fixed || 0;
   const extraTotal = cur?.extraTotal || 0;
-  const expensesTotal = fixedPeriod + extraTotal;
-  const net = gross - expensesTotal;
+  const cashSpent = cur?.cashSpent || 0;
+  const cashDiff = cur?.cashDiff || 0;
+  const expensesTotal = fixedPeriod + extraTotal + cashSpent;
+  // Lo que hay que cubrir: los gastos, más lo que faltó en caja (o menos lo que sobró)
+  const toCover = expensesTotal - cashDiff;
+  const net = gross - toCover;
   const netMargin = sales > 0 ? (net / sales) * 100 : 0;
-  const equilibrium = breakEven(expensesTotal, grossMargin);
+  const equilibrium = breakEven(Math.max(0, toCover), grossMargin);
   const dailyNeeded = equilibrium ? equilibrium / totalDays : 0;
   const projection = isCurrent ? (sales / daysSoFar) * totalDays : sales;
-  const projectedNet = isCurrent ? (projection * grossMargin) / 100 - expensesTotal : net;
+  const projectedNet = isCurrent ? (projection * grossMargin) / 100 - toCover : net;
   const progress = equilibrium ? Math.min(100, (sales / equilibrium) * 100) : 0;
   // Día del periodo en que (al ritmo actual) ya se cubren los gastos
   const coverDay = equilibrium && sales > 0 ? Math.ceil(equilibrium / (sales / daysSoFar)) : null;
@@ -313,7 +337,7 @@ export default function FinanzasPage() {
             value={money(sales)}
             hint={
               <>
-                Local y menú {money(cur?.localSales || 0)} ({cur?.local.kpis.orders || 0} pedidos) · depósitos de apps {money(cur?.depositTotal || 0)}
+                Lo vendido en local y menú {money(cur?.localSales || 0)} ({cur?.local.kpis.orders || 0} pedidos) · depósitos de apps {money(cur?.depositTotal || 0)} · el fondo de caja no cuenta
               </>
             }
           />
@@ -324,7 +348,7 @@ export default function FinanzasPage() {
             tone={foodCost > 35 ? "text-red-400" : foodCost > 0 ? "text-emerald-400" : ""}
           />
           <Kpi title="Utilidad bruta" value={money(gross)} hint={`Margen ${pct(grossMargin)} (ingresos menos costo)`} />
-          <Kpi title={`Gastos de ${word === "mes" ? "este mes" : word === "semana" ? "esta semana" : "este periodo"}`} value={money(expensesTotal)} hint={`Fijos ${money(fixedPeriod)}${word !== "mes" ? " (su parte)" : ""} · sueltos ${money(extraTotal)}`} />
+          <Kpi title={`Gastos de ${word === "mes" ? "este mes" : word === "semana" ? "esta semana" : "este periodo"}`} value={money(expensesTotal)} hint={`Fijos ${money(fixedPeriod)}${word !== "mes" ? " (su parte)" : ""} · sueltos ${money(extraTotal)}${cashSpent ? ` · pagados de la caja ${money(cashSpent)}` : ""}`} />
         </div>
 
         <div className={`${card} ${net >= 0 ? "border-emerald-500/50" : "border-red-500/50"}`}>
@@ -332,12 +356,28 @@ export default function FinanzasPage() {
           <p className={`text-5xl font-black ${net >= 0 ? "text-emerald-400" : "text-red-400"}`}>{money(net)}</p>
           <p className="mt-1 text-sm text-zinc-400">
             Margen neto {pct(netMargin)} · ingresos {money(sales)} − costo {money(cost)} − gastos {money(expensesTotal)}
+            {cashDiff < 0 ? ` − faltantes de caja ${money(-cashDiff)}` : cashDiff > 0 ? ` + sobrantes de caja ${money(cashDiff)}` : ""}
           </p>
           {isCurrent && sales > 0 && (
             <p className="mt-2 text-sm">
               Si sigues al mismo ritmo, cierras {word === "mes" ? "el mes" : word === "semana" ? "la semana" : "el periodo"} con <b>{money(projection)}</b> de ingresos y una utilidad de{" "}
               <b className={projectedNet >= 0 ? "text-emerald-400" : "text-red-400"}>{money(projectedNet)}</b>.
             </p>
+          )}
+          {(cur?.cutsWithDiff.length || 0) > 0 && (
+            <div className={`mt-3 rounded-2xl border p-3 text-xs ${cashDiff < 0 ? "border-red-500/40 bg-red-500/10 text-red-100" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"}`}>
+              <p className="font-black">
+                💵 Caja: {cashDiff < 0 ? `faltaron ${money(-cashDiff)}` : cashDiff > 0 ? `sobraron ${money(cashDiff)}` : "las diferencias se compensan"} en los cortes de {periodName} (ya está en la utilidad).
+              </p>
+              <ul className="mt-1 space-y-0.5">
+                {cur!.cutsWithDiff.map((c) => (
+                  <li key={c.folio}>
+                    {new Date(c.closedAt).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} · {c.folio}: {c.difference < 0 ? "faltante" : "sobrante"} {money(Math.abs(c.difference))}
+                    {c.reason ? ` (${c.reason})` : ""}
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
           {coverage < 90 && sales > 0 && (
             <p className="mt-3 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-100">
@@ -397,14 +437,14 @@ export default function FinanzasPage() {
           </div>
           <div className="flex min-w-0 flex-col items-center text-center md:border-l md:border-zinc-800 md:pl-5">
             <h2 className="whitespace-nowrap text-lg font-black">⚖️ Punto de equilibrio</h2>
-            {!expensesTotal ? (
+            {!toCover ? (
               <p className="mt-2 text-sm text-zinc-400">Agrega tus gastos fijos abajo para saber cuánto tienes que vender para no perder.</p>
             ) : !equilibrium ? (
               <p className="mt-2 text-sm text-zinc-400">Todavía no hay ingresos con costo en este periodo para calcularlo.</p>
             ) : (
               <>
                 <p className="mt-1 text-xs text-zinc-300">
-                  Para cubrir {money(expensesTotal)} de gastos {word === "mes" ? "del mes" : word === "semana" ? "de la semana" : "del periodo"}, con tu margen de {pct(grossMargin)}, necesitas ingresar{" "}
+                  Para cubrir {money(toCover)} de gastos{cashDiff < 0 ? " y faltantes" : ""} {word === "mes" ? "del mes" : word === "semana" ? "de la semana" : "del periodo"}, con tu margen de {pct(grossMargin)}, necesitas ingresar{" "}
                   <b className="text-white">{money(equilibrium)}</b> (unos <b className="text-white">{money(dailyNeeded)}</b> diarios).
                 </p>
                 <ProgressRing value={progress} />
@@ -469,7 +509,7 @@ export default function FinanzasPage() {
           <div className="space-y-6">
             <section className={card}>
               <h2 className="text-lg font-black">🧾 Gastos sueltos</h2>
-              <p className="text-xs text-zinc-500">Lo que no se repite: una reparación, un evento, material. (Las compras de insumos ya cuentan en el costo de lo vendido.)</p>
+              <p className="text-xs text-zinc-500">Lo que no se repite: una reparación, un evento, material. Las compras de insumos ya cuentan en el costo de lo vendido, y lo que pagaste con dinero de la caja (Caja → Gasto) ya cuenta solo: no lo repitas aquí.</p>
               <div className="mt-3 grid gap-2 md:grid-cols-[9rem_1fr_7rem_auto]">
                 <input type="date" value={extra.date} onChange={(e) => setExtra({ ...extra, date: e.target.value })} className={input} />
                 <input value={extra.concept} onChange={(e) => setExtra({ ...extra, concept: e.target.value })} placeholder="Reparación del refri" className={input} />
