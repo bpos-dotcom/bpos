@@ -49,6 +49,10 @@ import {
   type Range,
 } from "@/lib/finance";
 import { buildReport, loadReportSources, type ReportSources } from "@/lib/reports";
+import { paymentsOf, type PaidSale } from "@/lib/sale-payments";
+
+/** Orden en que se muestran las formas de pago; las demás van después */
+const PAY_ORDER = ["Efectivo", "Tarjeta", "Transferencia", "Mercado Pago"];
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-5";
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -146,6 +150,14 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
     .filter((m) => m.type === "Gasto" && inRange(ymd(new Date(m.createdAt))))
     .forEach((m) => cashSpentByDay.set(ymd(new Date(m.createdAt)), (cashSpentByDay.get(ymd(new Date(m.createdAt))) || 0) + (Number(m.amount) || 0)));
   const localByDay = new Map(local.byDay.map((r) => [r.label, r.sales]));
+  // Con qué se pagó lo vendido cada día (efectivo, tarjeta, transferencia...), aunque sea pago mixto
+  const payByDay = new Map<string, Record<string, number>>();
+  for (const o of local.orders) {
+    const key = ymd(new Date(o.createdAt));
+    const day = payByDay.get(key) || {};
+    for (const [method, amount] of Object.entries(paymentsOf(o as unknown as PaidSale))) day[method] = (day[method] || 0) + amount;
+    payByDay.set(key, day);
+  }
   const costByDay = new Map(all.byDay.map((r) => [r.label, r.cost]));
   const days = rangeDays(range).map((d) => {
     const key = ymd(d);
@@ -156,7 +168,13 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
       extras.filter((e) => e.date === key).reduce((s, e) => s + e.amount, 0) +
       (cashSpentByDay.get(key) || 0) -
       (cashDiffByDay.get(key) || 0);
-    return { date: d, key, income: inc, profit: inc - spent };
+    const pays = payByDay.get(key) || {};
+    const deposit = incomeDays.get(key) || 0;
+    const breakdown = [
+      ...Object.entries(pays).sort((a, b) => (PAY_ORDER.indexOf(a[0]) + 1 || 99) - (PAY_ORDER.indexOf(b[0]) + 1 || 99)).map(([label, amount]) => ({ label, amount })),
+      ...(deposit > 0.5 ? [{ label: "Depósitos de apps", amount: deposit }] : []),
+    ];
+    return { date: d, key, income: inc, profit: inc - spent, breakdown };
   });
   const platform = all.orders.filter((o) => isPlatformOrder(o));
   return {
@@ -276,6 +294,7 @@ export default function FinanzasPage() {
       current: acc(data.cur.days, upTo),
       previous: acc(data.prev.days, data.prev.days.length),
       currentDay: daily(data.cur.days, upTo),
+      currentBreakdown: Array.from({ length: n }, (_, i) => (i < upTo && data.cur.days[i] ? data.cur.days[i].breakdown : null)),
       previousDay: daily(data.prev.days, data.prev.days.length),
     };
   }, [data, chartMetric, elapsed, period]);
@@ -427,6 +446,7 @@ export default function FinanzasPage() {
                 currentDay={chart.currentDay}
                 previousDay={chart.previousDay}
                 dayName={chartMetric === "ingresos" ? "Ventas e ingresos del día" : "Utilidad del día"}
+                currentBreakdown={chartMetric === "ingresos" ? chart.currentBreakdown : undefined}
                 currentName={currentName}
                 previousName={previousName}
                 format={money}
