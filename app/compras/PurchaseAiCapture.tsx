@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import type { AiPurchaseTicket } from "@/app/api/ai/purchase/route";
 import { AI_REASON_TEXT, aiFetch, getAiStatus, type AiStatus } from "@/lib/ai/client";
 import { getInventory } from "@/lib/inventory";
-import { getPurchaseAliases } from "@/lib/purchases";
+import { findPurchaseAlias, getPurchaseAliases } from "@/lib/purchases";
 import type { Ingredient } from "@/data/inventory";
 
 export type AiPurchaseResult = {
@@ -90,7 +90,7 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
           image,
           supplier,
           ingredients: inventory.map((i) => ({ id: i.id, name: i.name, unit: i.unit })),
-          aliases: getPurchaseAliases().map((a) => ({ ticketName: a.ticketName, ingredientId: a.ingredientId, quantity: a.quantity })),
+          aliases: getPurchaseAliases().map((a) => ({ ticketName: a.ticketName, supplier: a.supplier, ingredientId: a.ingredientId, quantity: a.quantity })),
         }),
       });
       const b = await r.json().catch(() => null);
@@ -98,7 +98,15 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
       const t = b.ticket as AiPurchaseTicket;
       setTicket(t);
       if (t.supplier && !supplier) setSupplier(t.supplier);
-      setRows(t.lines.map((l, i) => ({ ...l, key: `ai-${i}` })));
+      // Equivalencia guardada (Ingredientes → Cómo viene en el ticket): manda sobre lo que calculó la IA
+      // ej. 3 x CASABLANCA de 108 rebanadas = 324 pza
+      setRows(
+        t.lines.map((l, i) => {
+          const a = findPurchaseAlias(l.ticketName, supplier.trim() || t.supplier);
+          if (!a) return { ...l, key: `ai-${i}` };
+          return { ...l, ingredientId: a.ingredientId, inventoryQuantity: Math.round(a.quantity * (l.presentations > 0 ? l.presentations : 1) * 1000) / 1000, key: `ai-${i}` };
+        })
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo leer el ticket.");
     } finally {

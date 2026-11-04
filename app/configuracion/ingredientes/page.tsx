@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { Ingredient } from "@/data/inventory";
 import { getAdminIngredients, saveAdminIngredients } from "@/lib/admin";
 import { stationLabel } from "@/lib/kds-config";
+import { TicketEquivalences } from "@/components/inventory/TicketEquivalences";
+
+const NO_CATEGORY = "Sin categoría";
+const SUGGESTED = ["Carnes", "Lácteos", "Panadería", "Verduras", "Salsas y aderezos", "Bebidas", "Desechables", "Limpieza"];
+const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 type DraftIngredient = Ingredient;
 
@@ -13,6 +18,21 @@ export default function IngredientesAdminPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draft, setDraft] = useState<DraftIngredient | null>(null);
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState(""); // "" = todas
+
+  // Categorías con cuántos ingredientes tiene cada una (las que existen, en orden alfabético; "Sin categoría" al final)
+  const categories = useMemo(() => {
+    const map = new Map<string, number>();
+    ingredients.forEach((i) => map.set(i.category?.trim() || NO_CATEGORY, (map.get(i.category?.trim() || NO_CATEGORY) || 0) + 1));
+    return [...map.entries()].sort((a, b) => (a[0] === NO_CATEGORY ? 1 : b[0] === NO_CATEGORY ? -1 : a[0].localeCompare(b[0], "es")));
+  }, [ingredients]);
+  const grouped = useMemo(() => {
+    const q = plain(query.trim());
+    return categories
+      .map(([c]) => [c, ingredients.filter((i) => (i.category?.trim() || NO_CATEGORY) === c && (!q || plain(i.name).includes(q))).sort((a, b) => a.name.localeCompare(b.name, "es"))] as const)
+      .filter(([c, list]) => list.length > 0 && (!category || c === category));
+  }, [categories, ingredients, query, category]);
 
   useEffect(() => {
     const savedIngredients = getAdminIngredients();
@@ -39,8 +59,11 @@ export default function IngredientesAdminPage() {
       return;
     }
 
+    const saved: Ingredient = { ...draft, name: draft.name.trim() };
+    if (saved.category?.trim()) saved.category = saved.category.trim().replace(/s+/g, " ").slice(0, 40);
+    else delete saved.category;
     const nextIngredients = ingredients.map((ingredient) =>
-      ingredient.id === draft.id ? draft : ingredient
+      ingredient.id === draft.id ? saved : ingredient
     );
 
     setIngredients(nextIngredients);
@@ -62,6 +85,7 @@ export default function IngredientesAdminPage() {
       unit: "pza",
       stock: 0,
       minimum: 0,
+      ...(category && category !== NO_CATEGORY ? { category } : {}),
     };
 
     const nextIngredients = [...ingredients, newIngredient];
@@ -97,12 +121,31 @@ export default function IngredientesAdminPage() {
               </button>
             </div>
 
-            <div className="mt-6 space-y-3">
-              {ingredients.map((ingredient) => (
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="🔍 Buscar ingrediente" className="mt-4 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm" />
+            {categories.length > 1 && (
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                {[["", ingredients.length] as const, ...categories].map(([c, n]) => (
+                  <button
+                    key={c || "todas"}
+                    onClick={() => setCategory(c)}
+                    className={`rounded-full border px-3 py-1 text-xs font-black ${category === c ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-800 bg-black text-zinc-300 hover:border-orange-500"}`}
+                  >
+                    {c || "Todas"} · {n}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="bpos-scroll -mr-2 mt-4 max-h-[65vh] space-y-4 overflow-y-auto pr-2">
+              {grouped.map(([c, list]) => (
+                <div key={c}>
+                  {(categories.length > 1 || c !== NO_CATEGORY) && <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-500">{c} · {list.length}</p>}
+                  <div className="space-y-2">
+              {list.map((ingredient) => (
                 <button
                   key={ingredient.id}
                   onClick={() => selectIngredient(ingredient)}
-                  className={`w-full rounded-2xl border p-4 text-left transition ${
+                  className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
                     selectedId === ingredient.id
                       ? "border-orange-500 bg-orange-500/10"
                       : "border-zinc-800 bg-black hover:border-orange-500"
@@ -115,6 +158,10 @@ export default function IngredientesAdminPage() {
                   </p>
                 </button>
               ))}
+                  </div>
+                </div>
+              ))}
+              {grouped.length === 0 && <p className="text-sm text-zinc-500">{ingredients.length ? "Nada con esa búsqueda." : "Sin ingredientes todavía."}</p>}
             </div>
           </section>
 
@@ -179,6 +226,24 @@ export default function IngredientesAdminPage() {
                       <option value="g">g</option>
                       <option value="ml">ml</option>
                     </select>
+                  </Field>
+
+                  <TicketEquivalences key={draft.id} ingredient={draft} />
+
+                  <Field label="Categoría">
+                    <input
+                      value={draft.category || ""}
+                      onChange={(event) => setDraft({ ...draft, category: event.target.value })}
+                      list="categorias-ingredientes"
+                      maxLength={40}
+                      placeholder="Ej. Lácteos, Carnes, Bebidas"
+                      className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
+                    />
+                    <datalist id="categorias-ingredientes">
+                      {[...new Set([...categories.map(([c]) => c).filter((c) => c !== NO_CATEGORY), ...SUGGESTED])].map((c) => (
+                        <option key={c} value={c} />
+                      ))}
+                    </datalist>
                   </Field>
 
                   <Field label="Stock actual">
