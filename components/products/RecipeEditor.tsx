@@ -2,8 +2,10 @@
 /**
  * Receta de un producto (insumos que descuenta del inventario por pieza).
  * En un combo es la receta propia (bolsa, caja...): sus partes ya
- * descuentan la suya.
+ * descuentan la suya. "Copiar ingredientes de" trae la receta de otro
+ * producto como copia: cambiarla aquí no toca la del otro.
  */
+import { ask } from "@/components/layout/Dialogs";
 import type { Ingredient } from "@/data/inventory";
 
 export type RecipeLine = { ingredientId: number; quantity: number };
@@ -13,11 +15,22 @@ type Props = {
   ingredients: Ingredient[];
   compound: boolean;
   onChange: (lines: RecipeLine[]) => void;
+  /** Otros productos con receta, para copiar la suya */
+  copyFrom?: { id: number; name: string; lines: RecipeLine[] }[];
 };
 
-export function RecipeEditor({ lines, ingredients, compound, onChange }: Props) {
+export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom = [] }: Props) {
   const byId = new Map(ingredients.map((i) => [i.id, i]));
   const available = ingredients.filter((i) => !lines.some((l) => l.ingredientId === i.id)).sort((a, b) => a.name.localeCompare(b.name));
+  const sources = copyFrom.filter((p) => p.lines.length > 0).sort((a, b) => a.name.localeCompare(b.name, "es"));
+
+  async function copy(id: number) {
+    const source = sources.find((p) => p.id === id);
+    if (!source) return;
+    if (lines.length && !(await ask(`¿Cambiar los ${lines.length} ingredientes de esta receta por los de "${source.name}"?`, { ok: "Copiar" }))) return;
+    // Copia nueva: los renglones son otros objetos, el otro producto no cambia
+    onChange(source.lines.map((l) => ({ ingredientId: l.ingredientId, quantity: l.quantity })));
+  }
 
   return (
     <section className="mt-6 rounded-3xl border border-zinc-800 bg-black p-6">
@@ -52,6 +65,21 @@ export function RecipeEditor({ lines, ingredients, compound, onChange }: Props) 
         })}
       </div>
 
+      {sources.length > 0 && (
+        <select
+          value=""
+          onChange={(e) => void copy(Number(e.target.value))}
+          className="mt-3 mr-2 rounded-2xl border border-zinc-700 bg-black px-4 py-2 text-sm"
+          aria-label="Copiar ingredientes de otro producto"
+        >
+          <option value="">📋 Copiar ingredientes de…</option>
+          {sources.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name} ({p.lines.length})
+            </option>
+          ))}
+        </select>
+      )}
       {ingredients.length === 0 ? (
         <p className="mt-3 text-sm text-zinc-500">Primero da de alta tus insumos en Configuración → Ingredientes.</p>
       ) : (

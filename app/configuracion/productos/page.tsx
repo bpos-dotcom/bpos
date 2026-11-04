@@ -675,6 +675,9 @@ export default function ProductosAdminPage() {
                   ingredients={ingredients}
                   compound={Boolean(draft.noOwnTicket)}
                   onChange={setRecipeDraft}
+                  copyFrom={products
+                    .filter((p) => p.id !== draft.id)
+                    .map((p) => ({ id: p.id, name: p.name, lines: recipes.filter((r) => r.productId === p.id).map((r) => ({ ingredientId: r.ingredientId, quantity: r.quantity })) }))}
                 />
 
                 <p className="mt-4 text-sm text-zinc-500">Los cambios de opciones y receta se guardan con el botón Guardar cambios.</p>
