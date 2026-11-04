@@ -51,7 +51,7 @@ Renglones (lines), uno por cada artículo comprado. Ignora subtotales, IVA, desc
 - presentations: cuántas piezas o paquetes de ese artículo se compraron (si dice 3 x 25.50, son 3). Si es a granel por peso (1.250 kg), pon 1.
 - lineTotal: lo que se pagó por ese renglón en pesos, como número.
 - ingredientId: el id del insumo del inventario que corresponde (te doy la lista con id, nombre y unidad). Usa también las equivalencias aprendidas. Si ninguno corresponde con seguridad, pon null.
-- inventoryQuantity: cuánto entra al inventario EN LA UNIDAD DEL INSUMO (g, ml o pza) sumando todas las presentaciones. Ejemplos: 2 paquetes de pan de 8 piezas en un insumo en pza = 16; 1.250 kg de carne en un insumo en g = 1250; 3 refrescos de 600 ml en un insumo en ml = 1800. Si hay una equivalencia aprendida para ese artículo, multiplica su cantidad por presentations. Si ingredientId es null o no se puede saber, pon 0.
+- inventoryQuantity: cuánto entra al inventario EN LA UNIDAD DEL INSUMO (pza, g, kg, ml o L) sumando todas las presentaciones. Ejemplos: 2 paquetes de pan de 8 piezas en un insumo en pza = 16; 1.250 kg de carne en un insumo en g = 1250 y en un insumo en kg = 1.25; 3 refrescos de 600 ml en un insumo en ml = 1800 y en un insumo en L = 1.8. Si hay una equivalencia aprendida para ese artículo, multiplica su cantidad por presentations. Si ingredientId es null o no se puede saber, pon 0.
 - warnings: avisos cortos en español de lo que esté borroso, dudoso o no sea un ticket de compra.
 No inventes artículos ni precios que no se lean.`;
 

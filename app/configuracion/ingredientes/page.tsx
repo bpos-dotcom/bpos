@@ -7,6 +7,8 @@ import { Ingredient } from "@/data/inventory";
 import { getAdminIngredients, saveAdminIngredients } from "@/lib/admin";
 import { stationLabel } from "@/lib/kds-config";
 import { TicketEquivalences } from "@/components/inventory/TicketEquivalences";
+import { ask } from "@/components/layout/Dialogs";
+import { UNITS, changeIngredientUnit, unitChangeImpact, unitFactor } from "@/lib/units";
 
 const NO_CATEGORY = "Sin categoría";
 const SUGGESTED = ["Carnes", "Lácteos", "Panadería", "Verduras", "Salsas y aderezos", "Bebidas", "Desechables", "Limpieza"];
@@ -20,6 +22,35 @@ export default function IngredientesAdminPage() {
   const [draft, setDraft] = useState<DraftIngredient | null>(null);
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState(""); // "" = todas
+  const [newCategory, setNewCategory] = useState(false);
+
+  /**
+   * Cambiar la unidad: entre g y kg (o ml y L) se convierte todo lo que usa el
+   * ingrediente (existencia, mínimo, recetas, opciones, compras y costos) y se
+   * guarda en ese momento; entre tipos distintos (g → pza) solo cambia la unidad.
+   */
+  async function changeUnit(to: Ingredient["unit"]) {
+    if (!draft) return;
+    const saved = ingredients.find((i) => i.id === draft.id);
+    if (!saved || saved.unit === to) {
+      setDraft({ ...draft, unit: to });
+      return;
+    }
+    const factor = unitFactor(saved.unit, to);
+    const impact = unitChangeImpact(saved.id);
+    const uses = [impact.recipes ? `${impact.recipes} receta(s)` : "", impact.options ? `${impact.options} opción(es) de productos` : ""].filter(Boolean).join(" y ");
+    if (factor === null) {
+      if ((uses || saved.stock) && !(await ask(`De ${saved.unit} a ${to} son medidas distintas: las cantidades NO se convierten${uses ? ` y tendrás que revisar ${uses}` : ""}. ¿Cambiar de todos modos?`, { ok: "Cambiar" }))) return;
+      setDraft({ ...draft, unit: to });
+      return;
+    }
+    const r = (n: number) => Math.round(n * factor * 1e6) / 1e6;
+    if ((saved.stock || saved.minimum || uses) && !(await ask(`Cambiar ${saved.name} de ${saved.unit} a ${to}: existencia ${saved.stock} ${saved.unit} → ${r(saved.stock)} ${to}, mínimo ${saved.minimum} → ${r(saved.minimum)}${uses ? `; se ajustan ${uses}` : ""}, y también sus compras y costos. ¿Continuar?`, { ok: "Convertir" }))) return;
+    const next = changeIngredientUnit(saved.id, to);
+    if (!next) return;
+    setIngredients(getAdminIngredients());
+    setDraft({ ...draft, unit: next.unit, stock: next.stock, minimum: next.minimum });
+  }
 
   // Categorías con cuántos ingredientes tiene cada una (las que existen, en orden alfabético; "Sin categoría" al final)
   const categories = useMemo(() => {
@@ -42,6 +73,7 @@ export default function IngredientesAdminPage() {
   }, []);
 
   function selectIngredient(ingredient: Ingredient) {
+    setNewCategory(false);
     setSelectedId(ingredient.id);
     setDraft({ ...ingredient });
   }
@@ -214,36 +246,54 @@ export default function IngredientesAdminPage() {
                   <Field label="Unidad">
                     <select
                       value={draft.unit}
-                      onChange={(event) =>
-                        setDraft({
-                          ...draft,
-                          unit: event.target.value as Ingredient["unit"],
-                        })
-                      }
+                      onChange={(event) => void changeUnit(event.target.value as Ingredient["unit"])}
                       className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
                     >
-                      <option value="pza">pza</option>
-                      <option value="g">g</option>
-                      <option value="ml">ml</option>
+                      {UNITS.map((u) => (
+                        <option key={u.value} value={u.value}>
+                          {u.label}
+                        </option>
+                      ))}
                     </select>
                   </Field>
 
-                  <TicketEquivalences key={draft.id} ingredient={draft} />
+                  <TicketEquivalences key={`${draft.id}-${draft.unit}`} ingredient={draft} />
 
                   <Field label="Categoría">
-                    <input
-                      value={draft.category || ""}
-                      onChange={(event) => setDraft({ ...draft, category: event.target.value })}
-                      list="categorias-ingredientes"
-                      maxLength={40}
-                      placeholder="Ej. Lácteos, Carnes, Bebidas"
-                      className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
-                    />
-                    <datalist id="categorias-ingredientes">
-                      {[...new Set([...categories.map(([c]) => c).filter((c) => c !== NO_CATEGORY), ...SUGGESTED])].map((c) => (
-                        <option key={c} value={c} />
-                      ))}
-                    </datalist>
+                    {newCategory ? (
+                      <div className="flex gap-2">
+                        <input
+                          autoFocus
+                          value={draft.category || ""}
+                          onChange={(event) => setDraft({ ...draft, category: event.target.value })}
+                          maxLength={40}
+                          placeholder="Nombre de la nueva categoría"
+                          className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
+                        />
+                        <button type="button" onClick={() => setNewCategory(false)} className="shrink-0 rounded-2xl border border-zinc-800 px-4 font-black text-zinc-300">
+                          Listo
+                        </button>
+                      </div>
+                    ) : (
+                      <select
+                        value={draft.category?.trim() || ""}
+                        onChange={(event) => {
+                          if (event.target.value === "__nueva") {
+                            setDraft({ ...draft, category: "" });
+                            setNewCategory(true);
+                          } else setDraft({ ...draft, category: event.target.value });
+                        }}
+                        className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
+                      >
+                        <option value="">Sin categoría</option>
+                        {[...new Set([...categories.map(([c]) => c).filter((c) => c !== NO_CATEGORY), ...(draft.category?.trim() ? [draft.category.trim()] : []), ...SUGGESTED])].map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
+                        <option value="__nueva">➕ Nueva categoría…</option>
+                      </select>
+                    )}
                   </Field>
 
                   <Field label="Stock actual">
