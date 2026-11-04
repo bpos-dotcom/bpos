@@ -11,8 +11,8 @@ const SNOOZE_MS = 10 * 60 * 1000;
 
 /**
  * Ventana que avisa cuando llega un producto de delivery sin equivalencia.
- * El ticket ya salió a cocina; lo que queda detenido es el registro (venta e
- * inventario) hasta que se equivale. "Recordarme" la esconde 10 minutos, o
+ * El pedido queda detenido (no se imprime ni se registra la venta) hasta que
+ * se equivale, o hasta que alguien le da "Mandar de todos modos" en el Bridge. "Recordarme" la esconde 10 minutos, o
  * hasta que llegue otro producto nuevo.
  */
 export function EquivalencePrompt({
@@ -63,7 +63,7 @@ export function EquivalencePrompt({
           {items.length === 1 ? "Producto por equivaler" : `${items.length} productos por equivaler`}
         </h2>
         <p className="mt-2 text-sm text-zinc-400">
-          El ticket ya salió a cocina. Para registrar la venta y descontar el inventario, dile a B-POS qué producto es.
+          El pedido está detenido: no se imprime hasta que le digas a B-POS qué producto es (o le des “Mandar de todos modos” en el Bridge). Al equivalerlo sale solo a cada estación y se registra la venta.
           No podrás cerrar caja mientras haya productos sin equivalencia.
         </p>
 

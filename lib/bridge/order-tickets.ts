@@ -40,9 +40,11 @@ export async function buildOrderTickets(
     interpretation?: OrderInterpretation;
   },
   catalog: { products: { id: number | string; station?: string }[]; recipes: { productId: number; ingredientId: number }[] },
-  settings: BusinessSettings
+  settings: BusinessSettings,
+  /** Lo que no tiene equivalencia va a esta estación ("Mandar de todos modos") */
+  fallback?: KitchenStation
 ): Promise<{ ticket: DeliveryTicket; tickets: OrderTicket[] }> {
-  const routing = stationsByLine(order.interpretation, catalog.products as { id: number | string; station?: KitchenStation }[], catalog.recipes);
+  const routing = stationsByLine(order.interpretation, catalog.products as { id: number | string; station?: KitchenStation }[], catalog.recipes, fallback);
   const ticket = buildDeliveryTicket(order, routing);
   const paper = paperWidth();
   const tickets: OrderTicket[] = ticketStations(ticket).map((station) => ({

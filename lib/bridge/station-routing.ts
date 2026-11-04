@@ -40,11 +40,13 @@ const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerC
 export function stationsByLine(
   interpretation: OrderInterpretation | undefined,
   products: RoutingProduct[],
-  recipes: { productId: number; ingredientId: number }[]
+  recipes: { productId: number; ingredientId: number }[],
+  /** "Mandar de todos modos": a dónde va lo que no tiene equivalencia (si no, la estación de respaldo) */
+  fallbackOverride?: KitchenStation
 ): Map<number, LineRouting> {
   const byLine = new Map<number, LineRouting>();
   if (!interpretation) return byLine;
-  const fallback = getBusinessSettings().fallbackStation;
+  const fallback = fallbackOverride || getBusinessSettings().fallbackStation;
 
   const productStation = new Map(products.map((p) => [String(p.id), (p.station || "Cocina") as KitchenStation]));
   // Partes de un producto: un renglón por cada grupo con productos enlazados

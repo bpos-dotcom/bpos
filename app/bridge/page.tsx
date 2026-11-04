@@ -17,6 +17,9 @@ import { createAutomaticSale } from "@/lib/bridge/create-automatic-sale";
 import BridgeAliases from "./BridgeAliases";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { addAuditEvent } from "@/lib/audit";
+import { getCurrentUser } from "@/lib/auth";
+import { readKdsStationConfig } from "@/lib/kds-config";
+import type { KitchenStation } from "@/data/products";
 
 type AliasActionType = "product" | "ingredient" | "bundle" | "ignore";
 
@@ -56,7 +59,7 @@ type AgentOrder = {
   saleReadyPayload?: SaleReadyPayload | null;
   salePreparedAt?: string;
   createdOrderId?: number;
-  stationPrint?: { at: string; stations: string[]; printers: string[] };
+  stationPrint?: { at: string; stations: string[]; printers: string[]; /** Se mandó sin equivaler todo ("Mandar de todos modos") */ forced?: { by: string; station: string } };
 };
 
 type QuantifiedItem = {
@@ -607,10 +610,15 @@ function BridgeScreen() {
   }, [automaticSaleSignature, activeOrders, loadData]);
 
   // Tickets propios del negocio. El Bridge solo lee el ticket de la
-  // plataforma: en cuanto un pedido está interpretado (aunque falten
-  // equivalencias, esas van a Cocina) cada estación recibe un ticket con solo
-  // lo suyo y Caja el de la bolsa con precios. El original queda guardado.
+  // plataforma: en cuanto un pedido está interpretado y todo tiene
+  // equivalencia, cada estación recibe un ticket con solo lo suyo y Caja el de
+  // la bolsa con precios. El original queda guardado.
+  // Si falta equivaler algo, el pedido se DETIENE: no sale nada (se le avisa al
+  // Agent para que no saque el original de respaldo) hasta que se equivale,
+  // o hasta que alguien le da "Mandar de todos modos".
   const stationPrintLocks = useRef(new Set<string>());
+  /** Pedidos detenidos a los que ya se les canceló el respaldo del Agent */
+  const holdNotified = useRef(new Set<string>());
   /** Intentos fallidos por pedido: si ninguna impresora aceptó, se vuelve a intentar (hasta 3) */
   const stationPrintFailures = useRef(new Map<string, number>());
 
@@ -627,6 +635,17 @@ function BridgeScreen() {
 
         const key = `${normalize(order.platform)}:${order.orderId}`;
         if (stationPrintLocks.current.has(key)) continue;
+        if (order.interpretation.pendingCount > 0 || order.interpretation.errorCount > 0) {
+          // Detenido: el Agent no saca el original en Cocina (pedir tickets vacíos le quita el respaldo)
+          if (!holdNotified.current.has(key)) {
+            holdNotified.current.add(key);
+            printDeliveryTickets({ platform: order.platform, orderId: order.orderId, tickets: [] }).catch((error) => {
+              holdNotified.current.delete(key);
+              console.error(`No se pudo detener ${key} en el Agent:`, error);
+            });
+          }
+          continue;
+        }
         stationPrintLocks.current.add(key);
 
         try {
@@ -674,6 +693,54 @@ function BridgeScreen() {
       cancelled = true;
     };
   }, [orders, catalogProducts, loadData]);
+
+  const [sendingAnyway, setSendingAnyway] = useState<string | null>(null);
+  const [anywayStation, setAnywayStation] = useState<Record<string, KitchenStation>>({});
+
+  /** "Mandar de todos modos": imprime ya; lo que no tiene equivalencia va a la estación elegida. Cualquier usuario. */
+  async function sendAnyway(order: AgentOrder, station: KitchenStation) {
+    if (!order.platform || !order.orderId) return;
+    const key = `${normalize(order.platform)}:${order.orderId}`;
+    if (stationPrintLocks.current.has(key)) return;
+    stationPrintLocks.current.add(key);
+    setSendingAnyway(key);
+    try {
+      const { tickets } = await buildOrderTickets(order, { products: catalogProducts, recipes: getAdminRecipes() }, getBusinessSettings(), station);
+      const result = await printDeliveryTickets({ platform: order.platform, orderId: order.orderId, tickets });
+      const printers = (result.results || []).filter((r) => r.ok && r.printer).map((r) => r.printer as string);
+      const failed = (result.results || []).filter((r) => !r.ok);
+      if (!printers.length && failed.length) {
+        stationPrintLocks.current.delete(key);
+        alert(`No salió en: ${failed.map((f) => `${f.target} (${f.error})`).join(", ")}`);
+        return;
+      }
+      const user = getCurrentUser();
+      await bridgeFetch("/api/bridge/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          platform: order.platform,
+          orderId: order.orderId,
+          stationPrint: { at: new Date().toISOString(), stations: tickets.map((t) => t.target), printers, forced: { by: user.name, station } },
+        }),
+      });
+      addAuditEvent({
+        category: "Bridge",
+        action: "bridge.sent_anyway",
+        description: `${platformLabel(order.platform)} #${order.orderId} se mandó sin equivaler todo; lo pendiente fue a ${station}`,
+        userId: String(user.id),
+        userName: user.name,
+        metadata: { platform: order.platform, orderId: order.orderId, station, pending: order.interpretation?.pendingCount || 0 },
+      });
+      if (failed.length) alert(`No salió en: ${failed.map((f) => `${f.target} (${f.error})`).join(", ")}`);
+      await loadData();
+    } catch (error) {
+      stationPrintLocks.current.delete(key);
+      alert(error instanceof Error ? error.message : "No se pudo mandar. Revisa que B-POS Agent esté conectado en la computadora de las impresoras.");
+    } finally {
+      setSendingAnyway(null);
+    }
+  }
 
   /** Reimpresión a mano: los tickets propios otra vez, o el ticket original de la plataforma. */
   async function reprintOrder(order: AgentOrder, kind: "tickets" | "original") {
@@ -882,6 +949,37 @@ function BridgeScreen() {
                   key={`${platformKey}-${order.orderId}-${order.id}`}
                   className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6"
                 >
+                  {order.interpretation && !order.stationPrint && (interpretationPending > 0 || interpretationErrors > 0) && (
+                    <div className="mb-4 flex flex-wrap items-center gap-3 rounded-2xl border border-yellow-500/60 bg-yellow-500/10 p-3">
+                      <p className="min-w-0 flex-1 text-sm font-black text-yellow-200">
+                        ⏸️ Detenido: no se imprime nada hasta que equivales {interpretationPending > 0 ? `${interpretationPending} producto${interpretationPending === 1 ? "" : "s"}` : "lo que tiene error"}. Al equivaler, sale solo a cada estación.
+                      </p>
+                      <label className="flex items-center gap-2 text-xs font-bold text-zinc-300">
+                        Lo pendiente a
+                        <select
+                          value={anywayStation[platformKey + ":" + order.orderId] || getBusinessSettings().fallbackStation}
+                          onChange={(e) => setAnywayStation((all) => ({ ...all, [platformKey + ":" + order.orderId]: e.target.value as KitchenStation }))}
+                          className="rounded-xl border border-zinc-700 bg-black px-2 py-1.5 text-white"
+                          aria-label="Impresora para lo que no tiene equivalencia"
+                        >
+                          {readKdsStationConfig()
+                            .filter((s) => s.enabled)
+                            .map((s) => (
+                              <option key={s.id} value={s.id}>
+                                {s.name}
+                              </option>
+                            ))}
+                        </select>
+                      </label>
+                      <button
+                        disabled={sendingAnyway !== null}
+                        onClick={() => void sendAnyway(order, anywayStation[platformKey + ":" + order.orderId] || getBusinessSettings().fallbackStation)}
+                        className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-black text-black disabled:opacity-50"
+                      >
+                        {sendingAnyway === `${normalize(order.platform)}:${order.orderId}` ? "Mandando..." : "Mandar de todos modos"}
+                      </button>
+                    </div>
+                  )}
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div>
                       <h3 className="text-2xl font-black text-white">
@@ -899,6 +997,7 @@ function BridgeScreen() {
                         {order.stationPrint && (
                           <span className="text-xs text-zinc-500">
                             🖨️ Impreso: {order.stationPrint.stations.join(", ")}
+                            {order.stationPrint.forced ? ` · mandado sin equivaler por ${order.stationPrint.forced.by} (lo pendiente a ${order.stationPrint.forced.station})` : ""}
                           </span>
                         )}
                         <button
