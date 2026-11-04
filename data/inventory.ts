@@ -11,6 +11,9 @@ export type Ingredient = {
   station?: KitchenStation;
 };
 
+/** Categorías que se sugieren al ordenar ingredientes (además de las que ya tenga el negocio) */
+export const SUGGESTED_CATEGORIES = ["Carnes", "Lácteos", "Panadería", "Verduras", "Salsas y aderezos", "Bebidas", "Desechables", "Limpieza"];
+
 export const initialIngredients: Ingredient[] = [
   { id: 1, name: "Pan brioche", unit: "pza", stock: 60, minimum: 15 },
   { id: 2, name: "Carne smash", unit: "g", stock: 12000, minimum: 3000 },

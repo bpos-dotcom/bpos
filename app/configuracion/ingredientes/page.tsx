@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
-import { Ingredient } from "@/data/inventory";
+import { Ingredient, SUGGESTED_CATEGORIES } from "@/data/inventory";
 import { getAdminIngredients, saveAdminIngredients } from "@/lib/admin";
 import { stationLabel } from "@/lib/kds-config";
 import { TicketEquivalences } from "@/components/inventory/TicketEquivalences";
@@ -11,7 +11,7 @@ import { ask } from "@/components/layout/Dialogs";
 import { UNITS, changeIngredientUnit, unitChangeImpact, unitFactor } from "@/lib/units";
 
 const NO_CATEGORY = "Sin categoría";
-const SUGGESTED = ["Carnes", "Lácteos", "Panadería", "Verduras", "Salsas y aderezos", "Bebidas", "Desechables", "Limpieza"];
+const SUGGESTED = SUGGESTED_CATEGORIES;
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
 type DraftIngredient = Ingredient;
