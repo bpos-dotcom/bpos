@@ -61,6 +61,33 @@ const parseYmdLocal = (s: string) => {
 };
 const shortDay = (d: Date) => d.toLocaleDateString("es-MX", { day: "numeric", month: "short" }).replace(".", "");
 
+/** Anillo de avance hacia el punto de equilibrio (naranja; verde al cubrirlo) */
+function ProgressRing({ value }: { value: number }) {
+  const r = 52;
+  const c = 2 * Math.PI * r;
+  const v = Math.max(0, Math.min(100, value));
+  const done = v >= 100;
+  return (
+    <svg viewBox="0 0 140 140" className="my-3 h-36 w-36" role="img" aria-label={`Llevas ${v.toFixed(1)}% del punto de equilibrio`}>
+      <circle cx="70" cy="70" r={r} fill="none" strokeWidth="10" style={{ stroke: "var(--color-zinc-800)" }} />
+      <circle
+        cx="70"
+        cy="70"
+        r={r}
+        fill="none"
+        strokeWidth="10"
+        strokeLinecap="round"
+        strokeDasharray={`${(v / 100) * c} ${c}`}
+        transform="rotate(-90 70 70)"
+        style={{ stroke: done ? "var(--color-emerald-500)" : "var(--color-orange-500)" }}
+      />
+      <text x="70" y="78" textAnchor="middle" fontSize="24" fontWeight="900" style={{ fill: done ? "var(--color-emerald-400)" : "var(--color-orange-500)" }}>
+        {v.toFixed(1)}%
+      </text>
+    </svg>
+  );
+}
+
 function Kpi({ title, value, hint, tone = "" }: { title: string; value: string; hint?: React.ReactNode; tone?: string }) {
   return (
     <div className={card}>
@@ -312,21 +339,17 @@ export default function FinanzasPage() {
           )}
         </div>
 
-        {/* Izquierda: gráfica y gastos fijos. Derecha: punto de equilibrio, gastos sueltos, pedidos de apps y depósitos */}
+        {/* Izquierda: gráfica con punto de equilibrio y gastos fijos. Derecha: gastos sueltos, pedidos de apps y depósitos */}
         {error && <p className="text-sm font-bold text-red-300">{error}</p>}
         <div className="grid items-start gap-6 xl:grid-cols-2">
           <div className="space-y-6">
         <section className={card}>
+          <div className="grid gap-5 md:grid-cols-[minmax(0,1.7fr)_minmax(0,1fr)]">
+          <div className="min-w-0">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-black">📈 Cómo vamos</h2>
               <p className="text-xs text-zinc-500">Acumulado día por día contra {previousName.toLowerCase()} en los mismos días.</p>
-              {prevSameDays && prevSameDays.change !== null && (
-                <p className={`mt-1 text-sm font-black ${prevSameDays.change >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                  {prevSameDays.change >= 0 ? "▲" : "▼"} {money(Math.abs(prevSameDays.now - prevSameDays.before))}
-                  {Math.abs(prevSameDays.change) <= 300 ? ` (${pct(Math.abs(prevSameDays.change))})` : ""} {prevSameDays.change >= 0 ? "más" : "menos"} en los primeros {Math.min(daysSoFar, cur?.days.length || 0)} días: {money(prevSameDays.now)} contra {money(prevSameDays.before)}
-                </p>
-              )}
             </div>
             <div className="flex overflow-hidden rounded-2xl border border-zinc-800">
               {(
@@ -335,18 +358,54 @@ export default function FinanzasPage() {
                   ["utilidad", "Utilidad"],
                 ] as const
               ).map(([k, text]) => (
-                <button key={k} onClick={() => setChartMetric(k)} className={`px-4 py-2 text-sm font-black ${chartMetric === k ? "bg-orange-500 text-black" : "bg-black text-zinc-400 hover:text-white"}`}>
+                <button key={k} onClick={() => setChartMetric(k)} className={`px-3 py-1.5 text-xs font-black ${chartMetric === k ? "bg-orange-500 text-black" : "bg-black text-zinc-400 hover:text-white"}`}>
                   {text}
                 </button>
               ))}
             </div>
           </div>
+          {prevSameDays && prevSameDays.change !== null && (
+            <p className={`mt-1 text-sm font-black ${prevSameDays.change >= 0 ? "text-emerald-400" : "text-red-400"}`}>
+              {prevSameDays.change >= 0 ? "▲" : "▼"} {money(Math.abs(prevSameDays.now - prevSameDays.before))}
+              {Math.abs(prevSameDays.change) <= 300 ? ` (${pct(Math.abs(prevSameDays.change))})` : ""} {prevSameDays.change >= 0 ? "más" : "menos"} en los primeros {Math.min(daysSoFar, cur?.days.length || 0)} días: {money(prevSameDays.now)} contra {money(prevSameDays.before)}
+            </p>
+          )}
           {chart && (
-            <div className="mt-3 max-w-2xl">
+            <div className="mt-3">
               <FinanceChart labels={chart.labels} current={chart.current} previous={chart.previous} currentName={currentName} previousName={previousName} format={money} />
             </div>
           )}
           {chartMetric === "utilidad" && <p className="mt-2 text-xs text-zinc-500">Utilidad de cada día: ingresos − costo de lo vendido − su parte de los gastos fijos − gastos sueltos de ese día.</p>}
+          </div>
+          <div className="flex min-w-0 flex-col items-center text-center md:border-l md:border-zinc-800 md:pl-5">
+            <h2 className="text-lg font-black">
+              <span className="text-orange-500">¿Cómo vamos?</span> Punto de equilibrio
+            </h2>
+            {!expensesTotal ? (
+              <p className="mt-2 text-sm text-zinc-400">Agrega tus gastos fijos abajo para saber cuánto tienes que vender para no perder.</p>
+            ) : !equilibrium ? (
+              <p className="mt-2 text-sm text-zinc-400">Todavía no hay ingresos con costo en este periodo para calcularlo.</p>
+            ) : (
+              <>
+                <p className="mt-1 text-xs text-zinc-300">
+                  Para cubrir {money(expensesTotal)} de gastos {word === "mes" ? "del mes" : word === "semana" ? "de la semana" : "del periodo"}, con tu margen de {pct(grossMargin)}, necesitas ingresar{" "}
+                  <b className="text-white">{money(equilibrium)}</b> (unos <b className="text-white">{money(dailyNeeded)}</b> diarios).
+                </p>
+                <ProgressRing value={progress} />
+                <p className="text-xs">
+                  {progress >= 100 ? (
+                    <b className="text-emerald-400">✅ Ya cubriste tus gastos{isCurrent && coverDay ? ` (desde el día ${Math.min(coverDay, elapsed)})` : ""}: lo que ingreses de aquí en adelante es ganancia.</b>
+                  ) : (
+                    <>
+                      Llevas {pct(progress)}. Te faltan <b className="text-white">{money(equilibrium - sales)}</b>
+                      {isCurrent && coverDay ? (coverDay <= totalDays ? `; a este ritmo los cubres el día ${coverDay}.` : `; a este ritmo no alcanzas ${word === "mes" ? "este mes" : word === "semana" ? "esta semana" : "en el periodo"}.`) : "."}
+                    </>
+                  )}
+                </p>
+              </>
+            )}
+          </div>
+          </div>
         </section>
 
           <section className={card}>
@@ -392,34 +451,6 @@ export default function FinanzasPage() {
 
           </div>
           <div className="space-y-6">
-        <div className={card}>
-          <h2 className="text-lg font-black">⚖️ Punto de equilibrio</h2>
-          {!expensesTotal ? (
-            <p className="mt-2 text-sm text-zinc-400">Agrega tus gastos fijos abajo para saber cuánto tienes que vender para no perder.</p>
-          ) : !equilibrium ? (
-            <p className="mt-2 text-sm text-zinc-400">Todavía no hay ingresos con costo en este periodo para calcularlo.</p>
-          ) : (
-            <>
-              <p className="mt-2 text-sm text-zinc-300">
-                Para cubrir {money(expensesTotal)} de gastos {word === "mes" ? "del mes" : word === "semana" ? "de la semana" : "del periodo"}, con tu margen de {pct(grossMargin)}, necesitas ingresar <b className="text-white">{money(equilibrium)}</b>
-                {" "}(unos <b className="text-white">{money(dailyNeeded)}</b> diarios).
-              </p>
-              <div className="mt-4 h-5 overflow-hidden rounded-full bg-zinc-800">
-                <div className={`h-full rounded-full ${progress >= 100 ? "bg-emerald-500" : "bg-orange-500"}`} style={{ width: `${progress}%` }} />
-              </div>
-              <p className="mt-2 text-sm">
-                {progress >= 100 ? (
-                  <b className="text-emerald-400">✅ Ya cubriste tus gastos{isCurrent && coverDay ? ` (desde el día ${Math.min(coverDay, elapsed)})` : ""}: lo que ingreses de aquí en adelante es ganancia.</b>
-                ) : (
-                  <>
-                    Llevas {pct(progress)}. Te faltan <b className="text-white">{money(equilibrium - sales)}</b>
-                    {isCurrent && coverDay ? (coverDay <= totalDays ? `; a este ritmo los cubres el día ${coverDay}.` : `; a este ritmo no alcanzas ${word === "mes" ? "este mes" : word === "semana" ? "esta semana" : "en el periodo"}.`) : "."}
-                  </>
-                )}
-              </p>
-            </>
-          )}
-        </div>
             <section className={card}>
               <h2 className="text-lg font-black">🧾 Gastos sueltos</h2>
               <p className="text-xs text-zinc-500">Lo que no se repite: una reparación, un evento, material. (Las compras de insumos ya cuentan en el costo de lo vendido.)</p>
