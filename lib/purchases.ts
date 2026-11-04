@@ -8,7 +8,8 @@ import { upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
 
 export type Supplier = { id:string; name:string; phone?:string; whatsapp?:string; rfc?:string; notes?:string; active:boolean; createdAt:string; };
 export type PurchaseItem = { id:string; ticketName?:string; ingredientId:number; ingredientName:string; purchasedQuantity:number; inventoryQuantity:number; unit:Ingredient["unit"]; lineTotal:number; receivedQuantity?:number; };
-export type Purchase = { id:string; folio:string; createdAt:string; supplier:string; invoice?:string; paymentMethod?:string; subtotal:number; tax:number; total:number; items:PurchaseItem[]; note?:string; source:"manual"|"ocr"|"shopping-list"; ocrText?:string; imageName?:string; status:"confirmed"|"cancelled"; cancelledAt?:string; cancelledBy?:string; cancellationReason?:string; createdBy?:string; };
+/** paidWeekOf: lunes (AAAA-MM-DD) de la semana de ingresos con que se pagó; sin él, la semana de la compra */
+export type Purchase = { paidWeekOf?:string; id:string; folio:string; createdAt:string; supplier:string; invoice?:string; paymentMethod?:string; subtotal:number; tax:number; total:number; items:PurchaseItem[]; note?:string; source:"manual"|"ocr"|"shopping-list"; ocrText?:string; imageName?:string; status:"confirmed"|"cancelled"; cancelledAt?:string; cancelledBy?:string; cancellationReason?:string; createdBy?:string; };
 export type IngredientCostRecord = { id:string; ingredientId:number; ingredientName:string; supplier:string; purchaseId:string; purchasedAt:string; inventoryQuantity:number; total:number; unitCost:number; };
 
 const PURCHASES_KEY="bpos_purchases";
@@ -52,7 +53,14 @@ export function registerPurchase(input:Omit<Purchase,"id"|"folio"|"createdAt"|"s
  return purchase;
 }
 
-export function cancelPurchase(id:string,reason:string){ if(!reason.trim()) throw new Error("El motivo de cancelación es obligatorio."); const purchases=getPurchases(); const purchase=purchases.find(x=>x.id===id); if(!purchase||purchase.status==="cancelled") throw new Error("Compra no disponible para cancelar."); const user=getCurrentUser(); purchase.items.forEach(item=>adjustInventory({ingredientId:item.ingredientId,quantity:item.inventoryQuantity,adjustmentType:"Ajuste negativo",reason:`Cancelación ${purchase.folio} · ${reason}`})); const next=purchases.map(x=>x.id===id?{...x,status:"cancelled" as const,cancelledAt:new Date().toISOString(),cancelledBy:user.name,cancellationReason:reason}:x); write(PURCHASES_KEY,next); addAuditEvent({category:"Compras",action:"purchase.cancelled",description:`${purchase.folio} cancelada: ${reason}`,userId:String(user.id),userName:user.name,entityId:id}); }
+export function cancelPurchase(id:string,reason:string){ if(!reason.trim()) throw new Error("El motivo de cancelación es obligatorio."); const purchases=getPurchases(); const purchase=purchases.find(x=>x.id===id); if(!purchase||purchase.status==="cancelled") throw new Error("Compra no disponible para cancelar."); const user=getCurrentUser(); purchase.items.forEach(item=>adjustInventory({ingredientId:item.ingredientId,quantity:item.inventoryQuantity,adjustmentType:"Ajuste negativo",reason:`Cancelación ${purchase.folio} · ${reason}`})); const next=purchases.map(x=>x.id===id?{...x,status:"cancelled" as const,cancelledAt:new Date().toISOString(),cancelledBy:user.name,cancellationReason:reason}:x); write(PURCHASES_KEY,next); write(COSTS_KEY,getIngredientCostHistory().filter(c=>c.purchaseId!==id)); addAuditEvent({category:"Compras",action:"purchase.cancelled",description:`${purchase.folio} cancelada: ${reason}`,userId:String(user.id),userName:user.name,entityId:id}); }
+
+/** Cambia con qué semana de ingresos se pagó una compra (Finanzas la cuenta en esa semana) */
+export function setPurchaseWeek(id:string,weekOf:string){
+ const purchases=getPurchases(); const p=purchases.find(x=>x.id===id); if(!p) return;
+ write(PURCHASES_KEY,purchases.map(x=>x.id===id?{...x,paidWeekOf:weekOf||undefined}:x));
+ addAuditEvent({category:"Compras",action:"purchase.week",description:`${p.folio}: pagada con ingresos de la semana del ${weekOf}`,entityId:id});
+}
 
 // ------------------------------------------------------------------
 // Equivalencias: cómo viene escrito un artículo en el ticket del

@@ -8,6 +8,10 @@
  * Las ventas de DiDi, Uber y Rappi (Bridge) NO cuentan como ingreso: su
  * total no es lo que te pagan. Cuenta el depósito que registras en "Otros
  * ingresos". Su costo (la comida) sí cuenta, porque sí salió de tu cocina.
+ *
+ * Compras: no se restan de la utilidad (ahí cuenta el costo de lo vendido,
+ * con recetas), pero se muestran como dinero que salió, en la semana de
+ * ingresos con que se pagaron (Compras → "Se pagó con los ingresos de").
  */
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
@@ -177,6 +181,14 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
     return { date: d, key, income: inc, profit: inc - spent, breakdown };
   });
   const platform = all.orders.filter((o) => isPlatformOrder(o));
+  // Compras: cuentan en la semana de ingresos con que se pagaron (si no se eligió, el día de la compra)
+  const paidOn = (p: ReportSources["purchases"][number]) => p.paidWeekOf || ymd(new Date(p.createdAt));
+  const confirmed = src.purchases.filter((p) => p.status !== "cancelled");
+  const purchases = confirmed.filter((p) => inRange(paidOn(p)));
+  // Compradas en estos días pero pagadas con ingresos de otra semana
+  const paidElsewhere = confirmed.filter((p) => inRange(ymd(new Date(p.createdAt))) && !inRange(paidOn(p)));
+  const bySupplier = new Map<string, number>();
+  purchases.forEach((p) => bySupplier.set(p.supplier || "Sin proveedor", (bySupplier.get(p.supplier || "Sin proveedor") || 0) + p.total));
   return {
     local,
     all,
@@ -194,6 +206,11 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
     platformSales: platform.reduce((s, o) => s + (Number(o.total) || 0), 0),
     platformOrders: platform.length,
     byApp: appBreakdown(platform, deposits),
+    purchases,
+    purchaseTotal: purchases.reduce((s, p) => s + p.total, 0),
+    purchaseSuppliers: [...bySupplier.entries()].sort((a, b) => b[1] - a[1]),
+    paidElsewhere,
+    costByIngredient: all.costByIngredient,
     days,
   };
 }
@@ -370,7 +387,8 @@ export default function FinanzasPage() {
           <Kpi title={`Gastos de ${word === "mes" ? "este mes" : word === "semana" ? "esta semana" : "este periodo"}`} value={money(expensesTotal)} hint={`Fijos ${money(fixedPeriod)}${word !== "mes" ? " (su parte)" : ""} · sueltos ${money(extraTotal)}${cashSpent ? ` · pagados de la caja ${money(cashSpent)}` : ""}`} />
         </div>
 
-        <div className={`${card} ${net >= 0 ? "border-emerald-500/50" : "border-red-500/50"}`}>
+        <div className={`${card} grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] ${net >= 0 ? "border-emerald-500/50" : "border-red-500/50"}`}>
+          <div className="min-w-0">
           <p className="text-sm text-zinc-400">Utilidad real {isCurrent ? "hasta hoy" : `de ${periodName}`}</p>
           <p className={`text-5xl font-black ${net >= 0 ? "text-emerald-400" : "text-red-400"}`}>{money(net)}</p>
           <p className="mt-1 text-sm text-zinc-400">
@@ -404,6 +422,59 @@ export default function FinanzasPage() {
               Completa tus recetas en Configuración → Recetas.
             </p>
           )}
+          {foodCost > 45 && (cur?.costByIngredient.length || 0) > 0 && (
+            <div className="mt-3 rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-100">
+              <p className="font-black">🔎 ¿Por qué el costo es tan alto? Lo que más suma:</p>
+              <ul className="mt-1 space-y-0.5">
+                {cur!.costByIngredient.slice(0, 6).map((c) => {
+                  const odd = ((c.unit === "g" || c.unit === "ml") && c.unitCost > 2) || ((c.unit === "kg" || c.unit === "L") && c.unitCost > 2000);
+                  return (
+                    <li key={c.id} className={odd ? "font-black text-red-300" : ""}>
+                      {c.name}: usaste {Math.round(c.quantity * 100) / 100} {c.unit} × {c.unitCost < 1 ? `$${c.unitCost.toFixed(4)}` : money(c.unitCost)} por {c.unit} = {money(c.cost)}
+                      {odd ? " ← se ve muy caro por unidad" : ""}
+                    </li>
+                  );
+                })}
+              </ul>
+              <p className="mt-1 text-red-200/80">
+                Si un costo por unidad se ve muy alto, esa compra se capturó en otra unidad (ej. 10 cuando eran 10,000 g). Cancélala en Compras → Historial y vuelve a capturarla.
+              </p>
+            </div>
+          )}
+          </div>
+
+          {/* Compras del periodo: el dinero que salió (no se resta otra vez de la utilidad) */}
+          <div className="rounded-2xl border border-zinc-800 bg-black p-4">
+            <p className="text-sm font-black">🛒 Compras pagadas con {word === "semana" ? "los ingresos de esta semana" : `los ingresos de ${periodName}`}</p>
+            <p className="mt-1 text-3xl font-black text-orange-400">{money(cur?.purchaseTotal || 0)}</p>
+            <p className="text-xs text-zinc-500">
+              {cur?.purchases.length || 0} compra{(cur?.purchases.length || 0) === 1 ? "" : "s"}
+              {sales > 0 && (cur?.purchaseTotal || 0) > 0 ? ` · ${pct(((cur?.purchaseTotal || 0) / sales) * 100)} de tus ingresos` : ""}
+            </p>
+            {(cur?.purchaseSuppliers.length || 0) > 0 && (
+              <ul className="mt-2 space-y-0.5 text-xs text-zinc-300">
+                {cur!.purchaseSuppliers.slice(0, 4).map(([name, total]) => (
+                  <li key={name} className="flex justify-between gap-2">
+                    <span className="truncate">{name}</span>
+                    <b>{money(total)}</b>
+                  </li>
+                ))}
+              </ul>
+            )}
+            {(cur?.paidElsewhere.length || 0) > 0 && (
+              <p className="mt-2 text-xs text-sky-300">
+                {cur!.paidElsewhere.length} compra{cur!.paidElsewhere.length === 1 ? "" : "s"} de estos días por {money(cur!.paidElsewhere.reduce((s, p) => s + p.total, 0))}{cur!.paidElsewhere.length === 1 ? " se pagó con ingresos de otra semana y no cuenta aquí." : " se pagaron con ingresos de otra semana y no cuentan aquí."}
+              </p>
+            )}
+            <div className="mt-3 border-t border-zinc-800 pt-3 text-xs">
+              <p className="flex justify-between gap-2 text-zinc-400">
+                <span>Ingresos − compras − gastos</span>
+                <b className={sales - (cur?.purchaseTotal || 0) - expensesTotal + cashDiff >= 0 ? "text-emerald-400" : "text-red-400"}>{money(sales - (cur?.purchaseTotal || 0) - expensesTotal + cashDiff)}</b>
+              </p>
+              <p className="mt-1 text-zinc-500">Lo que te queda en la bolsa. Las compras no se restan de la utilidad: ahí cuenta el costo de lo que vendiste (recetas), para no contarlas doble.</p>
+            </div>
+            <p className="mt-2 text-[11px] text-zinc-600">En Compras eliges con qué semana de ingresos se pagó cada una.</p>
+          </div>
         </div>
 
         {/* Izquierda: gráfica con punto de equilibrio y gastos fijos. Derecha: gastos sueltos, pedidos de apps y depósitos */}
