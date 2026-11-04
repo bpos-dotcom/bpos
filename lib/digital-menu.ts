@@ -31,8 +31,17 @@ export type Align = "left" | "center" | "right";
 /** Colores del menú digital (y del kiosco): claro o oscuro */
 export type MenuTheme = "light" | "dark";
 
+/** Cómo se ven los platillos: tarjetas chicas, lista con descripción o fotos grandes */
+export type MenuLayout = "tarjetas" | "lista" | "fotos";
+export const MENU_LAYOUTS: Record<MenuLayout, { label: string; hint: string }> = {
+  tarjetas: { label: "Tarjetas", hint: "Muchos platillos a la vista, en cuadritos con foto chica." },
+  lista: { label: "Lista", hint: "Un renglón por platillo con foto a un lado y su descripción." },
+  fotos: { label: "Fotos grandes", hint: "La foto manda: ideal si tus fotos son buenas." },
+};
+
 export type MenuDesign = {
   theme: MenuTheme;
+  layout: MenuLayout;
   topBar: { on: boolean; text: string; city: string };
   hero: { on: boolean; image: string; eyebrow: string; title: string; highlight: string; text: string; badges: string[]; button: string; align: Align };
   featured: { on: boolean; productId: number | null; image: string; eyebrow: string; text: string; badge: string };
@@ -54,6 +63,7 @@ export type MenuDesign = {
 
 export const DEFAULT_DESIGN: MenuDesign = {
   theme: "light",
+  layout: "tarjetas",
   topBar: { on: true, text: "", city: "" },
   hero: { on: true, image: "", eyebrow: "", title: "", highlight: "", text: "", badges: ["", "", ""], button: "Ver menú", align: "left" },
   featured: { on: true, productId: null, image: "", eyebrow: "Combo destacado", text: "", badge: "El favorito" },
@@ -72,6 +82,20 @@ export const DEFAULT_DESIGN: MenuDesign = {
   },
   banner: { on: false, image: "", title: "", highlight: "", side: "" },
 };
+
+/**
+ * Menú con horario ("Desayunos" de 7 a 12): sus categorías solo se venden
+ * en ese horario, en el POS y en internet. Una categoría que no está en
+ * ningún menú se vende siempre; si está en dos, cuando aplique cualquiera.
+ */
+export type TimedMenu = { id: string; name: string; categories: string[]; schedule: SaleSchedule };
+
+/**
+ * Día festivo o especial (fecha exacta): ese día no se reciben pedidos en
+ * internet, o se reciben en otro horario. Solo afecta al menú en línea,
+ * kiosco y meseros (el POS sigue vendiendo).
+ */
+export type Holiday = { date: string; name: string; closed: boolean; from: string; to: string };
 
 /** Datos para que el cliente transfiera */
 export type BankInfo = { bank: string; clabe: string; holder: string };
@@ -118,6 +142,14 @@ export type DigitalMenuSettings = {
    * el negocio. Las que no estén aquí van después, en el orden del catálogo.
    */
   categoryOrder: string[];
+  /** Orden de los productos dentro de su categoría (ids); los que no estén, después en el orden del catálogo */
+  productOrder: number[];
+  /** Barra de favoritos del POS (ids, en ese orden) */
+  posFavorites: number[];
+  /** Menús con horario (desayunos, comida, noche) */
+  menus: TimedMenu[];
+  /** Días festivos o especiales */
+  holidays: Holiday[];
   /** Productos que no se muestran en el menú digital (ids) */
   hidden: number[];
   /** Productos agotados (también se ocultan) */
@@ -148,6 +180,10 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   googleReviewUrl: "",
   reservations: { enabled: false, maxPeople: 12, maxDays: 30, note: "" },
   categoryOrder: [],
+  productOrder: [],
+  posFavorites: [],
+  menus: [],
+  holidays: [],
   hidden: [],
   soldOut: {},
   whatsapp: "",
@@ -171,6 +207,7 @@ export function normalizeDesign(raw: unknown): MenuDesign {
   const badges = Array.isArray(r.hero?.badges) ? r.hero.badges : d.hero.badges;
   return {
     theme: r.theme === "dark" ? "dark" : "light",
+    layout: r.layout === "lista" || r.layout === "fotos" ? r.layout : "tarjetas",
     topBar: { on: bool(r.topBar?.on, d.topBar.on), text: str(r.topBar?.text, "", 90), city: str(r.topBar?.city, "", 60) },
     hero: {
       on: bool(r.hero?.on, d.hero.on),
@@ -253,6 +290,42 @@ const num = (value: unknown, fallback: number, min = 0, max = 100000) => {
   return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
 };
 
+/** Lista de ids sin repetir */
+const ids = (value: unknown, max: number) =>
+  Array.isArray(value) ? Array.from(new Set(value.map(Number).filter(Number.isFinite))).slice(0, max) : [];
+
+const HHMM = /^\d{2}:\d{2}$/;
+
+function normalizeTimedMenu(raw: unknown): TimedMenu | null {
+  const m = (raw || {}) as Partial<TimedMenu>;
+  const name = str(m.name, "", 40);
+  if (!m.id && !name.trim()) return null;
+  const s = (m.schedule || {}) as Partial<SaleSchedule>;
+  return {
+    id: str(m.id, "", 40) || `menu-${Date.now().toString(36)}`,
+    name,
+    categories: Array.isArray(m.categories) ? Array.from(new Set(m.categories.filter((c): c is string => typeof c === "string").map((c) => c.trim()).filter(Boolean))).slice(0, 60) : [],
+    schedule: {
+      days: Array.isArray(s.days) ? Array.from(new Set(s.days.map(Number).filter((d) => d >= 0 && d <= 6))) : [],
+      from: HHMM.test(String(s.from || "")) ? String(s.from) : "",
+      to: HHMM.test(String(s.to || "")) ? String(s.to) : "",
+    },
+  };
+}
+
+function normalizeHoliday(raw: unknown): Holiday | null {
+  const h = (raw || {}) as Partial<Holiday>;
+  const date = String(h.date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  return {
+    date,
+    name: str(h.name, "", 40),
+    closed: h.closed !== false,
+    from: HHMM.test(String(h.from || "")) ? String(h.from) : "",
+    to: HHMM.test(String(h.to || "")) ? String(h.to) : "",
+  };
+}
+
 export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | undefined): DigitalMenuSettings {
   const r = raw || {};
   const soldOut: Record<string, SoldOut> = {};
@@ -297,6 +370,10 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
     categoryOrder: Array.isArray(r.categoryOrder)
       ? Array.from(new Set(r.categoryOrder.filter((c): c is string => typeof c === "string").map((c) => c.trim().slice(0, 60)).filter(Boolean))).slice(0, 100)
       : [],
+    productOrder: ids(r.productOrder, 2000),
+    posFavorites: ids(r.posFavorites, 40),
+    menus: Array.isArray(r.menus) ? r.menus.map(normalizeTimedMenu).filter((m): m is TimedMenu => Boolean(m)).slice(0, 12) : [],
+    holidays: Array.isArray(r.holidays) ? r.holidays.map(normalizeHoliday).filter((h): h is Holiday => Boolean(h)).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 60) : [],
     hidden: Array.isArray(r.hidden) ? r.hidden.map(Number).filter(Number.isFinite) : [],
     soldOut,
     whatsapp: String(r.whatsapp || "").replace(/\D/g, "").slice(0, 13),
@@ -323,6 +400,71 @@ export function sortCategories(categories: string[], order: string[]): string[] 
     if (rb !== undefined) return 1;
     return 0; // sort es estable: conservan el orden del catálogo
   });
+}
+
+/**
+ * Productos en el orden del negocio: por categoría (su orden) y dentro de
+ * cada una como se acomodaron. Lo que no está acomodado va después, como
+ * viene del catálogo.
+ */
+export function sortProducts<T extends Pick<Product, "id" | "category">>(list: T[], categoryOrder: string[], productOrder: number[]): T[] {
+  const cats = sortCategories(Array.from(new Set(list.map((p) => p.category || "Otros"))), categoryOrder);
+  const catRank = new Map(cats.map((c, i) => [c, i]));
+  const rank = new Map(productOrder.map((id, i) => [id, i]));
+  return list
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => {
+      const ca = (catRank.get(a.p.category || "Otros") ?? 0) - (catRank.get(b.p.category || "Otros") ?? 0);
+      if (ca) return ca;
+      const ra = rank.get(Number(a.p.id)) ?? Infinity;
+      const rb = rank.get(Number(b.p.id)) ?? Infinity;
+      return ra === rb ? a.i - b.i : ra - rb;
+    })
+    .map((x) => x.p);
+}
+
+/**
+ * Menús con horario: "" si la categoría se vende ahora; si no, cuándo
+ * ("Desayunos · Todos los días · 07:00 a 12:00").
+ */
+export function categoryOffMenu(menu: Partial<Pick<DigitalMenuSettings, "menus">>, category: string, now = new Date()) {
+  const own = (menu.menus || []).filter((m) => m.categories.includes(category || "Otros"));
+  if (own.length === 0 || own.some((m) => isOnSale(m.schedule, now))) return "";
+  return own.map((m) => [m.name.trim(), scheduleLabel(m.schedule)].filter(Boolean).join(" · ")).join(" o ");
+}
+
+/** "2026-12-25" de una fecha, con la hora local */
+export function localDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Día festivo de esa fecha (o undefined) */
+export function holidayOn(menu: Partial<Pick<DigitalMenuSettings, "holidays">>, d: Date) {
+  const key = localDate(d);
+  return (menu.holidays || []).find((h) => h.date === key);
+}
+
+/** "25 dic" */
+export function shortDate(iso: string) {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("es-MX", { day: "numeric", month: "short" }).replace(".", "");
+}
+
+/** Lo que dice un día festivo: "cerrado" o "4:00 pm a 10:00 pm" */
+export function holidayHoursText(h: Holiday) {
+  return h.closed ? "cerrado" : h.from || h.to ? `${hour12(h.from || "00:00")} a ${hour12(h.to || "00:00")}` : "abierto todo el día";
+}
+
+/** Aviso de los días festivos de los próximos 7 días: "25 dic (Navidad): cerrado · 1 ene: 4:00 pm a 10:00 pm" */
+export function upcomingHolidaysLabel(menu: Partial<Pick<DigitalMenuSettings, "holidays">>, now = new Date()) {
+  const from = localDate(now);
+  const until = new Date(now);
+  until.setDate(until.getDate() + 7);
+  const to = localDate(until);
+  return (menu.holidays || [])
+    .filter((h) => h.date >= from && h.date <= to)
+    .map((h) => `${shortDate(h.date)}${h.name.trim() ? ` (${h.name.trim()})` : ""}: ${holidayHoursText(h)}`)
+    .join(" · ");
 }
 
 export function getDigitalMenu(): DigitalMenuSettings {
@@ -355,8 +497,8 @@ export function isSoldOut(menu: Pick<DigitalMenuSettings, "soldOut">, productId:
 }
 
 /** ¿El cliente puede ver y pedir este producto? */
-export function isAvailableOnline(menu: Pick<DigitalMenuSettings, "soldOut" | "hidden">, product: Product, now = new Date()) {
-  return !menu.hidden.includes(Number(product.id)) && !isSoldOut(menu, product.id, now) && isOnSale(product.saleSchedule, now);
+export function isAvailableOnline(menu: Pick<DigitalMenuSettings, "soldOut" | "hidden"> & Partial<Pick<DigitalMenuSettings, "menus">>, product: Product, now = new Date()) {
+  return !menu.hidden.includes(Number(product.id)) && !isSoldOut(menu, product.id, now) && isOnSale(product.saleSchedule, now) && !categoryOffMenu(menu, product.category, now);
 }
 
 /**
@@ -378,8 +520,12 @@ export function onlineGroups(product: Product, catalog: Product[], menu: Pick<Di
   return { groups, blocked };
 }
 
-/** ¿Recibe pedidos en este momento? (horario) */
-export function isOpenNow(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">, now = new Date()) {
+type HoursMenu = Pick<DigitalMenuSettings, "hours" | "moreHours"> & Partial<Pick<DigitalMenuSettings, "holidays">>;
+
+/** ¿Recibe pedidos en este momento? (horario; un día festivo manda sobre el horario normal) */
+export function isOpenNow(menu: HoursMenu, now = new Date()) {
+  const holiday = holidayOn(menu, now);
+  if (holiday) return !holiday.closed && (holiday.from || holiday.to ? isOnSale({ days: [], from: holiday.from, to: holiday.to }, now) : true);
   const blocks = openHoursBlocks(menu);
   return blocks.length === 0 || blocks.some((b) => isOnSale(b, now));
 }
@@ -446,7 +592,7 @@ export function opensEveryDay(menu: Pick<DigitalMenuSettings, "hours" | "moreHou
 }
 
 /** Próximo momento en que se reciben pedidos (null si ya está abierto o no hay horario) */
-export function nextOpening(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">, now = new Date()): Date | null {
+export function nextOpening(menu: HoursMenu, now = new Date()): Date | null {
   if (isOpenNow(menu, now)) return null;
   // Se revisa minuto a minuto hasta 8 días (los horarios son a minutos)
   const t = new Date(now);
@@ -459,7 +605,7 @@ export function nextOpening(menu: Pick<DigitalMenuSettings, "hours" | "moreHours
 }
 
 /** "en 2 h 35 min" · "mañana a la 1:30 pm" · "el viernes a la 1:30 pm" */
-export function opensInLabel(menu: Pick<DigitalMenuSettings, "hours" | "moreHours">, now = new Date()) {
+export function opensInLabel(menu: HoursMenu, now = new Date()) {
   const next = nextOpening(menu, now);
   if (!next) return "";
   const mins = Math.round((next.getTime() - now.getTime()) / 60000);

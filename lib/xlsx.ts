@@ -196,3 +196,117 @@ export function downloadXlsx(fileName: string, sheets: Sheet[]) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
 }
+
+// ------------------------------------------------------------ leer (importar)
+
+/** Archivos de un ZIP (Excel guarda comprimido: se descomprime con el navegador, sin librerías) */
+async function unzip(bytes: Uint8Array): Promise<Map<string, Uint8Array>> {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  // Fin del directorio central: firma 0x06054b50, buscándola desde el final
+  let end = -1;
+  for (let i = bytes.length - 22; i >= Math.max(0, bytes.length - 65557); i -= 1) {
+    if (view.getUint32(i, true) === 0x06054b50) {
+      end = i;
+      break;
+    }
+  }
+  if (end < 0) throw new Error("El archivo no es un Excel válido (.xlsx).");
+  const count = view.getUint16(end + 10, true);
+  let p = view.getUint32(end + 16, true);
+  const out = new Map<string, Uint8Array>();
+  const decoder = new TextDecoder();
+  for (let n = 0; n < count; n += 1) {
+    if (view.getUint32(p, true) !== 0x02014b50) break;
+    const method = view.getUint16(p + 10, true);
+    const size = view.getUint32(p + 20, true);
+    const nameLen = view.getUint16(p + 28, true);
+    const extraLen = view.getUint16(p + 30, true);
+    const commentLen = view.getUint16(p + 32, true);
+    const local = view.getUint32(p + 42, true);
+    const name = decoder.decode(bytes.subarray(p + 46, p + 46 + nameLen));
+    p += 46 + nameLen + extraLen + commentLen;
+    const start = local + 30 + view.getUint16(local + 26, true) + view.getUint16(local + 28, true);
+    const data = bytes.subarray(start, start + size);
+    if (method === 0) out.set(name, data);
+    else if (method === 8) {
+      const stream = new Blob([data as BlobPart]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+      out.set(name, new Uint8Array(await new Response(stream).arrayBuffer()));
+    }
+  }
+  return out;
+}
+
+/** "B12" → columna 1 (empieza en 0) */
+function columnIndex(ref: string) {
+  const letters = /^[A-Z]+/i.exec(ref)?.[0].toUpperCase() || "A";
+  return [...letters].reduce((n, ch) => n * 26 + ch.charCodeAt(0) - 64, 0) - 1;
+}
+
+/** Primera hoja de un .xlsx como renglones de texto */
+async function readXlsx(bytes: Uint8Array): Promise<string[][]> {
+  const files = await unzip(bytes);
+  const decoder = new TextDecoder();
+  const xml = (name: string) => {
+    const f = files.get(name);
+    return f ? new DOMParser().parseFromString(decoder.decode(f), "application/xml") : null;
+  };
+  const shared = [...(xml("xl/sharedStrings.xml")?.getElementsByTagName("si") || [])].map((si) => [...si.getElementsByTagName("t")].map((t) => t.textContent || "").join(""));
+  const sheetName = [...files.keys()].filter((k) => /^xl\/worksheets\/sheet\d+\.xml$/.test(k)).sort((a, b) => Number(/\d+/.exec(a)![0]) - Number(/\d+/.exec(b)![0]))[0];
+  const sheet = sheetName ? xml(sheetName) : null;
+  if (!sheet) throw new Error("El Excel no tiene hojas.");
+  return [...sheet.getElementsByTagName("row")].map((row) => {
+    const cells: string[] = [];
+    for (const c of [...row.getElementsByTagName("c")]) {
+      const type = c.getAttribute("t");
+      const v = c.getElementsByTagName("v")[0]?.textContent ?? "";
+      const value = type === "s" ? shared[Number(v)] ?? "" : type === "inlineStr" ? [...c.getElementsByTagName("t")].map((t) => t.textContent || "").join("") : v;
+      cells[columnIndex(c.getAttribute("r") || "A")] = value;
+    }
+    return Array.from(cells, (x) => (x ?? "").trim());
+  });
+}
+
+/** CSV (coma o punto y coma, con comillas) como renglones de texto */
+export function parseCsv(text: string): string[][] {
+  const clean = text.replace(/^﻿/, "");
+  const firstLine = clean.split(/\r?\n/, 1)[0] || "";
+  const sep = (firstLine.match(/;/g) || []).length > (firstLine.match(/,/g) || []).length ? ";" : ",";
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < clean.length; i += 1) {
+    const ch = clean[i];
+    if (quoted) {
+      if (ch === '"' && clean[i + 1] === '"') {
+        cell += '"';
+        i += 1;
+      } else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === sep) {
+      row.push(cell.trim());
+      cell = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && clean[i + 1] === "\n") i += 1;
+      row.push(cell.trim());
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else cell += ch;
+  }
+  if (cell || row.length) {
+    row.push(cell.trim());
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some(Boolean));
+}
+
+/** Lee un Excel (.xlsx) o CSV: renglones de texto, sin los vacíos */
+export async function readSpreadsheet(file: File): Promise<string[][]> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
+  if (isZip) return (await readXlsx(bytes)).filter((r) => r.some(Boolean));
+  if (/\.xls$/i.test(file.name)) throw new Error("Ese es un Excel viejo (.xls). Guárdalo como .xlsx o .csv y vuelve a intentar.");
+  return parseCsv(new TextDecoder().decode(bytes));
+}

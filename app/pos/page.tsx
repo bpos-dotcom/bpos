@@ -22,7 +22,7 @@ import { ProductCard } from "@/components/ProductCard";
 import { isOnSale, scheduleLabel } from "@/lib/sale-schedule";
 import { Product } from "@/data/products";
 import { getAdminProducts } from "@/lib/admin";
-import { DIGITAL_MENU_EVENT, getDigitalMenu, sortCategories } from "@/lib/digital-menu";
+import { DIGITAL_MENU_EVENT, categoryOffMenu, getDigitalMenu, saveDigitalMenu, sortCategories, sortProducts } from "@/lib/digital-menu";
 import { getCurrentUser, CurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
@@ -54,6 +54,8 @@ import {
 const STORAGE_KEY = "bpos_orders";
 /** Pedido en curso (carrito y datos) para que no se pierda al cambiar de página */
 const DRAFT_KEY = "bpos_pos_draft";
+/** Cuadrícula o lista: preferencia de esta caja (no se sincroniza) */
+const POS_VIEW_KEY = "bpos_pos_view";
 const USERS_KEY = "bpos_users";
 
 type SystemUser = {
@@ -190,15 +192,56 @@ function PosScreen() {
     const timer = setInterval(() => setClock(Date.now()), 60_000);
     return () => clearInterval(timer);
   }, []);
-  const offSchedule = useCallback((product: Product) => (isOnSale(product.saleSchedule, new Date(clock)) ? "" : scheduleLabel(product.saleSchedule)), [clock]);
+  // Orden de categorías y productos, favoritos y menús con horario (Configuración → Menú digital)
+  const [menuCfg, setMenuCfg] = useState(() => getDigitalMenu());
+  const categoryOrder = menuCfg.categoryOrder;
+  // Fuera de horario: el del producto o el de su menú (ej. Desayunos de 7 a 12)
+  const offSchedule = useCallback(
+    (product: Product) => {
+      const now = new Date(clock);
+      if (!isOnSale(product.saleSchedule, now)) return scheduleLabel(product.saleSchedule);
+      return categoryOffMenu(menuCfg, product.category, now);
+    },
+    [clock, menuCfg]
+  );
 
   // Lo que no se vende por separado no aparece en el menú (sí sirve dentro de combos)
-  const sellable = useMemo(() => products.filter((product) => !product.notSoldAlone), [products]);
+  const sellable = useMemo(
+    () => sortProducts(products.filter((product) => !product.notSoldAlone), menuCfg.categoryOrder, menuCfg.productOrder),
+    [products, menuCfg.categoryOrder, menuCfg.productOrder]
+  );
 
-  // Orden de categorías que acomodó el negocio (Configuración → Menú digital)
-  const [categoryOrder, setCategoryOrder] = useState<string[]>(() => getDigitalMenu().categoryOrder);
+  // Barra de favoritos (en el orden en que se marcaron) y vista en cuadrícula o lista (de esta caja)
+  const favorites = useMemo(() => {
+    const byId = new Map(sellable.map((p) => [Number(p.id), p]));
+    return menuCfg.posFavorites.map((id) => byId.get(id)).filter((p): p is Product => Boolean(p));
+  }, [sellable, menuCfg.posFavorites]);
+  const [editingFavorites, setEditingFavorites] = useState(false);
+  function toggleFavorite(product: Product) {
+    const id = Number(product.id);
+    const list = getDigitalMenu().posFavorites;
+    setMenuCfg(saveDigitalMenu({ posFavorites: list.includes(id) ? list.filter((x) => x !== id) : [...list, id] }));
+  }
+  const [posView, setPosView] = useState<"grid" | "list">("grid");
   useEffect(() => {
-    const sync = () => setCategoryOrder(getDigitalMenu().categoryOrder);
+    try {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- preferencia de esta caja: se lee después de montar
+      if (localStorage.getItem(POS_VIEW_KEY) === "list") setPosView("list");
+    } catch {
+      // sin almacenamiento: cuadrícula
+    }
+  }, []);
+  function changePosView(view: "grid" | "list") {
+    setPosView(view);
+    try {
+      localStorage.setItem(POS_VIEW_KEY, view);
+    } catch {
+      // sin almacenamiento: solo dura mientras la página esté abierta
+    }
+  }
+
+  useEffect(() => {
+    const sync = () => setMenuCfg(getDigitalMenu());
     window.addEventListener(DIGITAL_MENU_EVENT, sync);
     window.addEventListener("storage", sync);
     return () => {
@@ -351,8 +394,13 @@ function PosScreen() {
 
   // Combos con algo a elegir (ej. el refresco) y productos con opciones (aderezo, salsas) preguntan antes de agregarse
   function addToCart(product: Product) {
-    if (!isOnSale(product.saleSchedule)) {
-      alert(`${product.name} solo se vende: ${scheduleLabel(product.saleSchedule)}.`);
+    if (editingFavorites) {
+      toggleFavorite(product);
+      return;
+    }
+    const off = offSchedule(product);
+    if (off) {
+      alert(`${product.name} solo se vende: ${off}.`);
       return;
     }
     if (needsChoices(product, products)) {
@@ -870,12 +918,64 @@ function PosScreen() {
               Busca por nombre o filtra por categoría.
             </p>
 
-            <input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Buscar producto..."
-              className="mt-3 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600 sm:mt-5"
-            />
+            <div className="mt-3 flex gap-2 sm:mt-5">
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Buscar producto..."
+                className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600"
+              />
+              <div className="flex shrink-0 overflow-hidden rounded-2xl border border-zinc-800" role="group" aria-label="Vista de productos">
+                {(
+                  [
+                    ["grid", "▦", "Cuadrícula"],
+                    ["list", "☰", "Lista"],
+                  ] as const
+                ).map(([view, icon, text]) => (
+                  <button
+                    key={view}
+                    onClick={() => changePosView(view)}
+                    title={text}
+                    aria-pressed={posView === view}
+                    className={`px-3 text-lg font-black ${posView === view ? "bg-orange-500 text-black" : "bg-black text-zinc-400 hover:text-white"}`}
+                  >
+                    {icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Favoritos: lo que más se vende, a un toque sin buscar ni cambiar de categoría */}
+            <div className="mt-3 flex items-center gap-2">
+              <div className="bpos-scroll flex min-w-0 flex-1 gap-2 overflow-x-auto pb-1">
+                {favorites.map((product) => {
+                  const off = offSchedule(product);
+                  return (
+                    <button
+                      key={product.id}
+                      onClick={() => (editingFavorites ? toggleFavorite(product) : addToCart(product))}
+                      disabled={!editingFavorites && Boolean(off)}
+                      title={off ? `Fuera de horario: ${off}` : undefined}
+                      className={`flex shrink-0 items-center gap-1.5 rounded-2xl border px-3 py-2 text-sm font-black active:scale-95 ${
+                        editingFavorites ? "border-red-500/60 bg-red-500/10 text-red-200" : off ? "border-zinc-800 bg-black text-zinc-600" : "border-yellow-500/50 bg-yellow-500/10 text-yellow-100 hover:border-yellow-400"
+                      }`}
+                    >
+                      <span>{product.emoji}</span>
+                      <span className="max-w-36 truncate">{product.name}</span>
+                      <span className={editingFavorites ? "" : "text-orange-400"}>{editingFavorites ? "✕" : `$${product.price.toFixed(0)}`}</span>
+                    </button>
+                  );
+                })}
+                {favorites.length === 0 && !editingFavorites && <span className="py-2 text-xs text-zinc-500">Pon a la mano lo que más vendes →</span>}
+                {editingFavorites && favorites.length === 0 && <span className="whitespace-nowrap py-2 text-xs font-bold text-yellow-200">Toca productos abajo para agregarlos ⭐</span>}
+              </div>
+              <button
+                onClick={() => setEditingFavorites((v) => !v)}
+                className={`shrink-0 rounded-2xl border px-3 py-2 text-sm font-black ${editingFavorites ? "border-yellow-400 bg-yellow-400 text-black" : "border-zinc-800 bg-black text-zinc-300 hover:border-yellow-400"}`}
+              >
+                {editingFavorites ? "✓ Listo" : "⭐ Favoritos"}
+              </button>
+            </div>
 
             <div className="mt-3 flex gap-2 overflow-x-auto pb-1 sm:mt-4 sm:flex-wrap sm:overflow-visible">
               {categories.map((category) => (
@@ -893,13 +993,19 @@ function PosScreen() {
               ))}
             </div>
 
-            <div className="mt-1 grid max-h-[55dvh] grid-cols-2 gap-2 overflow-y-auto bpos-scroll px-1 pt-2 sm:mt-3 sm:gap-3 md:max-h-none md:min-h-0 md:flex-1 md:grid-cols-2 md:content-start md:overflow-y-auto md:pr-2 lg:grid-cols-3">
+            <div
+              className={`mt-1 grid max-h-[55dvh] overflow-y-auto bpos-scroll px-1 pt-2 sm:mt-3 md:max-h-none md:min-h-0 md:flex-1 md:content-start md:overflow-y-auto md:pr-2 ${
+                posView === "list" ? "grid-cols-1 gap-1.5 lg:grid-cols-2" : "grid-cols-2 gap-2 sm:gap-3 md:grid-cols-2 lg:grid-cols-3"
+              }`}
+            >
               {filteredProducts.map((product) => (
                 <ProductCard
                   key={product.id}
                   product={product}
                   onAdd={addToCart}
-                  offSchedule={offSchedule(product)}
+                  layout={posView}
+                  favorite={editingFavorites ? menuCfg.posFavorites.includes(Number(product.id)) : undefined}
+                  offSchedule={editingFavorites ? "" : offSchedule(product)}
                   inCart={cart.reduce((n, item) => (item.id === product.id ? n + item.quantity : n), 0)}
                 />
               ))}
