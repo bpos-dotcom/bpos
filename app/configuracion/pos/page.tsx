@@ -76,7 +76,7 @@ export default function PosSettingsPage() {
                     </option>
                   ))}
               </select>
-              <span className="mt-2 block text-xs text-zinc-500">Por ejemplo, un producto de Rappi o DiDi que todavía no tiene equivalencia: se imprime ahí para que alguien lo prepare.</span>
+              <span className="mt-2 block text-xs text-zinc-500">Por ejemplo, un producto de Rappi o DiDi que todavía no tiene equivalencia. Esos pedidos se detienen hasta que se equivalen; si alguien le da "Mandar de todos modos" en el Bridge, lo pendiente sale aquí (o en la estación que elija).</span>
             </label>
 
             <button onClick={saveStations} className="mt-5 rounded-2xl bg-orange-500 px-6 py-3 font-black text-black">
