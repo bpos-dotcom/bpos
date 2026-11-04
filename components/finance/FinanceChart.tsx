@@ -16,6 +16,11 @@ type Props = {
   currentName: string;
   previousName: string;
   format: (n: number) => string;
+  /** Lo de ese día solo (no acumulado), para el recuadro al pasar el dedo */
+  currentDay?: (number | null)[];
+  previousDay?: (number | null)[];
+  /** Título de lo del día ("Ventas del día") */
+  dayName?: string;
 };
 
 const W = 720;
@@ -35,7 +40,7 @@ function ticks(min: number, max: number, count = 4) {
   return out;
 }
 
-export function FinanceChart({ labels, current, previous, currentName, previousName, format }: Props) {
+export function FinanceChart({ labels, current, previous, currentName, previousName, format, currentDay, previousDay, dayName }: Props) {
   const box = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
   const n = Math.max(labels.length, 1);
@@ -126,7 +131,21 @@ export function FinanceChart({ labels, current, previous, currentName, previousN
             style={x(tip.i) > W / 2 ? { right: `${((W - x(tip.i)) / W) * 100 + 2}%` } : { left: `${(x(tip.i) / W) * 100 + 2}%` }}
           >
             <p className="font-black text-white">Día {tip.i + 1} · {labels[tip.i]}</p>
-            <p className="mt-1 flex justify-between gap-3 text-zinc-300">
+            {dayName && (
+              <>
+                <p className="mt-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500">{dayName}</p>
+                <p className="flex justify-between gap-3 text-zinc-300">
+                  <span>{currentName}</span>
+                  <b className="text-white">{currentDay?.[tip.i] === null || currentDay?.[tip.i] === undefined ? "—" : format(currentDay[tip.i]!)}</b>
+                </p>
+                <p className="flex justify-between gap-3 text-zinc-400">
+                  <span>{previousName}</span>
+                  <b>{previousDay?.[tip.i] === null || previousDay?.[tip.i] === undefined ? "—" : format(previousDay[tip.i]!)}</b>
+                </p>
+              </>
+            )}
+            <p className="mt-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500">Acumulado hasta ese día</p>
+            <p className="flex justify-between gap-3 text-zinc-300">
               <span>{currentName}</span>
               <b className="text-white">{tip.cur === null || tip.cur === undefined ? "—" : format(tip.cur)}</b>
             </p>
@@ -136,7 +155,7 @@ export function FinanceChart({ labels, current, previous, currentName, previousN
             </p>
             {diff !== null && (
               <p className={`mt-1 font-black ${diff >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                {diff >= 0 ? "▲" : "▼"} {format(Math.abs(diff))} {diff >= 0 ? "arriba" : "abajo"}
+                {diff >= 0 ? "▲" : "▼"} {format(Math.abs(diff))} {diff >= 0 ? "arriba" : "abajo"} en el acumulado
               </p>
             )}
           </div>
