@@ -38,13 +38,15 @@ export function resetUserPermissions(userId:number){const saved=JSON.parse(local
 // El Admin siempre puede todo: así los permisos nuevos (ej. owner.view) no le quedan bloqueados por una lista guardada antes.
 export function hasPermission(user:Pick<CurrentUser,"id"|"role">|null|undefined,key:PermissionKey){return !!user&&user.id>0&&(user.role==="Admin"||getUserPermissions(user.id,user.role).includes(key));}
 // El PIN se revisa contra su hash (lib/pin-hash.ts): por eso esperan (async)
-export async function authorizeWithAdminPin(action:string, requestedBy?:CurrentUser|null):Promise<boolean>{
+export async function authorizeWithAdminPin(action:string, requestedBy?:CurrentUser|null):Promise<boolean>{return Boolean(await authorizeAdmin(action,requestedBy));}
+/** Como authorizeWithAdminPin, pero regresa el nombre del admin que autorizó (o null) */
+export async function authorizeAdmin(action:string, requestedBy?:CurrentUser|null):Promise<string|null>{
  const pin=await askText(`Autorización de administrador para: ${action}`,{placeholder:"PIN de administrador",password:true,ok:"Autorizar"});
- if(!pin)return false;
+ if(!pin)return null;
  const admin=await findActiveAdminByPin(pin);
- if(!admin){addAuditEvent({category:"Seguridad",action:"authorization.denied",description:`Autorización rechazada para ${action}`,userId:requestedBy?String(requestedBy.id):undefined,userName:requestedBy?.name,metadata:{action}});notify("PIN de administrador incorrecto.","error");return false;}
+ if(!admin){addAuditEvent({category:"Seguridad",action:"authorization.denied",description:`Autorización rechazada para ${action}`,userId:requestedBy?String(requestedBy.id):undefined,userName:requestedBy?.name,metadata:{action}});notify("PIN de administrador incorrecto.","error");return null;}
  addAuditEvent({category:"Seguridad",action:"authorization.approved",description:`${admin.name} autorizó: ${action}`,userId:String(admin.id),userName:admin.name,metadata:{action,requestedBy:requestedBy?.name}});
- return true;
+ return admin.name;
 }
 // Una sesión de Admin siempre teclea su PIN para lo delicado (por si la cuenta se queda abierta);
 // un usuario con el permiso dado pasa sin PIN; sin el permiso, autoriza un admin con su PIN.

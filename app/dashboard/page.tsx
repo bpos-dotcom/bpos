@@ -1,5 +1,6 @@
 "use client";
 
+import { inVoidedShift, voidedShiftIds } from "@/lib/cash-history";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { isCancelled } from "@/lib/sale-cancel";
@@ -34,7 +35,8 @@ export default function DashboardPage() {
   const todayOrders = useMemo(() => {
     const today = new Date().toISOString().slice(0, 10);
 
-    return orders.filter((order) => !isCancelled(order) && order.createdAt.slice(0, 10) === today);
+    const voided = voidedShiftIds();
+    return orders.filter((order) => !isCancelled(order) && !inVoidedShift(order as { shiftSessionId?: string }, voided) && order.createdAt.slice(0, 10) === today);
   }, [orders]);
 
   const salesToday = todayOrders.reduce((sum, order) => sum + order.total, 0);

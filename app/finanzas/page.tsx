@@ -12,6 +12,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { FinanceChart } from "@/components/finance/FinanceChart";
+import { AppsPanel } from "@/components/finance/AppsPanel";
 import {
   EXPENSE_CATEGORIES,
   FINANCE_EVENT,
@@ -70,6 +71,32 @@ function Kpi({ title, value, hint, tone = "" }: { title: string; value: string; 
   );
 }
 
+/** "Uber Eats" → "Uber", "DiDi Food" → "DiDi" (como en los depósitos) */
+const appName = (o: { externalPlatform?: string; details?: { orderType?: string } }) => {
+  const raw = `${o.externalPlatform || o.details?.orderType || ""}`;
+  const low = raw.toLowerCase();
+  return low.includes("uber") ? "Uber" : low.includes("didi") ? "DiDi" : low.includes("rappi") ? "Rappi" : raw || "Otra app";
+};
+
+type AppRow = { name: string; orders: number; sales: number; ticket: number; deposited: number };
+
+/** Pedidos, venta (precio al cliente), ticket promedio y lo depositado por app, de más a menos pedidos */
+function appBreakdown(platform: ReportSources["orders"], deposits: OtherIncome[]): AppRow[] {
+  const map = new Map<string, AppRow>();
+  for (const o of platform) {
+    const name = appName(o as Parameters<typeof appName>[0]);
+    const row = map.get(name) || { name, orders: 0, sales: 0, ticket: 0, deposited: 0 };
+    row.orders += 1;
+    row.sales += Number(o.total) || 0;
+    map.set(name, row);
+  }
+  for (const d of deposits) {
+    const row = map.get(d.source);
+    if (row) row.deposited += Number(d.amount) || 0;
+  }
+  return [...map.values()].map((r) => ({ ...r, ticket: r.orders ? r.sales / r.orders : 0 })).sort((a, b) => b.orders - a.orders || b.sales - a.sales);
+}
+
 /** Todo lo de un periodo: ingresos (local + depósitos), costo, gastos y su avance día por día */
 function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], incomeDays: Map<string, number>, fixedMonthly: number, expenses: Expense[]) {
   const local = buildReport({ ...src, orders: src.orders.filter((o) => !isPlatformOrder(o)) }, range);
@@ -101,6 +128,7 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
     cost: all.kpis.cost,
     platformSales: platform.reduce((s, o) => s + (Number(o.total) || 0), 0),
     platformOrders: platform.length,
+    byApp: appBreakdown(platform, deposits),
     days,
   };
 }
@@ -264,13 +292,6 @@ export default function FinanzasPage() {
           <Kpi title={`Gastos de ${word === "mes" ? "este mes" : word === "semana" ? "esta semana" : "este periodo"}`} value={money(expensesTotal)} hint={`Fijos ${money(fixedPeriod)}${word !== "mes" ? " (su parte)" : ""} · sueltos ${money(extraTotal)}`} />
         </div>
 
-        {(cur?.platformOrders || 0) > 0 && (
-          <p className="rounded-2xl border border-zinc-800 bg-zinc-950 p-3 text-xs text-zinc-400">
-            🛵 En este periodo entraron <b className="text-zinc-200">{cur!.platformOrders} pedidos de DiDi, Uber y Rappi</b> por {money(cur!.platformSales)} (precio al cliente). No cuentan como ingreso: registra abajo lo que
-            te depositan, ya sin comisiones ni impuestos.{cur!.platformSales > 0 && cur!.depositTotal > 0 && <> Te depositaron el {pct((cur!.depositTotal / cur!.platformSales) * 100)} de lo vendido en apps.</>}
-          </p>
-        )}
-
         <div className={`${card} ${net >= 0 ? "border-emerald-500/50" : "border-red-500/50"}`}>
           <p className="text-sm text-zinc-400">Utilidad real {isCurrent ? "hasta hoy" : `de ${periodName}`}</p>
           <p className={`text-5xl font-black ${net >= 0 ? "text-emerald-400" : "text-red-400"}`}>{money(net)}</p>
@@ -291,8 +312,10 @@ export default function FinanzasPage() {
           )}
         </div>
 
-        {/* Gráfica (cómo va contra el periodo anterior) y punto de equilibrio, lado a lado en pantalla ancha */}
+        {/* Izquierda: gráfica y gastos fijos. Derecha: punto de equilibrio, gastos sueltos, pedidos de apps y depósitos */}
+        {error && <p className="text-sm font-bold text-red-300">{error}</p>}
         <div className="grid items-start gap-6 xl:grid-cols-2">
+          <div className="space-y-6">
         <section className={card}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -326,39 +349,6 @@ export default function FinanzasPage() {
           {chartMetric === "utilidad" && <p className="mt-2 text-xs text-zinc-500">Utilidad de cada día: ingresos − costo de lo vendido − su parte de los gastos fijos − gastos sueltos de ese día.</p>}
         </section>
 
-        <div className={card}>
-          <h2 className="text-lg font-black">⚖️ Punto de equilibrio</h2>
-          {!expensesTotal ? (
-            <p className="mt-2 text-sm text-zinc-400">Agrega tus gastos fijos abajo para saber cuánto tienes que vender para no perder.</p>
-          ) : !equilibrium ? (
-            <p className="mt-2 text-sm text-zinc-400">Todavía no hay ingresos con costo en este periodo para calcularlo.</p>
-          ) : (
-            <>
-              <p className="mt-2 text-sm text-zinc-300">
-                Para cubrir {money(expensesTotal)} de gastos {word === "mes" ? "del mes" : word === "semana" ? "de la semana" : "del periodo"}, con tu margen de {pct(grossMargin)}, necesitas ingresar <b className="text-white">{money(equilibrium)}</b>
-                {" "}(unos <b className="text-white">{money(dailyNeeded)}</b> diarios).
-              </p>
-              <div className="mt-4 h-5 overflow-hidden rounded-full bg-zinc-800">
-                <div className={`h-full rounded-full ${progress >= 100 ? "bg-emerald-500" : "bg-orange-500"}`} style={{ width: `${progress}%` }} />
-              </div>
-              <p className="mt-2 text-sm">
-                {progress >= 100 ? (
-                  <b className="text-emerald-400">✅ Ya cubriste tus gastos{isCurrent && coverDay ? ` (desde el día ${Math.min(coverDay, elapsed)})` : ""}: lo que ingreses de aquí en adelante es ganancia.</b>
-                ) : (
-                  <>
-                    Llevas {pct(progress)}. Te faltan <b className="text-white">{money(equilibrium - sales)}</b>
-                    {isCurrent && coverDay ? (coverDay <= totalDays ? `; a este ritmo los cubres el día ${coverDay}.` : `; a este ritmo no alcanzas ${word === "mes" ? "este mes" : word === "semana" ? "esta semana" : "en el periodo"}.`) : "."}
-                  </>
-                )}
-              </p>
-            </>
-          )}
-        </div>
-        </div>
-
-        {error && <p className="text-sm font-bold text-red-300">{error}</p>}
-
-        <div className="grid gap-6 xl:grid-cols-2">
           <section className={card}>
             <h2 className="text-lg font-black">🏠 Gastos fijos (cada mes)</h2>
             <div className="mt-3 grid gap-2 md:grid-cols-[1fr_auto_8rem_auto]">
@@ -400,7 +390,36 @@ export default function FinanzasPage() {
             </div>
           </section>
 
+          </div>
           <div className="space-y-6">
+        <div className={card}>
+          <h2 className="text-lg font-black">⚖️ Punto de equilibrio</h2>
+          {!expensesTotal ? (
+            <p className="mt-2 text-sm text-zinc-400">Agrega tus gastos fijos abajo para saber cuánto tienes que vender para no perder.</p>
+          ) : !equilibrium ? (
+            <p className="mt-2 text-sm text-zinc-400">Todavía no hay ingresos con costo en este periodo para calcularlo.</p>
+          ) : (
+            <>
+              <p className="mt-2 text-sm text-zinc-300">
+                Para cubrir {money(expensesTotal)} de gastos {word === "mes" ? "del mes" : word === "semana" ? "de la semana" : "del periodo"}, con tu margen de {pct(grossMargin)}, necesitas ingresar <b className="text-white">{money(equilibrium)}</b>
+                {" "}(unos <b className="text-white">{money(dailyNeeded)}</b> diarios).
+              </p>
+              <div className="mt-4 h-5 overflow-hidden rounded-full bg-zinc-800">
+                <div className={`h-full rounded-full ${progress >= 100 ? "bg-emerald-500" : "bg-orange-500"}`} style={{ width: `${progress}%` }} />
+              </div>
+              <p className="mt-2 text-sm">
+                {progress >= 100 ? (
+                  <b className="text-emerald-400">✅ Ya cubriste tus gastos{isCurrent && coverDay ? ` (desde el día ${Math.min(coverDay, elapsed)})` : ""}: lo que ingreses de aquí en adelante es ganancia.</b>
+                ) : (
+                  <>
+                    Llevas {pct(progress)}. Te faltan <b className="text-white">{money(equilibrium - sales)}</b>
+                    {isCurrent && coverDay ? (coverDay <= totalDays ? `; a este ritmo los cubres el día ${coverDay}.` : `; a este ritmo no alcanzas ${word === "mes" ? "este mes" : word === "semana" ? "esta semana" : "en el periodo"}.`) : "."}
+                  </>
+                )}
+              </p>
+            </>
+          )}
+        </div>
             <section className={card}>
               <h2 className="text-lg font-black">🧾 Gastos sueltos</h2>
               <p className="text-xs text-zinc-500">Lo que no se repite: una reparación, un evento, material. (Las compras de insumos ya cuentan en el costo de lo vendido.)</p>
@@ -435,6 +454,7 @@ export default function FinanzasPage() {
               </div>
             </section>
 
+            <AppsPanel rows={cur?.byApp || []} periodName={periodName} money={money} pct={pct} />
             <section className={card}>
               <h2 className="text-lg font-black">💵 Otros ingresos (depósitos de delivery)</h2>
               <p className="text-xs text-zinc-500">
