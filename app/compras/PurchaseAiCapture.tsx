@@ -1,8 +1,12 @@
 "use client";
 /**
  * Compras → Foto de ticket. Plan Max: la IA de B-POS lee el ticket y llena la
- * compra (se revisa antes de usarla). Otros planes: invitación a Max y la
- * captura manual de siempre.
+ * compra. Cada renglón del ticket tiene que quedar relacionado antes de
+ * usarlo: a qué insumo corresponde y cuánto trae cada uno (o "a granel": lo
+ * que pesó), o marcado como que no va al inventario. Lo que ya tiene
+ * equivalencia guardada sale listo; lo nuevo se confirma una vez y queda
+ * aprendido para el siguiente ticket de ese proveedor. Otros planes:
+ * invitación a Max y la captura manual de siempre.
  */
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -10,13 +14,14 @@ import type { AiPurchaseTicket } from "@/app/api/ai/purchase/route";
 import { AI_REASON_TEXT, aiFetch, getAiStatus, type AiStatus } from "@/lib/ai/client";
 import { getInventory } from "@/lib/inventory";
 import { findPurchaseAlias, getPurchaseAliases } from "@/lib/purchases";
+import { compatibleUnits, unitFactor, type Unit } from "@/lib/units";
 import type { Ingredient } from "@/data/inventory";
 
 export type AiPurchaseResult = {
   supplier: string;
   invoice: string;
   imageName: string;
-  lines: { ingredientId: number; ticketName: string; presentations: number; inventoryQuantity: number; lineTotal: number }[];
+  lines: { ingredientId: number; ticketName: string; presentations: number; inventoryQuantity: number; lineTotal: number; byWeight: boolean }[];
 };
 
 type Props = { onReady: (result: AiPurchaseResult) => void; onManual: () => void };
@@ -48,7 +53,26 @@ async function compress(file: File): Promise<{ mediaType: string; data: string }
   }
 }
 
-type Row = AiPurchaseTicket["lines"][number] & { key: string };
+/**
+ * conocido = ya tenía equivalencia; revisar = falta confirmarlo (la IA solo
+ * sugiere); listo = confirmado aquí; fuera = no va al inventario (bolsas...).
+ * qty: lo que trae cada uno, o el peso total si es a granel, en `unit`.
+ */
+type Status = "conocido" | "revisar" | "listo" | "fuera";
+type Row = AiPurchaseTicket["lines"][number] & { key: string; status: Status; qty: string; unit: Unit };
+
+const round3 = (n: number) => Math.round(n * 1000) / 1000;
+
+/** Lo que entra al inventario por ese renglón, en la unidad del insumo */
+function rowTotal(r: Row, inventory: Ingredient[]) {
+  const ing = inventory.find((i) => i.id === r.ingredientId);
+  if (!ing) return 0;
+  const q = (Number(r.qty) || 0) * (unitFactor(r.unit, ing.unit) || 1);
+  return round3(r.byWeight ? q : q * (r.presentations > 0 ? r.presentations : 1));
+}
+
+/** Ya se puede usar: fuera del inventario, o con insumo y cantidad (y confirmado si era sugerencia) */
+const rowReady = (r: Row, inventory: Ingredient[]) => r.status === "fuera" || (r.status !== "revisar" && r.ingredientId !== null && rowTotal(r, inventory) > 0);
 
 export default function PurchaseAiCapture({ onReady, onManual }: Props) {
   const [ai, setAi] = useState<AiStatus | null | undefined>(undefined);
@@ -100,11 +124,23 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
       if (t.supplier && !supplier) setSupplier(t.supplier);
       // Equivalencia guardada (Ingredientes → Cómo viene en el ticket): manda sobre lo que calculó la IA
       // ej. 3 x CASABLANCA de 108 rebanadas = 324 pza
+      const unitOf = (id: number | null) => inventory.find((x) => x.id === id)?.unit || "pza";
       setRows(
-        t.lines.map((l, i) => {
+        t.lines.map((l, i): Row => {
           const a = findPurchaseAlias(l.ticketName, supplier.trim() || t.supplier);
-          if (!a) return { ...l, key: `ai-${i}` };
-          return { ...l, ingredientId: a.ingredientId, inventoryQuantity: Math.round(a.quantity * (l.presentations > 0 ? l.presentations : 1) * 1000) / 1000, key: `ai-${i}` };
+          const pres = l.presentations > 0 ? l.presentations : 1;
+          if (a && inventory.some((x) => x.id === a.ingredientId)) {
+            const unit = unitOf(a.ingredientId);
+            if (a.byWeight) {
+              // A granel: el insumo ya se sabe, el peso lo lee la IA de este ticket
+              const q = l.ingredientId === a.ingredientId ? l.inventoryQuantity : 0;
+              return { ...l, ingredientId: a.ingredientId, byWeight: true, key: `ai-${i}`, status: q > 0 ? "conocido" : "revisar", qty: q > 0 ? String(round3(q)) : "", unit };
+            }
+            return { ...l, ingredientId: a.ingredientId, byWeight: false, key: `ai-${i}`, status: "conocido", qty: String(a.quantity), unit };
+          }
+          // Sin equivalencia: lo que sugiera la IA, para confirmar
+          const per = l.ingredientId === null || !(l.inventoryQuantity > 0) ? 0 : l.byWeight ? l.inventoryQuantity : l.inventoryQuantity / pres;
+          return { ...l, key: `ai-${i}`, status: "revisar", qty: per > 0 ? String(round3(per)) : "", unit: unitOf(l.ingredientId) };
         })
       );
     } catch (e) {
@@ -118,10 +154,29 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
     setRows((all) => all.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
 
+  /** Cambiar el insumo: la cantidad se escribe en su unidad; "fuera" = no va al inventario */
+  function chooseIngredient(r: Row, value: string) {
+    if (value === "fuera") return update(r.key, { status: "fuera" });
+    const id = value ? Number(value) : null;
+    update(r.key, { ingredientId: id, unit: inventory.find((i) => i.id === id)?.unit || "pza", status: "revisar" });
+  }
+
+  const pending = rows.filter((r) => !rowReady(r, inventory));
+  const lineSum = Math.round(rows.reduce((t, r) => t + (r.lineTotal || 0), 0) * 100) / 100;
+
   function use() {
-    const ready = rows.filter((r) => r.ingredientId !== null && r.inventoryQuantity > 0);
+    if (pending.length) {
+      const one = pending.length === 1;
+      setError(
+        one
+          ? 'Falta 1 artículo del ticket: dile a qué insumo corresponde y cuánto trae, o márcalo como "No va al inventario".'
+          : `Faltan ${pending.length} artículos del ticket: dile a qué insumo corresponde cada uno y cuánto trae, o márcalos como "No va al inventario".`
+      );
+      return;
+    }
+    const ready = rows.filter((r) => r.status !== "fuera");
     if (!ready.length) {
-      setError("Elige el insumo y la cantidad de al menos un artículo.");
+      setError("Ningún artículo de este ticket va al inventario.");
       return;
     }
     onReady({
@@ -132,8 +187,9 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
         ingredientId: r.ingredientId as number,
         ticketName: r.ticketName,
         presentations: r.presentations,
-        inventoryQuantity: r.inventoryQuantity,
+        inventoryQuantity: rowTotal(r, inventory),
         lineTotal: r.lineTotal,
+        byWeight: r.byWeight,
       })),
     });
   }
@@ -221,54 +277,153 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
           )}
           <div className="mt-4 space-y-3">
             {rows.map((r) => {
-              const unit = inventory.find((i) => i.id === r.ingredientId)?.unit;
+              const ing = inventory.find((i) => i.id === r.ingredientId);
+              const total = rowTotal(r, inventory);
+              const units = ing ? compatibleUnits(ing.unit) : [];
+              const ready = rowReady(r, inventory);
               return (
-                <div key={r.key} className={`grid gap-2 rounded-2xl border p-3 md:grid-cols-[1.2fr_1.3fr_0.8fr_0.8fr] ${r.ingredientId === null ? "border-yellow-500/50" : "border-zinc-800"}`}>
-                  <div>
-                    <p className="font-black">{r.ticketName}</p>
-                    <p className="text-xs text-zinc-500">{r.presentations} presentación(es)</p>
+                <div key={r.key} className={`rounded-2xl border p-3 ${ready ? "border-zinc-800" : "border-yellow-500/60 bg-yellow-500/5"}`}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="break-words font-black">{r.ticketName}</p>
+                      <label className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-zinc-400">
+                        Compraste
+                        <input
+                          type="number"
+                          min={0}
+                          step="any"
+                          value={r.presentations || ""}
+                          onChange={(e) => update(r.key, { presentations: Number(e.target.value) || 0 })}
+                          className="w-16 rounded-lg border border-zinc-800 bg-black px-2 py-1 text-white"
+                          aria-label={`Cuántos ${r.ticketName}`}
+                        />
+                        {r.byWeight ? "(a granel)" : "pieza(s) o paquete(s)"}
+                      </label>
+                    </div>
+                    <label className="text-xs text-zinc-400">
+                      Importe $
+                      <input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        value={r.lineTotal || ""}
+                        onChange={(e) => update(r.key, { lineTotal: Number(e.target.value) || 0 })}
+                        className="mt-1 block w-28 rounded-xl border border-zinc-800 bg-black px-3 py-2 text-white"
+                      />
+                    </label>
                   </div>
-                  <select
-                    value={r.ingredientId ?? ""}
-                    onChange={(e) => update(r.key, { ingredientId: e.target.value ? Number(e.target.value) : null })}
-                    className="rounded-xl border border-zinc-800 bg-black px-3 py-2"
-                  >
-                    <option value="">— No entra al inventario —</option>
-                    {inventory.map((i) => (
-                      <option key={i.id} value={i.id}>
-                        {i.name} ({i.unit})
-                      </option>
-                    ))}
-                  </select>
-                  <label className="text-xs text-zinc-400">
-                    Cantidad {unit ? `(${unit})` : ""}
-                    <input
-                      type="number"
-                      min={0}
-                      value={r.inventoryQuantity || ""}
-                      onChange={(e) => update(r.key, { inventoryQuantity: Number(e.target.value) || 0 })}
-                      className="mt-1 w-full rounded-xl border border-zinc-800 bg-black px-3 py-2 text-white"
-                    />
-                  </label>
-                  <label className="text-xs text-zinc-400">
-                    Importe $
-                    <input
-                      type="number"
-                      min={0}
-                      step="0.01"
-                      value={r.lineTotal || ""}
-                      onChange={(e) => update(r.key, { lineTotal: Number(e.target.value) || 0 })}
-                      className="mt-1 w-full rounded-xl border border-zinc-800 bg-black px-3 py-2 text-white"
-                    />
-                  </label>
+
+                  {r.status === "revisar" ? (
+                    <div className="mt-3 space-y-2 rounded-xl border border-zinc-800 bg-black p-3">
+                      <p className="text-xs font-black text-yellow-300">
+                        {r.ingredientId !== null ? "La IA cree que es esto. Revísalo y confírmalo:" : "¿A qué insumo de tu inventario corresponde?"}
+                      </p>
+                      <select value={r.ingredientId ?? ""} onChange={(e) => chooseIngredient(r, e.target.value)} className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2" aria-label="Insumo">
+                        <option value="">Elige el insumo…</option>
+                        {inventory.map((i) => (
+                          <option key={i.id} value={i.id}>
+                            {i.name} ({i.unit})
+                          </option>
+                        ))}
+                        <option value="fuera">🚫 No va al inventario (bolsas, limpieza…)</option>
+                      </select>
+                      {ing && (
+                        <>
+                          <div className="flex overflow-hidden rounded-xl border border-zinc-800 text-xs font-black" role="group" aria-label="Cómo se compra">
+                            <button
+                              type="button"
+                              onClick={() => update(r.key, { byWeight: false })}
+                              aria-pressed={!r.byWeight}
+                              className={`flex-1 px-3 py-2 ${!r.byWeight ? "bg-orange-500 text-black" : "bg-zinc-950 text-zinc-400"}`}
+                            >
+                              📦 Por pieza o paquete
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => update(r.key, { byWeight: true })}
+                              aria-pressed={r.byWeight}
+                              className={`flex-1 px-3 py-2 ${r.byWeight ? "bg-orange-500 text-black" : "bg-zinc-950 text-zinc-400"}`}
+                            >
+                              ⚖️ A granel (por peso)
+                            </button>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 text-sm">
+                            <span className="font-bold text-zinc-400">{r.byWeight ? "En este ticket pesó" : "Cada uno trae"}</span>
+                            <input
+                              type="number"
+                              min={0}
+                              step="any"
+                              value={r.qty}
+                              onChange={(e) => update(r.key, { qty: e.target.value })}
+                              placeholder={r.byWeight ? "1.25" : "108"}
+                              className="w-28 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white"
+                              aria-label={r.byWeight ? "Cuánto pesó" : "Cuánto trae cada uno"}
+                            />
+                            {units.length > 1 ? (
+                              <select value={r.unit} onChange={(e) => update(r.key, { unit: e.target.value as Unit })} className="rounded-xl border border-zinc-800 bg-zinc-950 px-2 py-2" aria-label="Unidad">
+                                {units.map((u) => (
+                                  <option key={u} value={u}>
+                                    {u}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <span className="font-bold">{ing.unit}</span>
+                            )}
+                            {total > 0 && (
+                              <span className="text-xs text-zinc-400">
+                                = <b className="text-white">{total} {ing.unit}</b> al inventario
+                              </span>
+                            )}
+                          </div>
+                        </>
+                      )}
+                      <button
+                        type="button"
+                        disabled={!ing || total <= 0}
+                        onClick={() => update(r.key, { status: "listo" })}
+                        className="w-full rounded-xl bg-emerald-500 py-2 font-black text-black disabled:opacity-30"
+                      >
+                        ✓ Así es
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex flex-wrap items-center justify-between gap-2 rounded-xl bg-black px-3 py-2 text-sm">
+                      {r.status === "fuera" ? (
+                        <span className="text-zinc-400">🚫 No va al inventario</span>
+                      ) : (
+                        <span className="min-w-0">
+                          <span className="text-emerald-400">✓ </span>
+                          <b>{ing?.name}</b>
+                          <span className="text-zinc-400">
+                            {r.byWeight ? ` · a granel, ${r.qty} ${r.unit}` : ` · ${r.qty} ${r.unit} c/u`} → <b className="text-white">{total} {ing?.unit}</b>
+                          </span>
+                          {r.status === "conocido" && <span className="ml-1 text-xs text-zinc-500">(equivalencia guardada)</span>}
+                        </span>
+                      )}
+                      <button type="button" onClick={() => update(r.key, { status: "revisar" })} className="text-xs font-black text-orange-400">
+                        Cambiar
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
           </div>
-          <button onClick={use} className="mt-5 w-full rounded-2xl bg-orange-500 py-3 font-black text-black hover:bg-orange-400">
-            Usar en la compra →
+          {ticket.total > 0 && Math.abs(lineSum - ticket.total) >= 1 && (
+            <p className="mt-3 text-xs text-yellow-300">
+              Los renglones suman ${lineSum.toFixed(2)} y el ticket dice ${ticket.total.toFixed(2)}. Revisa si falta algún artículo o un importe.
+            </p>
+          )}
+          <button
+            onClick={use}
+            className={`mt-5 w-full rounded-2xl py-3 font-black ${pending.length ? "border border-yellow-500/60 bg-yellow-500/10 text-yellow-200" : "bg-orange-500 text-black hover:bg-orange-400"}`}
+          >
+            {pending.length ? `${pending.length === 1 ? "Falta" : "Faltan"} ${pending.length} de ${rows.length} por relacionar` : "Usar en la compra →"}
           </button>
-          <p className="mt-2 text-xs text-zinc-500">Lo que relaciones se recuerda: la próxima vez esos artículos se reconocen solos.</p>
+          <p className="mt-2 text-xs text-zinc-500">
+            Lo que confirmes se guarda como equivalencia{supplier.trim() || ticket.supplier ? ` de ${supplier.trim() || ticket.supplier}` : ""}: la próxima vez esos artículos salen listos solos.
+          </p>
         </section>
       ) : (
         <section className="flex items-center justify-center rounded-3xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">

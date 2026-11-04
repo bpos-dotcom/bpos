@@ -6,7 +6,7 @@ import { AiFailure, generateJson } from "@/lib/ai/engine";
 /**
  * Compras → Foto de ticket con IA (solo plan Max).
  *   POST { image: { mediaType, data(base64) }, supplier?, ingredients: [{ id, name, unit }],
- *          aliases: [{ ticketName, ingredientId, quantity }] }
+ *          aliases: [{ ticketName, supplier?, ingredientId, quantity, byWeight? }] }
  * Claude lee el ticket de compra y relaciona cada renglón con un insumo del
  * inventario. No guarda nada: la pantalla lo muestra para revisarlo y luego
  * llena la compra. Mismo control de plan y presupuesto que el menú con IA.
@@ -30,6 +30,7 @@ const TicketSchema = z.object({
       lineTotal: z.number(),
       ingredientId: z.number().nullable(),
       inventoryQuantity: z.number(),
+      byWeight: z.boolean(),
     })
   ),
   warnings: z.array(z.string()),
@@ -52,6 +53,7 @@ Renglones (lines), uno por cada artículo comprado. Ignora subtotales, IVA, desc
 - lineTotal: lo que se pagó por ese renglón en pesos, como número.
 - ingredientId: el id del insumo del inventario que corresponde (te doy la lista con id, nombre y unidad). Usa también las equivalencias aprendidas. Si ninguno corresponde con seguridad, pon null.
 - inventoryQuantity: cuánto entra al inventario EN LA UNIDAD DEL INSUMO (pza, g, kg, ml o L) sumando todas las presentaciones. Ejemplos: 2 paquetes de pan de 8 piezas en un insumo en pza = 16; 1.250 kg de carne en un insumo en g = 1250 y en un insumo en kg = 1.25; 3 refrescos de 600 ml en un insumo en ml = 1800 y en un insumo en L = 1.8. Si hay una equivalencia aprendida para ese artículo, multiplica su cantidad por presentations. Si ingredientId es null o no se puede saber, pon 0.
+- byWeight: true si el artículo se vende a granel por peso o volumen (el ticket dice cuánto pesó: 1.250 kg de carne, 0.850 kg de jitomate); false si son piezas o paquetes de tamaño fijo (3 cajas de queso, 2 refrescos de 600 ml).
 - warnings: avisos cortos en español de lo que esté borroso, dudoso o no sea un ticket de compra.
 No inventes artículos ni precios que no se lean.`;
 
@@ -66,7 +68,7 @@ export async function POST(request: NextRequest) {
   let image: { mediaType: string; data: string } | null = null;
   let supplier = "";
   let ingredients: { id: number; name: string; unit: string }[] = [];
-  let aliases: { ticketName: string; supplier?: string; ingredientId: number; quantity: number }[] = [];
+  let aliases: { ticketName: string; supplier?: string; ingredientId: number; quantity: number; byWeight?: boolean }[] = [];
   try {
     const body = await request.json();
     image = body?.image ?? null;
@@ -81,7 +83,7 @@ export async function POST(request: NextRequest) {
 
   const catalog = ingredients.map((i) => `${Number(i.id)} | ${String(i.name).slice(0, 60)} | ${String(i.unit)}`).join("\n");
   const learned = aliases
-    .map((a) => `"${String(a.ticketName).slice(0, 60)}"${a.supplier ? ` (${String(a.supplier).slice(0, 40)})` : ""} → insumo ${Number(a.ingredientId)}, ${Number(a.quantity)} por presentación`)
+    .map((a) => `"${String(a.ticketName).slice(0, 60)}"${a.supplier ? ` (${String(a.supplier).slice(0, 40)})` : ""} → insumo ${Number(a.ingredientId)}, ${a.byWeight ? "a granel (la cantidad es lo que pesó en el ticket)" : `${Number(a.quantity)} por presentación`}`)
     .join("\n");
 
   try {
@@ -116,6 +118,7 @@ export async function POST(request: NextRequest) {
           lineTotal: Math.round(Math.max(0, l.lineTotal) * 100) / 100,
           ingredientId: l.ingredientId !== null && ids.has(l.ingredientId) ? l.ingredientId : null,
           inventoryQuantity: Math.max(0, l.inventoryQuantity),
+          byWeight: l.byWeight === true,
         })),
     };
     return aiReply(request, { success: true, ticket });

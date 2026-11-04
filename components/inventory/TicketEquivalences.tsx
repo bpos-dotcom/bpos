@@ -78,9 +78,7 @@ export function TicketEquivalences({ ingredient }: { ingredient: Pick<Ingredient
                 <b className="break-words">{a.ticketName}</b>
                 <span className="block text-xs text-zinc-500">{a.supplier || "Cualquier proveedor"}</span>
               </span>
-              <span className="font-black text-orange-400">
-                {a.quantity} {ingredient.unit} c/u
-              </span>
+              <span className="font-black text-orange-400">{a.byWeight ? "⚖️ a granel (lo que pese)" : `${a.quantity} ${ingredient.unit} c/u`}</span>
               <button onClick={() => void remove(a)} className="rounded-lg px-2 text-red-300" aria-label={`Quitar ${a.ticketName}`}>
                 ✕
               </button>

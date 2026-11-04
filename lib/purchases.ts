@@ -59,7 +59,8 @@ export function cancelPurchase(id:string,reason:string){ if(!reason.trim()) thro
 // proveedor y cuánto agrega al inventario una presentación.
 // Ej.: "PAPA 7X7 CAJA" (Costco) → Papas → 16320 g
 // ------------------------------------------------------------------
-export type PurchaseAlias = { id:string; ticketName:string; supplier?:string; ingredientId:number; ingredientName:string; quantity:number; unit:Ingredient["unit"]; createdAt:string; };
+/** byWeight: a granel (carne, verdura): se sabe a qué insumo va, pero la cantidad es lo que pesó en cada ticket */
+export type PurchaseAlias = { id:string; ticketName:string; supplier?:string; ingredientId:number; ingredientName:string; quantity:number; unit:Ingredient["unit"]; byWeight?:boolean; createdAt:string; };
 
 export function getPurchaseAliases():PurchaseAlias[]{return read(ALIASES_KEY,[]);}
 
