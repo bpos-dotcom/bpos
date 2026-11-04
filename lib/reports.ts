@@ -57,6 +57,8 @@ export type ReportData = {
   purchases: Purchase[];
   purchasesBySupplier: Row[];
   purchasedIngredients: Row[];
+  /** Qué ingredientes suman el costo de lo vendido (de más a menos): cuánto se usó y a cuánto la unidad */
+  costByIngredient: { id: number; name: string; unit: string; quantity: number; unitCost: number; cost: number }[];
   inventory: { name: string; unit: string; stock: number; minimum: number; unitCost: number; value: number; low: boolean }[];
   movements: { type: string; count: number; byIngredient: { name: string; unit: string; quantity: number }[] }[];
 };
@@ -159,7 +161,13 @@ export function makeRecipeIndex(recipes: { productId: number; ingredientId: numb
 }
 
 /** Costo de insumos de una partida (con las partes si es combo) y si se conoce completo */
-export function itemCost(item: ReportOrderItem, at: string, recipes: RecipeIndex, costAt: (id: number, at?: string) => number) {
+export function itemCost(
+  item: ReportOrderItem,
+  at: string,
+  recipes: RecipeIndex,
+  costAt: (id: number, at?: string) => number,
+  onUse?: (ingredientId: number, quantity: number, cost: number) => void
+) {
   // Combo: cada parte necesita receta; el combo puede tener o no receta propia
   const withRecipe = [item.id, ...(item.parts || []).map((p) => p.productId)];
   const known0 = item.parts?.length ? item.parts.every((p) => recipes.get(p.productId)?.length) : Boolean(recipes.get(item.id)?.length);
@@ -170,6 +178,7 @@ export function itemCost(item: ReportOrderItem, at: string, recipes: RecipeIndex
     const unit = costAt(ingredientId, at);
     if (!unit) known = false;
     cost += unit * quantity;
+    onUse?.(ingredientId, quantity, unit * quantity);
   });
   return { cost, known };
 }
@@ -258,6 +267,13 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
   let itemsSold = 0;
   let cost = 0;
   let salesWithKnownCost = 0;
+  const used = new Map<number, { quantity: number; cost: number }>();
+  const use = (id: number, quantity: number, c: number) => {
+    const u = used.get(id) || { quantity: 0, cost: 0 };
+    u.quantity += quantity;
+    u.cost += c;
+    used.set(id, u);
+  };
 
   orders.forEach((order) => {
     const total = Number(order.total) || 0;
@@ -272,7 +288,7 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
     items.forEach((item) => {
       const qty = Number(item.quantity) || 0;
       const lineSales = (Number(item.price) || 0) * qty * factor;
-      const { cost: lineCost, known } = itemCost({ ...item, quantity: qty }, order.createdAt, recipes, costAt);
+      const { cost: lineCost, known } = itemCost({ ...item, quantity: qty }, order.createdAt, recipes, costAt, use);
       if (!known) orderKnown = false;
       orderCost += lineCost;
       itemsSold += qty;
@@ -290,7 +306,9 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
 
     // insumos sueltos de pedidos de plataforma (extras sin producto)
     order.bridgeActions?.inventoryAdjustments?.forEach((adj) => {
-      orderCost += costAt(Number(adj.ingredientId), order.createdAt) * (Number(adj.quantity) || 0);
+      const c = costAt(Number(adj.ingredientId), order.createdAt) * (Number(adj.quantity) || 0);
+      orderCost += c;
+      use(Number(adj.ingredientId), Number(adj.quantity) || 0, c);
     });
 
     sales += total;
@@ -371,6 +389,13 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
     purchases,
     purchasesBySupplier: finish(bySupplier),
     purchasedIngredients: finish(byIngredient),
+    costByIngredient: [...used.entries()]
+      .filter(([, u]) => u.cost > 0)
+      .map(([id, u]) => {
+        const ing = src.inventory.find((i) => Number(i.id) === id);
+        return { id, name: ing?.name || `Ingrediente ${id}`, unit: ing?.unit || "", quantity: u.quantity, unitCost: u.quantity ? u.cost / u.quantity : 0, cost: u.cost };
+      })
+      .sort((a, b) => b.cost - a.cost),
     inventory,
     movements: [...movementsByType.entries()].map(([type, e]) => ({
       type,

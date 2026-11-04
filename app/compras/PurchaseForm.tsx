@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Ingredient } from "@/data/inventory";
 import { getInventory } from "@/lib/inventory";
+import { recentWeeks, weekLabel } from "@/lib/finance";
 import {
   getLatestIngredientCost,
   getSuppliers,
@@ -41,6 +42,9 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
   const [supplier, setSupplier] = useState("");
   const [invoice, setInvoice] = useState("");
   const [paymentMethod, setPaymentMethod] = useState("");
+  // Con qué semana de ingresos se paga (Finanzas la cuenta ahí): esta, por default
+  const weeks = recentWeeks(6);
+  const [paidWeekOf, setPaidWeekOf] = useState(weeks[0]);
   const [note, setNote] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([newLine()]);
   const [source, setSource] = useState<Purchase["source"]>("manual");
@@ -132,7 +136,7 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
         saveSupplier({ name: supplier.trim() });
       }
 
-      registerPurchase({ supplier: supplier.trim(), invoice, paymentMethod, subtotal: total, tax: 0, total, source, note, items, ocrText, imageName });
+      registerPurchase({ supplier: supplier.trim(), invoice, paymentMethod, subtotal: total, tax: 0, total, source, note, items, ocrText, imageName, paidWeekOf });
       reset();
       onPurchaseCreated?.();
       alert("Compra registrada. Inventario, Kardex y costos actualizados.");
@@ -169,6 +173,17 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
         <input value={paymentMethod} onChange={(e) => setPaymentMethod(e.target.value)} placeholder="Método de pago (opcional)" className="rounded-2xl border border-zinc-800 bg-black px-4 py-3" />
         <input value={note} onChange={(e) => setNote(e.target.value)} placeholder="Nota general (opcional)" className="rounded-2xl border border-zinc-800 bg-black px-4 py-3" />
       </div>
+      <label className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-sm">
+        <span className="font-black">💰 Se pagó con los ingresos de</span>
+        <select value={paidWeekOf} onChange={(e) => setPaidWeekOf(e.target.value)} className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2">
+          {weeks.map((w, i) => (
+            <option key={w} value={w}>
+              {i === 0 ? "Esta semana" : i === 1 ? "La semana pasada" : "La semana"} ({weekLabel(w)})
+            </option>
+          ))}
+        </select>
+        <span className="text-xs text-zinc-500">Finanzas la cuenta en esa semana. Lo puedes cambiar después en el historial.</span>
+      </label>
 
       <div className="mt-6 space-y-3">
         {lines.map((l, i) => {
@@ -178,6 +193,8 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
           const cost = Number(l.lineTotal) || 0;
           const unitCost = inv > 0 && cost > 0 ? cost / inv : 0;
           const change = last?.unitCost && unitCost ? (unitCost / last.unitCost - 1) * 100 : 0;
+          // Costo por unidad que no cuadra con la unidad (ej. $150 por g): casi siempre la entrada se escribió en kg
+          const odd = ing && unitCost > 0 && (((ing.unit === "g" || ing.unit === "ml") && unitCost > 2) || ((ing.unit === "kg" || ing.unit === "L") && unitCost > 2000) || change > 300 || change < -75);
           return (
             <div key={l.id} className="rounded-2xl border border-zinc-800 bg-black p-4">
               <div className="mb-3 flex items-center justify-between">
@@ -206,7 +223,15 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
                   {last?.unitCost ? ` Último costo: $${last.unitCost.toFixed(4)} por ${ing.unit} (${last.supplier}).` : ""}
                 </p>
               )}
-              {change > 10 && (
+              {ing && unitCost > 0 && (
+                <p className={`mt-2 text-xs font-black ${odd ? "text-red-300" : "text-zinc-400"}`}>
+                  = ${unitCost < 1 ? unitCost.toFixed(4) : unitCost.toFixed(2)} por {ing.unit}
+                  {odd
+                    ? ` · ⚠️ ¿Seguro? Se ve muy ${change < -75 ? "barato" : "caro"} para 1 ${ing.unit}. Revisa que la entrada real esté en ${ing.unit} (ej. 10 kg = 10,000 g).`
+                    : ""}
+                </p>
+              )}
+              {change > 10 && !odd && (
                 <p className="mt-2 text-xs font-black text-yellow-300">
                   ⚠️ Este precio es {change.toFixed(1)}% más caro que la última compra.
                 </p>
