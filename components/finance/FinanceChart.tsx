@@ -21,6 +21,8 @@ type Props = {
   previousDay?: (number | null)[];
   /** Título de lo del día ("Ventas del día") */
   dayName?: string;
+  /** Cómo se pagó lo de ese día en este periodo (Efectivo $372 · Tarjeta $269...) */
+  currentBreakdown?: ({ label: string; amount: number }[] | null)[];
 };
 
 const W = 720;
@@ -40,7 +42,7 @@ function ticks(min: number, max: number, count = 4) {
   return out;
 }
 
-export function FinanceChart({ labels, current, previous, currentName, previousName, format, currentDay, previousDay, dayName }: Props) {
+export function FinanceChart({ labels, current, previous, currentName, previousName, format, currentDay, previousDay, dayName, currentBreakdown }: Props) {
   const box = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
   const n = Math.max(labels.length, 1);
@@ -138,6 +140,16 @@ export function FinanceChart({ labels, current, previous, currentName, previousN
                   <span>{currentName}</span>
                   <b className="text-white">{currentDay?.[tip.i] === null || currentDay?.[tip.i] === undefined ? "—" : format(currentDay[tip.i]!)}</b>
                 </p>
+                {(currentBreakdown?.[tip.i]?.length || 0) > 0 && (
+                  <div className="mb-1 ml-2 border-l border-zinc-700 pl-2">
+                    {currentBreakdown![tip.i]!.map((b) => (
+                      <p key={b.label} className="flex justify-between gap-3 text-zinc-400">
+                        <span>{b.label}</span>
+                        <span>{format(b.amount)}</span>
+                      </p>
+                    ))}
+                  </div>
+                )}
                 <p className="flex justify-between gap-3 text-zinc-400">
                   <span>{previousName}</span>
                   <b>{previousDay?.[tip.i] === null || previousDay?.[tip.i] === undefined ? "—" : format(previousDay[tip.i]!)}</b>
