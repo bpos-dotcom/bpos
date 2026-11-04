@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAlertSettings, useAlertSound } from "@/lib/notifications/useAlert";
 import { getCurrentUser, clearCurrentUser } from "@/lib/auth";
-import { hasPermission, permissionForPath } from "@/lib/permissions";
+import { hasPermission } from "@/lib/permissions";
 import {
   getOperationsAlerts,
   markAllOperationsAlertsViewed,
@@ -24,27 +24,7 @@ import { usePendingReviews } from "@/lib/reviews";
 import { syncAdvisorSnapshot } from "@/lib/advisor-sync";
 import { UpdateNotice } from "@/components/layout/UpdateNotice";
 
-const navItems = [
-  { label: "Dashboard", href: "/dashboard", icon: "📊" },
-  { label: "POS", href: "/pos", icon: "🛒" },
-  { label: "Historial de pedidos", href: "/historial", icon: "📋" },
-  { label: "Pedidos en línea", href: "/pedidos-en-linea", icon: "🌐" },
-  { label: "B-POS Bridge", href: "/bridge", icon: "🌉" },
-  { label: "Centro de Operaciones", href: "/centro-operaciones", icon: "🚨" },
-  { label: "Caja", href: "/caja", icon: "💵" },
-  { label: "Historial de cortes", href: "/caja/historial", icon: "🧾" },
-  { label: "Cocina KDS", href: "/cocina", icon: "👨‍🍳" },
-  { label: "Impresiones", href: "/impresiones", icon: "🖨️" },
-  { label: "Inventario", href: "/inventario", icon: "📦" },
-  { label: "Compras", href: "/compras", icon: "🛒" },
-  { label: "Clientes", href: "/clientes", icon: "👥" },
-  { label: "Opiniones", href: "/opiniones", icon: "⭐" },
-  { label: "Reportes", href: "/reportes", icon: "📈" },
-  { label: "Finanzas", href: "/finanzas", icon: "💰" },
-  { label: "App del dueño", href: "/dueno", icon: "📱" },
-  { label: "Configuración", href: "/configuracion", icon: "⚙️" },
-  { label: "Ayuda", href: "/ayuda", icon: "❓" },
-];
+import { currentTab, visibleNav } from "@/lib/nav";
 
 const ACK_KEY = "bpos_bridge_pending_ack";
 const PINNED_KEY = "bpos_sidebar_pinned"; // solo de este dispositivo
@@ -247,13 +227,10 @@ export function Sidebar() {
     : undefined;
   const badgeCount = hasCritical ? criticalCount : hasOnline ? onlineWaiting : hasPending ? pendingCount : hasWarning ? lowStockCount : 0;
 
-  const visibleItems = useMemo(
-    () => navItems.filter((item) => {
-      const permission = permissionForPath(item.href);
-      return !permission || hasPermission(currentUser, permission);
-    }),
-    [currentUser]
-  );
+  // Secciones (algunas juntan varias pantallas en subpestañas); cada una lleva a la primera que puede abrir
+  const visibleGroups = useMemo(() => visibleNav(currentUser), [currentUser]);
+  const pathname = usePathname();
+  const activeGroup = currentTab(pathname || "", visibleGroups)?.group.label;
 
   return (
     <>
@@ -343,28 +320,36 @@ export function Sidebar() {
       </button>
 
       <nav className="space-y-2">
-        {visibleItems.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={() => setMobileOpen(false)}
-            title={item.label}
-            className={`relative block rounded-2xl border py-3 text-sm font-bold hover:border-orange-500 hover:text-orange-500 ${slim ? "text-center text-lg" : "px-4"} ${item.href === "/pedidos-en-linea" && onlineWaiting > 0 ? "animate-pulse border-emerald-400 bg-emerald-500/20 text-emerald-100" : "border-zinc-800 bg-zinc-900 text-zinc-200"}`}
-          >
-            {slim ? item.icon : (
-              <>
-                <span className="mr-2">{item.icon}</span>
-                {item.label}
-              </>
-            )}
-            {item.href === "/opiniones" && reviewsPending > 0 && (
-              <span className={`flex min-w-6 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-black text-white ${slim ? "absolute -right-1 -top-1" : "float-right"}`}>{reviewsPending}</span>
-            )}
-            {item.href === "/pedidos-en-linea" && onlineWaiting > 0 && (
-              <span className={`flex min-w-6 items-center justify-center rounded-full bg-emerald-400 px-1.5 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : "float-right"}`}>{onlineWaiting}</span>
-            )}
-          </Link>
-        ))}
+        {visibleGroups.map((group) => {
+          const has = (href: string) => group.tabs.some((t) => t.href === href);
+          const onlineHere = has("/pedidos-en-linea") && onlineWaiting > 0;
+          const active = group.label === activeGroup;
+          return (
+            <Link
+              key={group.label}
+              // Pedidos del menú esperando: el botón lleva directo a ellos aunque la primera pestaña sea otra
+              href={onlineHere ? "/pedidos-en-linea" : group.tabs[0].href}
+              onClick={() => setMobileOpen(false)}
+              title={group.tabs.length > 1 ? `${group.label}: ${group.tabs.map((t) => t.label).join(" · ")}` : group.label}
+              className={`relative block rounded-2xl border py-3 text-sm font-bold hover:border-orange-500 hover:text-orange-500 ${slim ? "text-center text-lg" : "px-4"} ${
+                onlineHere ? "animate-pulse border-emerald-400 bg-emerald-500/20 text-emerald-100" : active ? "border-orange-500/70 bg-orange-500/10 text-orange-300" : "border-zinc-800 bg-zinc-900 text-zinc-200"
+              }`}
+            >
+              {slim ? group.icon : (
+                <>
+                  <span className="mr-2">{group.icon}</span>
+                  {group.label}
+                </>
+              )}
+              {has("/opiniones") && reviewsPending > 0 && (
+                <span className={`flex min-w-6 items-center justify-center rounded-full bg-red-500 px-1.5 text-xs font-black text-white ${slim ? "absolute -right-1 -top-1" : "float-right"}`}>{reviewsPending}</span>
+              )}
+              {onlineHere && (
+                <span className={`flex min-w-6 items-center justify-center rounded-full bg-emerald-400 px-1.5 text-xs font-black text-black ${slim ? "absolute -right-1 -top-1" : "float-right"}`}>{onlineWaiting}</span>
+              )}
+            </Link>
+          );
+        })}
       </nav>
 
       {slim ? (

@@ -2,7 +2,6 @@
 
 import { ask } from "@/components/layout/Dialogs";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { getBusinessSettings, getOwnerWhatsapp } from "@/lib/business-settings";
 import { emailCashCut } from "@/lib/cash-cut-email";
@@ -110,7 +109,6 @@ export default function CashHistoryPage() {
               📥 Excel
             </button>
           )}
-          <Link href="/caja" className="rounded-2xl border border-orange-500/40 px-5 py-3 font-black text-orange-300">Volver a Caja</Link>
         </div>
       </div>
 

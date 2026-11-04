@@ -2,7 +2,6 @@
 
 import { ask } from "@/components/layout/Dialogs";
 import { useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { AppShell } from "@/components/layout/AppShell";
 import { buildShoppingListMessage, clearLowStockAfterShiftClose, getPendingLowStock, markShoppingListSent, shoppingListWasSentForShift } from "@/lib/inventory";
 import { getBusinessSettings, getCutEmail, getOwnerWhatsapp } from "@/lib/business-settings";
@@ -505,11 +504,6 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
       title="Caja"
       subtitle="Apertura, movimientos, efectivo esperado y cierre de turno."
     >
-      <div className="mb-6 flex justify-end">
-        <Link href="/caja/historial" className="rounded-2xl border border-orange-500/40 px-5 py-3 font-black text-orange-300 hover:bg-orange-500/10">
-          Historial de cortes
-        </Link>
-      </div>
       {!shift ? (
         <section className="mx-auto max-w-xl rounded-3xl border border-zinc-800 bg-zinc-950 p-8">
           {lastCut && (
