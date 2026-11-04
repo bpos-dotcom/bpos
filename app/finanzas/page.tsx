@@ -378,9 +378,7 @@ export default function FinanzasPage() {
           {chartMetric === "utilidad" && <p className="mt-2 text-xs text-zinc-500">Utilidad de cada día: ingresos − costo de lo vendido − su parte de los gastos fijos − gastos sueltos de ese día.</p>}
           </div>
           <div className="flex min-w-0 flex-col items-center text-center md:border-l md:border-zinc-800 md:pl-5">
-            <h2 className="text-lg font-black">
-              <span className="text-orange-500">¿Cómo vamos?</span> Punto de equilibrio
-            </h2>
+            <h2 className="whitespace-nowrap text-lg font-black">⚖️ Punto de equilibrio</h2>
             {!expensesTotal ? (
               <p className="mt-2 text-sm text-zinc-400">Agrega tus gastos fijos abajo para saber cuánto tienes que vender para no perder.</p>
             ) : !equilibrium ? (
