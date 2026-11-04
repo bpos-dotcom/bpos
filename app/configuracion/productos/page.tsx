@@ -16,6 +16,8 @@ import { scheduleLabel } from "@/lib/sale-schedule";
 import { uploadBusinessImage } from "@/lib/media";
 import { DeleteProductModal, type DeliveryAlias } from "@/components/products/DeleteProductModal";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
+import { ImportProductsModal } from "@/components/products/ImportProductsModal";
+import Link from "next/link";
 
 type DraftProduct = Product;
 
@@ -31,6 +33,7 @@ export default function ProductosAdminPage() {
   const [listQuery, setListQuery] = useState("");
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   async function uploadPhoto(file: File | undefined) {
     if (!file || !draft) return;
@@ -287,6 +290,16 @@ export default function ProductosAdminPage() {
     setPickingCategory(false);
   }
 
+  /** Importar desde Excel/CSV: la lista ya viene armada (nuevos al final, cambios en su lugar) */
+  function importProducts(next: Product[], summary: string) {
+    setProducts(next);
+    saveAdminProducts(next);
+    setImporting(false);
+    const current = next.find((p) => p.id === selectedId) ?? next[0] ?? null;
+    if (current) selectProduct(current);
+    alert(`Importación lista: ${summary}`);
+  }
+
   return (
     <RequireRole allow={["Admin"]}>
       <AppShell
@@ -311,6 +324,16 @@ export default function ProductosAdminPage() {
                 +
               </button>
             </div>
+
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button onClick={() => setImporting(true)} className="rounded-2xl border border-zinc-800 bg-black px-3 py-2 text-sm font-black text-zinc-300 hover:border-orange-500">
+                📥 Importar Excel
+              </button>
+              <Link href="/configuracion/menu-digital#orden" className="rounded-2xl border border-zinc-800 bg-black px-3 py-2 text-center text-sm font-black text-zinc-300 hover:border-orange-500">
+                ↕️ Ordenar menú
+              </Link>
+            </div>
+            {importing && <ImportProductsModal products={freshProducts()} onImport={importProducts} onClose={() => setImporting(false)} />}
 
             <div className="mt-4 flex gap-2">
               <input

@@ -29,6 +29,8 @@ import {
   paidOnline,
   scheduledLabel,
   sortCategories,
+  sortProducts,
+  upcomingHolidaysLabel,
   whatsappNumber,
   type Align,
   type DigitalMenuSettings,
@@ -260,7 +262,12 @@ function Menu({
   const canSchedule = menu.acceptOrders && !open && menu.scheduling.enabled && !table && !kiosk;
   const canOrder = canOrderNow || canSchedule;
   const visible = useMemo(
-    () => data.products.filter((p) => !p.notSoldAlone && isAvailableOnline(menu, p, now) && !onlineGroups(p, data.products, menu, now).blocked),
+    () =>
+      sortProducts(
+        data.products.filter((p) => !p.notSoldAlone && isAvailableOnline(menu, p, now) && !onlineGroups(p, data.products, menu, now).blocked),
+        menu.categoryOrder,
+        menu.productOrder
+      ),
     [data.products, menu, now]
   );
   const byId = useMemo(() => new Map(visible.map((p) => [Number(p.id), p])), [visible]);
@@ -351,6 +358,7 @@ function Menu({
   }
 
   const hoursText = publicHoursLabel(menu);
+  const holidaysText = upcomingHolidaysLabel(menu, now);
   const opensIn = open ? "" : opensInLabel(menu, now);
   /** Cuántos de cada producto lleva el cliente (todas sus variantes) */
   const inCart = new Map<number, number>();
@@ -391,6 +399,47 @@ function Menu({
       </span>
     </button>
   );
+
+  /** Renglón (diseño "Lista"): foto chica a un lado, nombre, descripción y precio */
+  const row = (p: Product) => (
+    <button
+      key={p.id}
+      disabled={!canOrder}
+      onClick={() => pick(p)}
+      style={glow(p)}
+      className="flex items-center gap-3 rounded-xl border border-orange-100 bg-white p-2 text-left shadow-sm transition-all duration-300 hover:shadow-md disabled:cursor-default"
+    >
+      <Photo product={p} emoji="text-3xl" className="h-16 w-16 shrink-0 rounded-lg md:h-20 md:w-20" />
+      <span className="min-w-0 flex-1">
+        <span className="line-clamp-2 text-sm font-black leading-tight">{p.name}</span>
+        {p.description && <span className="mt-0.5 line-clamp-2 text-xs text-zinc-500">{p.description}</span>}
+        <span className="mt-1 block text-sm font-black" style={{ color }}>{price(Number(p.price))}</span>
+      </span>
+      {canOrder && plusBtn(p)}
+    </button>
+  );
+  /** Foto grande (diseño "Fotos grandes") */
+  const bigCard = (p: Product) => (
+    <button
+      key={p.id}
+      disabled={!canOrder}
+      onClick={() => pick(p)}
+      style={glow(p)}
+      className="flex flex-col overflow-hidden rounded-2xl border border-orange-100 bg-white text-left shadow-sm transition-all duration-300 hover:shadow-md disabled:cursor-default"
+    >
+      <Photo product={p} emoji="text-6xl" className="aspect-[4/3] w-full" />
+      <span className="flex flex-1 flex-col p-3">
+        <span className="line-clamp-2 font-black leading-tight">{p.name}</span>
+        {p.description && <span className="mt-1 line-clamp-2 text-xs text-zinc-500">{p.description}</span>}
+        <span className="mt-auto flex items-center justify-between pt-2">
+          <span className="font-black" style={{ color }}>{price(Number(p.price))}</span>
+          {canOrder && plusBtn(p)}
+        </span>
+      </span>
+    </button>
+  );
+  const item = (p: Product) => (design.layout === "lista" ? row(p) : design.layout === "fotos" ? bigCard(p) : card(p));
+  const itemsGrid = design.layout === "lista" ? "grid gap-2 md:grid-cols-2" : design.layout === "fotos" ? "grid grid-cols-2 gap-3 lg:grid-cols-3" : "grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4";
 
   return (
     <Shell dark={dark}>
@@ -447,6 +496,7 @@ function Menu({
 
       <main className="mx-auto max-w-6xl px-4 pb-32">
         {menu.notice && <p className="mt-4 rounded-2xl px-4 py-3 text-sm font-bold text-white" style={{ background: color }}>{menu.notice}</p>}
+        {holidaysText && <p className="mt-4 rounded-2xl border border-orange-100 bg-white px-4 py-3 text-sm font-bold text-zinc-800">📅 Días especiales: {holidaysText}</p>}
         {canReserve && (
           <button onClick={() => setReserving(true)} className="mt-4 flex w-full items-center justify-between rounded-2xl border-2 bg-white px-4 py-3 text-left font-black text-zinc-900 shadow-sm" style={{ borderColor: color }}>
             <span>📅 Reservar mesa</span>
@@ -592,13 +642,11 @@ function Menu({
               categories.map((c) => (
                 <div key={c}>
                   <h3 className="sticky top-0 z-[1] -mx-2 bg-white/95 px-2 py-1.5 text-sm font-black backdrop-blur">{c}</h3>
-                  <div className="grid grid-cols-2 gap-2 pb-2 sm:grid-cols-3 lg:grid-cols-4">
-                    {visible.filter((p) => (p.category || "Otros") === c).map((p) => card(p))}
-                  </div>
+                  <div className={`${itemsGrid} pb-2`}>{visible.filter((p) => (p.category || "Otros") === c).map((p) => item(p))}</div>
                 </div>
               ))
             ) : (
-              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">{shown.map((p) => card(p))}</div>
+              <div className={itemsGrid}>{shown.map((p) => item(p))}</div>
             )}
             {shown.length === 0 && <p className="py-12 text-center text-zinc-500">No hay platillos en esta sección.</p>}
           </div>

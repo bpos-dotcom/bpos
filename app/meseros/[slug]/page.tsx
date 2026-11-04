@@ -22,7 +22,7 @@ import { clearCurrentUser, getSessionUser, setCurrentUser, type CurrentUser } fr
 import { loadCloudAccount, signIn } from "@/lib/cloud/account";
 import { detectInitialSituation, initialSync, startSync } from "@/lib/cloud/sync";
 import { buildSelection, extrasPrice, lineIdFor, needsChoices } from "@/lib/compound";
-import { getDigitalMenu, isAvailableOnline, sortCategories } from "@/lib/digital-menu";
+import { getDigitalMenu, isAvailableOnline, sortCategories, sortProducts } from "@/lib/digital-menu";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { authorizeWithAdminPin } from "@/lib/permissions";
 import { verifyPin } from "@/lib/pin-hash";
@@ -273,7 +273,7 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
   const block = useMemo(() => waiterBlock(me), [me, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   const zones = useMemo(() => tableZones(tables), [tables]);
   const menu = useMemo(() => getDigitalMenu(), [tick]); // eslint-disable-line react-hooks/exhaustive-deps
-  const available = useMemo(() => products.filter((p) => isAvailableOnline(menu, p) && isOnSale(p.saleSchedule)), [products, menu]);
+  const available = useMemo(() => sortProducts(products.filter((p) => isAvailableOnline(menu, p) && isOnSale(p.saleSchedule)), menu.categoryOrder, menu.productOrder), [products, menu]);
   const categories = useMemo(() => sortCategories(Array.from(new Set(available.map((p) => p.category))), menu.categoryOrder), [available, menu]);
   const open = table ? openTableOrder(orders, table.id) : undefined;
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);

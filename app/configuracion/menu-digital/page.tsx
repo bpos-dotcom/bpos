@@ -22,6 +22,7 @@ import {
   isSoldOut,
   saveDigitalMenu,
   sortCategories,
+  sortProducts,
   suggestSlug,
   ONLINE_PAYMENTS,
   type DigitalMenuSettings,
@@ -32,6 +33,8 @@ import { getSupabase } from "@/lib/supabase/client";
 import { getMpStatus } from "@/lib/mp/client";
 import { KioskScreens } from "@/components/menu/KioskScreens";
 import { MenuDesignEditor } from "@/components/menu/MenuDesignEditor";
+import { HolidaysEditor, TimedMenusEditor } from "@/components/menu/MenuSchedulesEditor";
+import { SortableList } from "@/components/menu/SortableList";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -76,7 +79,16 @@ export default function MenuDigitalPage() {
     window.addEventListener(DIGITAL_MENU_EVENT, sync);
     window.addEventListener("storage", sync);
     const timer = setInterval(() => setNow(new Date()), 60_000);
+    // Liga directa a una sección (ej. "Ordenar menú" desde Productos): ya con los productos dibujados
+    const hash = window.location.hash.slice(1);
+    let tries = 0;
+    const jump = setInterval(() => {
+      const el = hash ? document.getElementById(hash) : null;
+      if (el) el.scrollIntoView({ behavior: "smooth" });
+      if (el || !hash || ++tries > 20) clearInterval(jump);
+    }, 150);
     return () => {
+      clearInterval(jump);
       window.removeEventListener(DIGITAL_MENU_EVENT, sync);
       window.removeEventListener("storage", sync);
       clearInterval(timer);
@@ -133,23 +145,27 @@ export default function MenuDigitalPage() {
     [products, menu.categoryOrder]
   );
 
-  function moveCategory(index: number, delta: number) {
-    const next = [...orderedCategories];
-    const target = index + delta;
-    if (target < 0 || target >= next.length) return;
-    [next[index], next[target]] = [next[target], next[index]];
-    update({ categoryOrder: next });
+  /** Todos los productos en el orden del negocio (categoría y lugar dentro de ella) */
+  const orderedProducts = useMemo(() => sortProducts(products, menu.categoryOrder, menu.productOrder), [products, menu.categoryOrder, menu.productOrder]);
+  const [sortingCategory, setSortingCategory] = useState("");
+  const sortCategory = orderedCategories.includes(sortingCategory) ? sortingCategory : orderedCategories[0] || "";
+
+  /** Nuevo orden de una categoría: se guarda el lugar de todos (los de otras categorías no cambian) */
+  function reorderCategoryProducts(category: string, next: Product[]) {
+    const queue = [...next];
+    const ids = orderedProducts.map((p) => ((p.category || "Sin categoría") === category ? queue.shift()! : p)).map((p) => Number(p.id));
+    update({ productOrder: ids });
   }
 
   const byCategory = useMemo(() => {
     const q = search.trim().toLowerCase();
     const map = new Map<string, Product[]>();
-    products
+    orderedProducts
       .filter((p) => !q || p.name.toLowerCase().includes(q) || p.category.toLowerCase().includes(q))
       .forEach((p) => map.set(p.category || "Sin categoría", [...(map.get(p.category || "Sin categoría") || []), p]));
     const rank = new Map(orderedCategories.map((c, i) => [c, i]));
     return [...map.entries()].sort((a, b) => (rank.get(a[0]) ?? 999) - (rank.get(b[0]) ?? 999));
-  }, [products, search, orderedCategories]);
+  }, [orderedProducts, search, orderedCategories]);
 
   const soldOutCount = products.filter((p) => isSoldOut(menu, p.id, now)).length;
   /** Bloques de horario: el principal más los extra (ej. fin de semana con otras horas) */
@@ -425,6 +441,12 @@ export default function MenuDigitalPage() {
             )}
             {hourBlocks.length > 1 && <p className="mt-1 text-xs text-zinc-500">Recibes pedidos cuando aplica cualquiera de los horarios. Un día puede estar en dos bloques (ej. mañana y noche).</p>}
 
+            <p className="mt-5 text-sm font-bold text-zinc-300">🎉 Días festivos o especiales</p>
+            <p className="mt-0.5 text-xs text-zinc-500">Ese día manda sobre el horario de arriba: cerrado u otro horario. Tus clientes lo ven en el menú desde una semana antes. El punto de venta sigue vendiendo normal.</p>
+            <div className="mt-2">
+              <HolidaysEditor holidays={menu.holidays} onChange={(holidays) => update({ holidays })} />
+            </div>
+
             <label className={`${label} mt-5`}>
               Aviso arriba del menú (opcional)
               <input value={menu.notice} maxLength={200} onChange={(e) => update({ notice: e.target.value })} placeholder="Ej. Martes 2x1 en papas" className={`${input} mt-1`} />
@@ -487,42 +509,72 @@ export default function MenuDigitalPage() {
             </div>
           </section>
 
-          {/* Orden de categorías */}
-          <section className={card}>
-            <h2 className="text-lg font-black">🔀 Orden de las categorías</h2>
+          {/* Orden de categorías y productos */}
+          <section id="orden" className={`${card} scroll-mt-32`}>
+            <h2 className="text-lg font-black">🔀 Orden del menú</h2>
             <p className="mt-1 text-sm text-zinc-400">
-              Así aparecen en tu menú digital y en el punto de venta. Sube o baja cada una con las flechas. Las categorías nuevas se van al final.
+              Así aparecen en tu menú digital, en el punto de venta y en la app de meseros. Arrastra desde ⠿ o usa las flechas. Lo nuevo se va al final.
             </p>
             {orderedCategories.length === 0 ? (
               <p className="mt-3 text-sm text-zinc-500">No hay categorías todavía.</p>
             ) : (
-              <ol className="mt-4 grid gap-2 md:grid-cols-2">
-                {orderedCategories.map((c, i) => (
-                  <li key={c} className="flex items-center gap-2 rounded-2xl border border-zinc-800 bg-black px-3 py-2">
-                    <span className="w-6 text-center text-xs font-black text-zinc-500">{i + 1}</span>
-                    <span className="min-w-0 flex-1 truncate font-black">{c}</span>
-                    <button
-                      type="button"
-                      onClick={() => moveCategory(i, -1)}
-                      disabled={i === 0}
-                      aria-label={`Subir ${c}`}
-                      className="rounded-xl border border-zinc-700 px-3 py-1 font-black hover:border-orange-500 disabled:opacity-30"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => moveCategory(i, 1)}
-                      disabled={i === orderedCategories.length - 1}
-                      aria-label={`Bajar ${c}`}
-                      className="rounded-xl border border-zinc-700 px-3 py-1 font-black hover:border-orange-500 disabled:opacity-30"
-                    >
-                      ↓
-                    </button>
-                  </li>
-                ))}
-              </ol>
+              <div className="mt-4 grid gap-5 lg:grid-cols-2">
+                <div className="min-w-0">
+                  <p className="mb-2 text-xs font-black uppercase tracking-wider text-zinc-500">Categorías</p>
+                  <SortableList
+                    items={orderedCategories}
+                    keyOf={(c) => c}
+                    label={(c) => c}
+                    onChange={(next) => {
+                      setSortingCategory(sortCategory); // la lista de productos de al lado no cambia de categoría
+                      update({ categoryOrder: next });
+                    }}
+                    render={(c) => (
+                      <button type="button" onClick={() => setSortingCategory(c)} className={`w-full truncate text-left font-black ${c === sortCategory ? "text-orange-300" : ""}`}>
+                        {c}
+                        <span className="ml-2 text-xs font-bold text-zinc-500">{orderedProducts.filter((p) => (p.category || "Sin categoría") === c).length} productos →</span>
+                      </button>
+                    )}
+                  />
+                </div>
+                <div className="min-w-0">
+                  <label className="mb-2 flex items-center gap-2 text-xs font-black uppercase tracking-wider text-zinc-500">
+                    Productos de
+                    <select value={sortCategory} onChange={(e) => setSortingCategory(e.target.value)} className="rounded-xl border border-zinc-800 bg-black px-3 py-1.5 text-sm normal-case tracking-normal text-white">
+                      {orderedCategories.map((c) => (
+                        <option key={c} value={c}>
+                          {c}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <SortableList
+                    items={orderedProducts.filter((p) => (p.category || "Sin categoría") === sortCategory)}
+                    keyOf={(p) => String(p.id)}
+                    label={(p) => p.name}
+                    onChange={(next) => reorderCategoryProducts(sortCategory, next)}
+                    render={(p) => (
+                      <span className="flex items-center gap-2">
+                        <span className="text-xl">{p.emoji}</span>
+                        <span className="min-w-0 flex-1 truncate font-bold">{p.name}</span>
+                        <span className="text-sm text-zinc-500">${Number(p.price).toFixed(0)}</span>
+                      </span>
+                    )}
+                  />
+                </div>
+              </div>
             )}
+          </section>
+
+          {/* Menús con horario */}
+          <section className={card}>
+            <h2 className="text-lg font-black">🕒 Menús por horario</h2>
+            <p className="mt-1 text-sm text-zinc-400">
+              Ej. Desayunos de 7 a 12: esas categorías solo se venden en ese horario, en el punto de venta, con los meseros y en internet. Lo que no esté en un menú se vende siempre.
+            </p>
+            <div className="mt-4">
+              <TimedMenusEditor menus={menu.menus} categories={orderedCategories} onChange={(menus) => update({ menus })} />
+            </div>
           </section>
 
           {/* Productos */}

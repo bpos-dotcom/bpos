@@ -6,7 +6,7 @@
  */
 import { useState } from "react";
 import type { Product } from "@/data/products";
-import type { Align, ChannelLink, MenuDesign } from "@/lib/digital-menu";
+import { MENU_LAYOUTS, type Align, type ChannelLink, type MenuDesign, type MenuLayout } from "@/lib/digital-menu";
 import { uploadBusinessImage } from "@/lib/media";
 
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -123,8 +123,45 @@ function Channel({ name, hint, value, onChange }: { name: string; hint: string; 
   );
 }
 
+/** Dibujito de cada diseño para elegirlo sin abrir el menú */
+function LayoutSketch({ layout }: { layout: MenuLayout }) {
+  const box = "rounded bg-zinc-700";
+  if (layout === "lista")
+    return (
+      <span className="flex h-16 flex-col justify-between">
+        {[0, 1, 2].map((i) => (
+          <span key={i} className="flex items-center gap-1.5">
+            <span className={`${box} h-4 w-4 shrink-0`} />
+            <span className="flex-1 space-y-0.5">
+              <span className="block h-1.5 w-3/4 rounded bg-zinc-600" />
+              <span className="block h-1 w-1/2 rounded bg-zinc-800" />
+            </span>
+          </span>
+        ))}
+      </span>
+    );
+  if (layout === "fotos")
+    return (
+      <span className="grid h-16 grid-cols-2 gap-1.5">
+        {[0, 1].map((i) => (
+          <span key={i} className="flex flex-col gap-1">
+            <span className={`${box} flex-1`} />
+            <span className="block h-1.5 w-2/3 rounded bg-zinc-600" />
+          </span>
+        ))}
+      </span>
+    );
+  return (
+    <span className="grid h-16 grid-cols-4 gap-1">
+      {Array.from({ length: 8 }, (_, i) => (
+        <span key={i} className={box} />
+      ))}
+    </span>
+  );
+}
+
 export function MenuDesignEditor({ design, products, onChange }: { design: MenuDesign; products: Product[]; onChange: (d: MenuDesign) => void }) {
-  const set = <K extends Exclude<keyof MenuDesign, "theme">>(key: K, patch: Partial<MenuDesign[K]>) => onChange({ ...design, [key]: { ...design[key], ...patch } });
+  const set = <K extends Exclude<keyof MenuDesign, "theme" | "layout">>(key: K, patch: Partial<MenuDesign[K]>) => onChange({ ...design, [key]: { ...design[key], ...patch } });
   const sellable = products.filter((p) => !p.notSoldAlone);
 
   return (
@@ -148,6 +185,23 @@ export function MenuDesignEditor({ design, products, onChange }: { design: MenuD
           ))}
         </div>
         <span className="text-xs text-zinc-500">Se aplica al menú digital y al kiosco. Tus fotos y tu color de marca se quedan igual.</span>
+      </div>
+      <div className="rounded-2xl border border-zinc-800 bg-black p-4">
+        <span className="font-black">🧩 Cómo se ven los platillos</span>
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {(Object.keys(MENU_LAYOUTS) as MenuLayout[]).map((k) => (
+            <button
+              key={k}
+              type="button"
+              onClick={() => onChange({ ...design, layout: k })}
+              className={`rounded-2xl border p-3 text-left ${design.layout === k ? "border-orange-500 bg-orange-500/15" : "border-zinc-800 hover:border-zinc-600"}`}
+            >
+              <LayoutSketch layout={k} />
+              <span className={`mt-2 block text-sm font-black ${design.layout === k ? "text-orange-300" : ""}`}>{MENU_LAYOUTS[k].label}</span>
+              <span className="block text-xs text-zinc-500">{MENU_LAYOUTS[k].hint}</span>
+            </button>
+          ))}
+        </div>
       </div>
       <Section title="Barra de arriba" hint="Frase corta, ciudad y horario (el horario sale de tu configuración)." on={design.topBar.on} onToggle={(on) => set("topBar", { on })}>
         <Text text="Frase" value={design.topBar.text} max={90} placeholder="Hamburguesas que hacen un mejor día" onChange={(text) => set("topBar", { text })} />
