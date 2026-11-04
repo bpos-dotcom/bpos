@@ -19,7 +19,7 @@ type Props = {
 };
 
 const W = 720;
-const H = 240;
+const H = 200;
 const PAD = { top: 16, right: 16, bottom: 28, left: 64 };
 
 /** Números redondos para el eje (0, 5 mil, 10 mil...) */

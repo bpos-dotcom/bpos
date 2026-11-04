@@ -291,7 +291,8 @@ export default function FinanzasPage() {
           )}
         </div>
 
-        {/* Gráfica: cómo va contra el periodo anterior */}
+        {/* Gráfica (cómo va contra el periodo anterior) y punto de equilibrio, lado a lado en pantalla ancha */}
+        <div className="grid items-start gap-6 xl:grid-cols-2">
         <section className={card}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
@@ -299,7 +300,8 @@ export default function FinanzasPage() {
               <p className="text-xs text-zinc-500">Acumulado día por día contra {previousName.toLowerCase()} en los mismos días.</p>
               {prevSameDays && prevSameDays.change !== null && (
                 <p className={`mt-1 text-sm font-black ${prevSameDays.change >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                  {prevSameDays.change >= 0 ? "▲" : "▼"} {pct(Math.abs(prevSameDays.change))} de ingresos en los primeros {Math.min(daysSoFar, cur?.days.length || 0)} días ({money(prevSameDays.now)} contra {money(prevSameDays.before)})
+                  {prevSameDays.change >= 0 ? "▲" : "▼"} {money(Math.abs(prevSameDays.now - prevSameDays.before))}
+                  {Math.abs(prevSameDays.change) <= 300 ? ` (${pct(Math.abs(prevSameDays.change))})` : ""} {prevSameDays.change >= 0 ? "más" : "menos"} en los primeros {Math.min(daysSoFar, cur?.days.length || 0)} días: {money(prevSameDays.now)} contra {money(prevSameDays.before)}
                 </p>
               )}
             </div>
@@ -317,7 +319,7 @@ export default function FinanzasPage() {
             </div>
           </div>
           {chart && (
-            <div className="mt-3">
+            <div className="mt-3 max-w-2xl">
               <FinanceChart labels={chart.labels} current={chart.current} previous={chart.previous} currentName={currentName} previousName={previousName} format={money} />
             </div>
           )}
@@ -351,6 +353,7 @@ export default function FinanzasPage() {
               </p>
             </>
           )}
+        </div>
         </div>
 
         {error && <p className="text-sm font-bold text-red-300">{error}</p>}
