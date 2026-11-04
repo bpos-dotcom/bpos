@@ -39,8 +39,10 @@ export default function ComprasPage() {
           supplier: result.supplier || undefined,
           ingredientId: ingredient.id,
           ingredientName: ingredient.name,
-          quantity: line.inventoryQuantity / line.presentations,
+          // A granel no se guarda cantidad fija: cada ticket trae lo que pesó
+          quantity: line.byWeight ? 1 : line.inventoryQuantity / line.presentations,
           unit: ingredient.unit,
+          byWeight: line.byWeight || undefined,
         });
       } catch {
         // una línea sin datos suficientes no debe frenar la compra
