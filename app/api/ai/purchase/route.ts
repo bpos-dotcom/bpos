@@ -66,7 +66,7 @@ export async function POST(request: NextRequest) {
   let image: { mediaType: string; data: string } | null = null;
   let supplier = "";
   let ingredients: { id: number; name: string; unit: string }[] = [];
-  let aliases: { ticketName: string; ingredientId: number; quantity: number }[] = [];
+  let aliases: { ticketName: string; supplier?: string; ingredientId: number; quantity: number }[] = [];
   try {
     const body = await request.json();
     image = body?.image ?? null;
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
 
   const catalog = ingredients.map((i) => `${Number(i.id)} | ${String(i.name).slice(0, 60)} | ${String(i.unit)}`).join("\n");
   const learned = aliases
-    .map((a) => `"${String(a.ticketName).slice(0, 60)}" → insumo ${Number(a.ingredientId)}, ${Number(a.quantity)} por presentación`)
+    .map((a) => `"${String(a.ticketName).slice(0, 60)}"${a.supplier ? ` (${String(a.supplier).slice(0, 40)})` : ""} → insumo ${Number(a.ingredientId)}, ${Number(a.quantity)} por presentación`)
     .join("\n");
 
   try {

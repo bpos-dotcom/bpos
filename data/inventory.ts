@@ -5,6 +5,8 @@ export type Ingredient = {
   unit: "pza" | "g" | "ml";
   stock: number;
   minimum: number;
+  /** Categoría para ordenar la lista (Lácteos, Carnes, Bebidas...); sin categoría va en "Sin categoría" */
+  category?: string;
   /** Estación que lo prepara (ej. el boneless en Freidora): sugiere comanda extra a productos de otra estación que lo llevan */
   station?: KitchenStation;
 };
