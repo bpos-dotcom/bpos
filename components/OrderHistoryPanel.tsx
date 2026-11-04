@@ -30,6 +30,9 @@ export type SavedOrder = {
   /** Venta de delivery (DiDi, Uber, Rappi): la cobra la plataforma */
   externalPlatform?: string;
   externalOrderNumber?: string;
+  /** Quién capturó la venta en el POS y quién la cobró (reportes por empleado y propinas) */
+  soldBy?: string;
+  paidBy?: string;
 };
 
 /** Filtro del historial: de dónde vino la venta */

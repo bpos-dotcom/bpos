@@ -8,7 +8,8 @@ import { ask } from "@/components/layout/Dialogs";
 import { useEffect, useMemo, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
-import { DEFAULT_ZONE, getTables, saveTables, TABLES_EVENT, tableZones, type Table } from "@/lib/tables";
+import { DEFAULT_ZONE, getTables, saveTables, TABLE_SHAPES, TABLES_EVENT, tableZones, type Table, type TableShape } from "@/lib/tables";
+import { FloorPlan, planSpots } from "@/components/tables/FloorPlan";
 
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
 
@@ -19,6 +20,7 @@ export default function MesasPage() {
   const [seats, setSeats] = useState("4");
   const [count, setCount] = useState("10");
   const [error, setError] = useState("");
+  const [view, setView] = useState<"lista" | "plano">("lista");
 
   useEffect(() => {
     const sync = () => setTables(getTables());
@@ -60,6 +62,19 @@ export default function MesasPage() {
 
   function update(id: string, patch: Partial<Table>) {
     persist(tables.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+  }
+
+  /** Mover una mesa en el plano: las de la zona que aún no tenían lugar se quedan donde se veían */
+  function moveOnPlan(id: string, x: number, y: number) {
+    const zoneOf = tables.find((t) => t.id === id)?.zone;
+    const spots = planSpots(tables.filter((t) => t.zone === zoneOf));
+    persist(tables.map((t) => (t.id === id ? { ...t, x, y } : t.zone === zoneOf && (t.x === undefined || t.y === undefined) ? { ...t, ...spots.get(t.id) } : t)));
+  }
+
+  /** Volver a acomodar solas las mesas de una zona */
+  async function resetPlan(zone: string) {
+    if (!(await ask(`¿Acomodar otra vez en cuadrícula las mesas de ${zone}?`, { ok: "Acomodar" }))) return;
+    persist(tables.map((t) => (t.zone === zone ? { ...t, x: undefined, y: undefined } : t)));
   }
 
   async function remove(id: string) {
@@ -125,10 +140,32 @@ export default function MesasPage() {
           </section>
 
           <section className="space-y-5">
+            {tables.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {(["lista", "plano"] as const).map((v) => (
+                  <button key={v} onClick={() => setView(v)} className={`rounded-2xl border px-4 py-2 text-sm font-black ${view === v ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-800 bg-zinc-950 text-zinc-300"}`}>
+                    {v === "lista" ? "📋 Lista" : "🗺️ Plano"}
+                  </button>
+                ))}
+                {view === "plano" && <span className="text-sm text-zinc-400">Arrastra cada mesa a su lugar. Se guarda al soltarla.</span>}
+              </div>
+            )}
+            {view === "plano" &&
+              zones.map((z) => (
+                <div key={`plano-${z}`} className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <h2 className="text-xl font-black text-orange-500">{z}</h2>
+                    <button onClick={() => void resetPlan(z)} className="rounded-xl border border-zinc-800 px-3 py-1 text-xs font-black text-zinc-400 hover:text-orange-400">
+                      Acomodar solas
+                    </button>
+                  </div>
+                  <FloorPlan tables={tables.filter((t) => t.zone === z)} editable onMove={moveOnPlan} />
+                </div>
+              ))}
             {tables.length === 0 && (
               <div className="rounded-3xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">Todavía no hay mesas. Agrega la primera o crea varias numeradas.</div>
             )}
-            {zones.map((z) => (
+            {view === "lista" && zones.map((z) => (
               <div key={z} className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
                 <div className="flex items-center justify-between">
                   <h2 className="text-xl font-black text-orange-500">{z}</h2>
@@ -154,6 +191,13 @@ export default function MesasPage() {
                             ))}
                           </select>
                         </div>
+                        <select value={t.shape || "cuadrada"} onChange={(e) => update(t.id, { shape: e.target.value as TableShape })} className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-2 py-1 text-sm text-white" aria-label="Forma en el plano">
+                          {(Object.keys(TABLE_SHAPES) as TableShape[]).map((s) => (
+                            <option key={s} value={s}>
+                              Forma: {TABLE_SHAPES[s]}
+                            </option>
+                          ))}
+                        </select>
                         <div className="mt-3 flex justify-between text-xs font-black">
                           <button onClick={() => update(t.id, { active: !t.active })} className="text-zinc-400 hover:text-orange-400">
                             {t.active ? "Desactivar" : "Activar"}
