@@ -245,7 +245,15 @@ export default function FinanzasPage() {
       if (!d) return `Día ${i + 1}`;
       return period === "semana" || period === "semana-pasada" ? `${DAY[d.getDay()]} ${d.getDate()}` : shortDay(d);
     });
-    return { labels, current: acc(data.cur.days, elapsed || data.cur.days.length), previous: acc(data.prev.days, data.prev.days.length) };
+    const daily = (list: { income: number; profit: number }[], upTo: number) => Array.from({ length: n }, (_, i) => (i < upTo && list[i] ? pick(list[i]) : null));
+    const upTo = elapsed || data.cur.days.length;
+    return {
+      labels,
+      current: acc(data.cur.days, upTo),
+      previous: acc(data.prev.days, data.prev.days.length),
+      currentDay: daily(data.cur.days, upTo),
+      previousDay: daily(data.prev.days, data.prev.days.length),
+    };
   }, [data, chartMetric, elapsed, period]);
 
   const prevSameDays = useMemo(() => {
@@ -372,7 +380,17 @@ export default function FinanzasPage() {
           )}
           {chart && (
             <div className="mt-3">
-              <FinanceChart labels={chart.labels} current={chart.current} previous={chart.previous} currentName={currentName} previousName={previousName} format={money} />
+              <FinanceChart
+                labels={chart.labels}
+                current={chart.current}
+                previous={chart.previous}
+                currentDay={chart.currentDay}
+                previousDay={chart.previousDay}
+                dayName={chartMetric === "ingresos" ? "Ventas e ingresos del día" : "Utilidad del día"}
+                currentName={currentName}
+                previousName={previousName}
+                format={money}
+              />
             </div>
           )}
           {chartMetric === "utilidad" && <p className="mt-2 text-xs text-zinc-500">Utilidad de cada día: ingresos − costo de lo vendido − su parte de los gastos fijos − gastos sueltos de ese día.</p>}
