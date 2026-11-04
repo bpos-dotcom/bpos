@@ -79,7 +79,7 @@ export type CampaignKind = "dormidos" | "sin-cuenta";
 
 export const CAMPAIGNS: Record<CampaignKind, { label: string; hint: string }> = {
   dormidos: { label: "😴 Dormidos", hint: "Clientes con teléfono que llevan más de 45 días sin pedir. Mándales un cupón para que regresen." },
-  "sin-cuenta": { label: "🛒 Pidieron en línea sin cuenta", hint: "Hicieron su primer pedido en el menú digital o el kiosco sin crear cuenta. Invítalos a registrarse (y al club si lo tienes)." },
+  "sin-cuenta": { label: "📲 Con teléfono o WhatsApp, sin cuenta", hint: "Te dejaron su teléfono o WhatsApp al pedir (en línea, por WhatsApp, a domicilio o en mostrador) y todavía no tienen cuenta en tu menú digital. Invítalos a registrarse (y al club si lo tienes)." },
 };
 
 /** Los clientes a los que va cada campaña (solo con teléfono) */
@@ -87,7 +87,7 @@ export function campaignCustomers(kind: CampaignKind, customers: Customer[], acc
   return customers.filter((c) => {
     if (!c.phone) return false;
     if (kind === "dormidos") return c.segment === "dormido";
-    return c.onlineOrders >= 1 && c.orders === c.onlineOrders && !accountPhones.has(c.phone);
+    return !accountPhones.has(c.phone);
   });
 }
 
