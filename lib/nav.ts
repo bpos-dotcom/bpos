@@ -46,6 +46,7 @@ export const NAV: NavGroup[] = [
     tabs: [
       { label: "Inventario", href: "/inventario", icon: "📦" },
       { label: "Compras", href: "/compras", icon: "🛍️" },
+      { label: "Ingredientes", href: "/configuracion/ingredientes", icon: "🧂" },
     ],
   },
   {
