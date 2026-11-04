@@ -26,7 +26,7 @@ import { DIGITAL_MENU_EVENT, categoryOffMenu, getDigitalMenu, saveDigitalMenu, s
 import { getCurrentUser, CurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
-import { drawerShouldOpen } from "@/lib/cash-drawer";
+import { clearDrawerSuspect, drawerShouldOpen } from "@/lib/cash-drawer";
 import { openCashDrawer } from "@/lib/localService";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
@@ -370,6 +370,7 @@ function PosScreen() {
       })
       .catch(() => notify("Ronda guardada, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado.", "error"));
     addAuditEvent({ category: "Venta", action: "sale.round", description: `${currentUser?.name || "Usuario"} mandó la ronda ${round} de ${tableLabel(order.details.table)} (Pedido #${formatOrderNumber(updated as SavedOrder & { localOrderNumber?: number })}): ${cart.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { round, total: updated.total } });
+    void clearDrawerSuspect(cart.reduce((sum, item) => sum + item.price * item.quantity, 0), "espera");
     notify(`Ronda ${round} de ${tableLabel(order.details.table)} mandada a cocina. Total de la mesa: $${updated.total.toFixed(2)}.`);
     setCart([]);
     setDetails({ orderType: "Mostrador", customerName: "", customerPhone: "", customerAddress: "", paymentMethod: "Efectivo", discount: 0 });
@@ -551,6 +552,7 @@ function PosScreen() {
       details: { ...order.details, paymentMethod: methodLabel(pay.payments), payments: pay.payments, ...(pay.couponCode ? { couponCode: pay.couponCode } : {}) },
     };
     saveOrders(orders.map((o) => (o.id === order.id ? paid : o)));
+    void clearDrawerSuspect(paid.total, "cobro");
     if (pay.couponCode) countCouponUse(pay.couponCode);
     if (order.clubAccountId) {
       void earnLoyalty(order.clubAccountId, paid.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, currentUser?.name || "").catch((e) =>
@@ -769,7 +771,9 @@ function PosScreen() {
         if (failed.length) notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`, "error");
       })
       .catch(() => notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Impresiones.`, "error"));
-    addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por $${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
+    addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por ${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
+    // Si antes se cerró un cobro de esta cuenta con el cajón abierto, no era sospechoso (se guardó en espera o se cobró)
+    void clearDrawerSuspect(total, data.pending ? "espera" : "cobro");
 
     notify(
       data.pending

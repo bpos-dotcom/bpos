@@ -15,7 +15,7 @@ import { DRIVERS_EVENT, getDrivers, type Driver } from "@/lib/drivers";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { allocate } from "@/lib/sale-payments";
 import { openCashDrawer } from "@/lib/localService";
-import { drawerShouldOpen, getDrawerSettings, reportDrawerWithoutCashSale } from "@/lib/cash-drawer";
+import { drawerShouldOpen, getDrawerSettings, suspectDrawerWithoutSale } from "@/lib/cash-drawer";
 
 export type PaymentMethod = string;
 
@@ -193,7 +193,7 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
   function checkDrawer() {
     if (!drawerOpened.current) return;
     drawerOpened.current = false;
-    void reportDrawerWithoutCashSale({ paymentMethod, total, orderType });
+    suspectDrawerWithoutSale({ paymentMethod, total, orderType });
   }
 
   function close() {

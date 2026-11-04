@@ -17,6 +17,7 @@ import {
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { runDailyBackup } from "@/lib/cloud/backup";
+import { flushDrawerSuspects } from "@/lib/cash-drawer";
 import { flushCloudAudit } from "@/lib/cloud/audit-outbox";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
 import { useOnlineOrdersWatch } from "@/lib/online-orders-watch";
@@ -75,6 +76,12 @@ export function Sidebar() {
       window.removeEventListener("bpos:business-settings-updated", sync);
       window.removeEventListener("storage", sync);
     };
+  }, []);
+  // Cobros cerrados con el cajón abierto: se avisan si nadie los cobró ni mandó a espera en 3 minutos
+  useEffect(() => {
+    void flushDrawerSuspects();
+    const timer = setInterval(() => void flushDrawerSuspects(), 60_000);
+    return () => clearInterval(timer);
   }, []);
   const [open, setOpen] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);

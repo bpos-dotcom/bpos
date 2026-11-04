@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { getCurrentUser } from "@/lib/auth";
+import { authorizeAdmin } from "@/lib/permissions";
 import { acknowledgeCriticalErrors } from "@/lib/inventory";
 import {
   getOperationsAlerts,
@@ -98,8 +99,27 @@ export default function OperationsCenterPage() {
     all: alerts.length,
   }), [alerts]);
 
+  /** Las de inventario se resuelven solas con su flujo; las del cajón las resuelve un admin (con nota) */
   function canResolveManually(alert: OperationsAlert) {
-    return alert.priority === "critical" || alert.priority === "info";
+    return alert.priority === "critical" || alert.priority === "info" || isDrawerAlert(alert);
+  }
+  const isDrawerAlert = (alert: OperationsAlert) => alert.id.startsWith("drawer:");
+
+  async function resolveAlert(alert: OperationsAlert) {
+    const note = resolutionNotes[alert.id]?.trim() || "";
+    if (isDrawerAlert(alert)) {
+      // Es de seguridad (posible robo hormiga): la resuelve un administrador
+      const by = user?.role === "Admin" ? user.name : await authorizeAdmin("resolver la alerta del cajón", user);
+      if (!by) return;
+      if (!note) {
+        window.alert("Escribe en la nota qué pasó (ej. se mandó a cuenta en espera y se cobró).");
+        return;
+      }
+      resolveOperationsAlert(alert.id, by, note);
+    } else {
+      resolveOperationsAlert(alert.id, user?.name, note);
+    }
+    setAlerts(getOperationsAlerts());
   }
 
   return (
@@ -154,14 +174,15 @@ export default function OperationsCenterPage() {
                 {alert.status === "pending" && <button onClick={() => { markOperationsAlertViewed(alert.id, user?.name); setAlerts(getOperationsAlerts()); }} className="rounded-xl border border-zinc-500 px-4 py-2 text-sm font-black text-white">Marcar vista</button>}
                 {canResolveManually(alert) && alert.status !== "resolved" && (
                   <>
-                    <input value={resolutionNotes[alert.id] || ""} onChange={(event) => setResolutionNotes((current) => ({ ...current, [alert.id]: event.target.value }))} placeholder="Nota de resolución (opcional)" className="min-w-64 flex-1 rounded-xl border border-zinc-700 bg-black/40 px-3 py-2 text-sm text-white" />
-                    <button onClick={() => { resolveOperationsAlert(alert.id, user?.name, resolutionNotes[alert.id]); setAlerts(getOperationsAlerts()); }} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-black text-black">Resolver</button>
+                    <input value={resolutionNotes[alert.id] || ""} onChange={(event) => setResolutionNotes((current) => ({ ...current, [alert.id]: event.target.value }))} placeholder={isDrawerAlert(alert) ? "Qué pasó (obligatorio)" : "Nota de resolución (opcional)"} className="min-w-64 flex-1 rounded-xl border border-zinc-700 bg-black/40 px-3 py-2 text-sm text-white" />
+                    <button onClick={() => void resolveAlert(alert)} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-black text-black">Resolver</button>
                   </>
                 )}
                 {alert.status === "resolved" && <button onClick={() => { reopenOperationsAlert(alert.id); setAlerts(getOperationsAlerts()); }} className="rounded-xl border border-orange-500 px-4 py-2 text-sm font-black text-orange-300">Reabrir</button>}
               </div>
 
-              {alert.priority === "warning" && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-yellow-200">Esta alerta se resuelve desde Inventario al completar el flujo de lista de compras y cierre de turno.</p>}
+              {alert.priority === "warning" && alert.status !== "resolved" && !isDrawerAlert(alert) && <p className="mt-4 text-xs font-bold text-yellow-200">Esta alerta se resuelve desde Inventario al completar el flujo de lista de compras y cierre de turno.</p>}
+              {isDrawerAlert(alert) && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-yellow-200">Si la cuenta se mandó a espera o se cobró después, escribe qué pasó y resuélvela (un administrador). Si se cobra la cuenta, se resuelve sola.</p>}
               {alert.priority === "delivery" && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-emerald-200">Esta alerta se resuelve al completar las equivalencias pendientes en Bridge.</p>}
             </article>
           );

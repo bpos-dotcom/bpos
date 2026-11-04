@@ -60,7 +60,7 @@ export function drawerShouldOpen(paymentMethod: string, orderType: string | unde
  * (nube, no se puede borrar), como alerta en el Centro de operaciones y le
  * llega al dueño por push (preferencia "seguridad").
  */
-export async function reportDrawerWithoutCashSale(input: { paymentMethod: string; total: number; orderType?: string }) {
+export async function reportDrawerWithoutCashSale(input: { paymentMethod: string; total: number; orderType?: string }): Promise<string | undefined> {
   if (typeof window === "undefined") return;
   const [{ addAuditEvent }, { getCurrentUser }, { upsertOperationsAlert }] = await Promise.all([import("@/lib/audit"), import("@/lib/auth"), import("@/lib/notifications/operationsCenter")]);
   const user = getCurrentUser();
@@ -84,4 +84,77 @@ export async function reportDrawerWithoutCashSale(input: { paymentMethod: string
     moduleHref: "/configuracion/auditoria",
     metadata: event.metadata,
   });
+  return `drawer:${event.id}`;
+}
+
+// ------------------------------------------------------------ espera antes de avisar
+
+/**
+ * El cobro se cerró sin vender, pero a veces la cuenta se manda a espera
+ * o se cobra un momento después (ej. cerraron el cobro y tocaron "Cuenta en
+ * espera"). Por eso el aviso espera unos minutos: si en ese tiempo esa
+ * cuenta (mismo total) se guarda en espera o se cobra, no se avisa. Si ya se
+ * avisó y luego se cobra, la alerta se resuelve sola.
+ */
+const SUSPECTS_KEY = "bpos_drawer_suspects"; // solo de este equipo
+const WAIT_MS = 3 * 60_000;
+const MATCH_MS = 60 * 60_000;
+
+type Suspect = { id: string; at: number; paymentMethod: string; total: number; orderType?: string; alertId?: string };
+
+function readSuspects(): Suspect[] {
+  try {
+    const list = JSON.parse(localStorage.getItem(SUSPECTS_KEY) || "[]");
+    return Array.isArray(list) ? list.filter((s) => s && Date.now() - Number(s.at) < MATCH_MS) : [];
+  } catch {
+    return [];
+  }
+}
+function writeSuspects(list: Suspect[]) {
+  try {
+    localStorage.setItem(SUSPECTS_KEY, JSON.stringify(list.slice(-30)));
+  } catch {
+    // sin almacenamiento: se avisa en el momento (abajo)
+  }
+}
+
+/** Cajón abierto y cobro cerrado sin venta: se anota y se avisa en 3 minutos si nadie la cobra */
+export function suspectDrawerWithoutSale(input: { paymentMethod: string; total: number; orderType?: string }) {
+  if (typeof window === "undefined") return;
+  writeSuspects([...readSuspects(), { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at: Date.now(), ...input }]);
+  setTimeout(() => void flushDrawerSuspects(), WAIT_MS + 1000);
+}
+
+/** Avisa los que ya esperaron sin que se cobrara su cuenta (también al abrir B-POS otra vez) */
+export async function flushDrawerSuspects() {
+  if (typeof window === "undefined") return;
+  const list = readSuspects();
+  const due = list.filter((s) => !s.alertId && Date.now() - s.at >= WAIT_MS);
+  if (!due.length) {
+    writeSuspects(list);
+    return;
+  }
+  for (const s of due) {
+    const alertId = await reportDrawerWithoutCashSale(s);
+    s.alertId = alertId || "sin-alerta";
+  }
+  writeSuspects(list);
+}
+
+/**
+ * Se guardó en espera o se cobró una cuenta: si coincide con un cobro que
+ * se cerró sin vender (mismo total, en la última hora), no era sospechoso.
+ */
+export async function clearDrawerSuspect(total: number, how: "espera" | "cobro") {
+  if (typeof window === "undefined" || !(total > 0)) return;
+  const list = readSuspects();
+  const match = [...list].reverse().find((s) => Math.abs(s.total - total) < 1);
+  if (!match) return;
+  writeSuspects(list.filter((s) => s.id !== match.id));
+  if (!match.alertId || match.alertId === "sin-alerta") return; // todavía no se avisaba: ya no se avisa
+  const [{ resolveOperationsAlert }, { addAuditEvent }, { getCurrentUser }] = await Promise.all([import("@/lib/notifications/operationsCenter"), import("@/lib/audit"), import("@/lib/auth")]);
+  const note = how === "espera" ? "Se mandó a cuenta en espera" : "La cuenta se cobró después";
+  resolveOperationsAlert(match.alertId, "Sistema", `${note} ($${total.toFixed(2)}).`);
+  const user = getCurrentUser();
+  addAuditEvent({ category: "Seguridad", action: "drawer.justified", description: `Cajón abierto sin venta de $${match.total.toFixed(2)}: ${note.toLowerCase()}.`, userName: user.name, metadata: { total, how } });
 }
