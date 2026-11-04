@@ -112,6 +112,7 @@ const rowReady = (r: Row, inventory: Ingredient[]) =>
 export default function PurchaseAiCapture({ onReady, onManual }: Props) {
   const [ai, setAi] = useState<AiStatus | null | undefined>(undefined);
   const inputRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [supplier, setSupplier] = useState("");
@@ -396,18 +397,49 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
           Toma una foto clara del ticket completo. La IA lo lee y tú revisas
           antes de guardar.
         </p>
+        {/* Dos entradas: con capture el celular abre directo la cámara y no deja elegir de la galería */}
         <input
-          ref={inputRef}
+          ref={cameraRef}
           type="file"
           accept="image/*"
           capture="environment"
           className="hidden"
-          onChange={(e) => e.target.files?.[0] && pick(e.target.files[0])}
+          onChange={(e) => {
+            if (e.target.files?.[0]) pick(e.target.files[0]);
+            e.target.value = "";
+          }}
         />
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*"
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.[0]) pick(e.target.files[0]);
+            e.target.value = "";
+          }}
+        />
+        <div className="mt-5 grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => cameraRef.current?.click()}
+            className="rounded-2xl border border-zinc-700 bg-black px-3 py-3 font-black hover:border-orange-500"
+          >
+            📷 Tomar foto
+          </button>
+          <button
+            type="button"
+            onClick={() => inputRef.current?.click()}
+            className="rounded-2xl border border-zinc-700 bg-black px-3 py-3 font-black hover:border-orange-500"
+          >
+            🖼️ Elegir de la galería
+          </button>
+        </div>
         <button
           type="button"
+          aria-label="Elegir foto del ticket"
           onClick={() => inputRef.current?.click()}
-          className="mt-5 flex h-64 w-full items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-zinc-700 bg-black hover:border-orange-500"
+          className="mt-3 flex h-64 w-full items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-zinc-700 bg-black hover:border-orange-500"
         >
           {preview ? (
             // eslint-disable-next-line @next/next/no-img-element -- vista previa local
@@ -420,7 +452,7 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
             <span className="text-center">
               <span className="block text-6xl">📷</span>
               <span className="mt-3 block font-black">
-                Tomar / seleccionar foto
+                {"Aquí se ve la foto del ticket"}
               </span>
             </span>
           )}
