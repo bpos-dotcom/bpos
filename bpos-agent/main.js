@@ -32,16 +32,37 @@ initLogger(app.getPath("userData"));
 
 const server = express();
 
-server.use(cors());
+// Solo B-POS puede mandarle órdenes (imprimir, abrir el cajón): antes cualquier página
+// abierta en esta computadora podía hacerlo. Chrome además pide permiso para que una
+// página de internet hable con la computadora local (Private Network Access).
+const ALLOWED_ORIGINS = new Set(["https://www.bpos.com.mx", "https://bpos.com.mx", "http://localhost:3000", "http://localhost:3200", "http://127.0.0.1:3000", "http://127.0.0.1:3200"]);
+server.use((req, res, next) => {
+  if (req.headers["access-control-request-private-network"]) res.setHeader("Access-Control-Allow-Private-Network", "true");
+  next();
+});
+server.use(
+  cors({
+    // Sin origen = el propio Agent o programas de esta computadora (pruebas, impresora virtual)
+    origin: (origin, done) => done(null, !origin || ALLOWED_ORIGINS.has(origin)),
+  })
+);
+server.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin && !ALLOWED_ORIGINS.has(origin)) return res.status(403).json({ success: false, error: "Origen no permitido." });
+  next();
+});
 // Los tickets propios llevan el logo dentro (imagen): más que el límite de 100 KB por omisión
 server.use(express.json({ limit: "5mb" }));
 
 
 server.get("/", (req, res) => {
+  // agentId: B-POS en esta computadora comprueba que es el Agent de su sucursal antes de imprimir directo (sin internet)
+  const linkInfo = cloudLink.getLinkInfo ? cloudLink.getLinkInfo() : null;
   res.json({
     service: "B-POS Agent",
     status: "running",
     version: app.getVersion(),
+    ...(linkInfo ? { agentId: linkInfo.agentId, branchName: linkInfo.branchName } : {}),
   });
 });
 

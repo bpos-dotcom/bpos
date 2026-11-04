@@ -5,6 +5,7 @@ import "./globals.css";
 import { CloudGate } from "@/components/cloud/CloudGate";
 import { TouchKeyboard } from "@/components/TouchKeyboard";
 import { Dialogs } from "@/components/layout/Dialogs";
+import { OfflineSupport } from "@/components/layout/OfflineSupport";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 
 const geistSans = Geist({
@@ -47,6 +48,7 @@ export default function RootLayout({
         <CloudGate>{children}</CloudGate>
         <TouchKeyboard />
         <Dialogs />
+        <OfflineSupport />
       </body>
     </html>
   );

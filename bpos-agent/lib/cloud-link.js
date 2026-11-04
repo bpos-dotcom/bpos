@@ -66,6 +66,11 @@ function getStatus() {
   };
 }
 
+/** Con qué Agent de la nube está vinculado (B-POS en esta misma computadora lo usa para imprimir sin internet) */
+function getLinkInfo() {
+  return link ? { agentId: link.agentId, businessName: link.businessName || "", branchName: link.branchName || "" } : null;
+}
+
 function onStatus(listener) {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -351,4 +356,4 @@ function stopCloudLink() {
   clearInterval(outboxTimer);
 }
 
-module.exports = { startCloudLink, stopCloudLink, submitOrder, pair, unlink, onStatus, getStatus, WEB_URL };
+module.exports = { startCloudLink, stopCloudLink, submitOrder, pair, unlink, onStatus, getStatus, getLinkInfo, WEB_URL };

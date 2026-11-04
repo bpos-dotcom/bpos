@@ -6,6 +6,7 @@
  *   Sin nube (pruebas locales): directo al Agent de esta computadora.
  */
 import { runAgentJob, type AgentJobKind } from "@/lib/agent/client";
+import { callLocalAgent, forgetLocalAgent, hasLocalAgent } from "@/lib/agent/local";
 import type { PrintJob } from "@/lib/bridge/printManager";
 import { isCloudConfigured } from "@/lib/supabase/client";
 
@@ -22,6 +23,20 @@ const LOCAL_PATHS: Record<AgentJobKind, string> = {
 /** Respuesta del Agent; con error si no lo pudo hacer. */
 async function callAgent<T extends { success?: boolean; error?: string }>(kind: AgentJobKind, body: unknown, fallbackError: string): Promise<T> {
   if (isCloudConfigured) {
+    // Agent en esta misma computadora: directo (sin nube). La configuración de impresoras
+    // la toma el Agent de la nube, así que esa sí va por la cola.
+    if (kind !== "station-printers" && (await hasLocalAgent())) {
+      try {
+        const local = await callLocalAgent<T>(LOCAL_PATHS[kind], body);
+        if (local.success === false) throw new Error(local.error || fallbackError);
+        return local;
+      } catch (error) {
+        // Error de red: el Agent local no respondió → se intenta por la nube.
+        // Error del Agent (ej. sin impresora): ese es el resultado, no se repite.
+        if (!(error instanceof TypeError) && !(error instanceof DOMException)) throw error;
+        forgetLocalAgent();
+      }
+    }
     const result = await runAgentJob<T>(kind, body);
     if (result.success === false) throw new Error(result.error || fallbackError);
     return result;
