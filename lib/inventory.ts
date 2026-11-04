@@ -15,7 +15,7 @@ export type InventoryMovement = {
   ingredientId: number;
   ingredientName: string;
   unit: Ingredient["unit"];
-  type: "Venta POS" | "Venta plataforma" | "Ajuste positivo" | "Ajuste negativo";
+  type: "Venta POS" | "Venta plataforma" | "Ajuste positivo" | "Ajuste negativo" | "Merma";
   quantity: number;
   previousStock: number;
   finalStock: number;
@@ -23,8 +23,14 @@ export type InventoryMovement = {
   externalOrderKey?: string;
   platform?: string;
   reason?: string;
+  /** Merma: lo que costó lo que se tiró (último costo de compra × cantidad), si se conoce */
+  cost?: number;
   createdAt: string;
 };
+
+export type AdjustmentType = "Ajuste positivo" | "Ajuste negativo" | "Merma";
+/** Motivos comunes de merma (se eligen con un toque en Inventario) */
+export const MERMA_REASONS = ["Caducó", "Se cayó o derramó", "Error de cocina", "Cortesía", "Mal estado al recibir"];
 
 export type InventoryOrderLike = {
   id: number | string;
@@ -311,7 +317,7 @@ export function processUnappliedOrders(): InventoryApplicationResult[] {
   return orders.map(applyInventoryForOrder);
 }
 
-export function adjustInventory(input: { ingredientId: number; quantity: number; adjustmentType: "Ajuste positivo" | "Ajuste negativo"; reason: string }) {
+export function adjustInventory(input: { ingredientId: number; quantity: number; adjustmentType: AdjustmentType; reason: string; cost?: number }) {
   const quantity = Number(input.quantity);
   if (!Number.isFinite(quantity) || quantity <= 0) throw new Error("Captura una cantidad válida.");
   if (!input.reason.trim()) throw new Error("El motivo es obligatorio.");
@@ -319,7 +325,7 @@ export function adjustInventory(input: { ingredientId: number; quantity: number;
   const ingredient = inventory.find((item) => Number(item.id) === Number(input.ingredientId));
   if (!ingredient) throw new Error("Ingrediente no encontrado.");
   const previousStock = ingredient.stock;
-  ingredient.stock = input.adjustmentType === "Ajuste positivo" ? previousStock + quantity : previousStock - quantity;
+  ingredient.stock = input.adjustmentType === "Ajuste positivo" ? previousStock + quantity : previousStock - quantity; // negativo y merma restan
   saveAdminIngredients(inventory);
   const movement: InventoryMovement = {
     id: `manual-${Date.now()}`,
@@ -331,6 +337,7 @@ export function adjustInventory(input: { ingredientId: number; quantity: number;
     previousStock,
     finalStock: ingredient.stock,
     reason: input.reason,
+    ...(input.adjustmentType === "Merma" && input.cost !== undefined ? { cost: Math.round(input.cost * 100) / 100 } : {}),
     createdAt: new Date().toISOString(),
   };
   writeJson(KARDEX_KEY, [...getKardex(), movement]);

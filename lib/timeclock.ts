@@ -84,6 +84,24 @@ export function workDays(list: Punch[], from: Date, to: Date, now = Date.now()):
   return out.sort((a, b) => a.userName.localeCompare(b.userName, "es") || (a.in || a.out || "").localeCompare(b.in || b.out || ""));
 }
 
+/** Horas de cada empleado durante un turno de caja (checador): lo trabajado entre la apertura y el cierre. */
+export function shiftStaffHours(openedAt: string, closedAt: string, list = getPunches(), now = Date.now()): { userName: string; hours: number; open: boolean }[] {
+  const from = Date.parse(openedAt);
+  const to = Date.parse(closedAt);
+  // Se toman también las entradas de antes de abrir la caja (quien llegó antes)
+  const days = workDays(list, new Date(from - MAX_SHIFT_HOURS * 3600_000), new Date(to), now);
+  const byUser = new Map<string, { hours: number; open: boolean }>();
+  for (const d of days) {
+    if (!d.in) continue;
+    const start = Math.max(Date.parse(d.in), from);
+    const end = Math.min(d.out ? Date.parse(d.out) : to, to);
+    if (end <= start) continue;
+    const prev = byUser.get(d.userName) || { hours: 0, open: false };
+    byUser.set(d.userName, { hours: prev.hours + (end - start) / 3600_000, open: prev.open || d.open });
+  }
+  return [...byUser.entries()].map(([userName, v]) => ({ userName, ...v })).sort((a, b) => b.hours - a.hours);
+}
+
 export function formatHours(h: number) {
   const total = Math.round(h * 60);
   return `${Math.floor(total / 60)}h ${String(total % 60).padStart(2, "0")}m`;

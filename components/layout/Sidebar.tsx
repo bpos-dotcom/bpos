@@ -43,6 +43,7 @@ const navItems = [
   { label: "Finanzas", href: "/finanzas", icon: "💰" },
   { label: "App del dueño", href: "/dueno", icon: "📱" },
   { label: "Configuración", href: "/configuracion", icon: "⚙️" },
+  { label: "Ayuda", href: "/ayuda", icon: "❓" },
 ];
 
 const ACK_KEY = "bpos_bridge_pending_ack";

@@ -158,6 +158,11 @@ export function SignupForm({ onDone }: { onDone: () => void }) {
         {busy ? "Mandando el código..." : "Mandar código al correo"}
       </button>
       <p className="text-center text-xs text-zinc-500">{TRIAL_DAYS} días gratis, sin tarjeta. Tu negocio queda a tu nombre y con tu dirección desde el primer día.</p>
+      <p className="text-center text-xs text-zinc-500">
+        Al crear tu cuenta aceptas los{" "}
+        <a href="/terminos" target="_blank" className="underline hover:text-orange-400">términos y condiciones</a> y el{" "}
+        <a href="/privacidad" target="_blank" className="underline hover:text-orange-400">aviso de privacidad</a>.
+      </p>
     </div>
   );
 }

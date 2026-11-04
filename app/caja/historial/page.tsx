@@ -9,6 +9,7 @@ import { emailCashCut } from "@/lib/cash-cut-email";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import { getCashCloseHistory, type CashCloseRecord } from "@/lib/cash-history";
+import { exportCuts } from "@/lib/exports";
 
 export default function CashHistoryPage() {
   const [history, setHistory] = useState<CashCloseRecord[]>([]);
@@ -103,7 +104,14 @@ export default function CashHistoryPage() {
     <AppShell title="Historial de cortes" subtitle="Consulta, reenvía e imprime cierres anteriores.">
       <div className="mb-5 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar folio, usuario o motivo" className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 md:max-w-xl" />
-        <Link href="/caja" className="rounded-2xl border border-orange-500/40 px-5 py-3 font-black text-orange-300">Volver a Caja</Link>
+        <div className="flex gap-2">
+          {filtered.length > 0 && (
+            <button onClick={() => exportCuts(filtered)} className="rounded-2xl border border-zinc-700 px-5 py-3 font-black">
+              📥 Excel
+            </button>
+          )}
+          <Link href="/caja" className="rounded-2xl border border-orange-500/40 px-5 py-3 font-black text-orange-300">Volver a Caja</Link>
+        </div>
       </div>
 
       <div className="space-y-4">

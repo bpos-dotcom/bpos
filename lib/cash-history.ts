@@ -37,6 +37,8 @@ export type CashCloseRecord = {
   cashIn: number;
   cashOut: number;
   movements: CashMovementHistory[];
+  /** Horas del personal en el turno (checador) */
+  staffHours?: { userName: string; hours: number; open: boolean }[];
   shoppingListSent: boolean;
   shoppingListSentAt?: string;
   shoppingListSentBy?: string;
