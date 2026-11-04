@@ -6,7 +6,7 @@
  */
 import { itemConsumption, type SoldModifier, type SoldPart } from "@/lib/compound";
 import { getAdminProducts, getAdminRecipes } from "@/lib/admin";
-import { getCashCloseHistory, type CashCloseRecord } from "@/lib/cash-history";
+import { getCashCloseHistory, inVoidedShift, voidedShiftIds, type CashCloseRecord } from "@/lib/cash-history";
 import { getInventory, getKardex, type InventoryMovement } from "@/lib/inventory";
 import { getIngredientCostHistory, getPurchases, type IngredientCostRecord, type Purchase } from "@/lib/purchases";
 
@@ -233,7 +233,11 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
   const recipes = makeRecipeIndex(src.recipes);
   const productById = new Map(src.products.map((p) => [p.id, p]));
 
-  const orders = src.orders.filter((o) => !(o as { cancelled?: boolean }).cancelled && !(o as { pendingPayment?: boolean }).pendingPayment && inRange(o.createdAt, range)).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  // Las ventas de un corte anulado (ej. pruebas) no cuentan
+  const voided = voidedShiftIds(src.shifts);
+  const orders = src.orders
+    .filter((o) => !(o as { cancelled?: boolean }).cancelled && !(o as { pendingPayment?: boolean }).pendingPayment && !inVoidedShift(o as { shiftSessionId?: string }, voided) && inRange(o.createdAt, range))
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const byDay = new Map<string, Row>();
   const byHour = new Map<string, Row>();
@@ -339,7 +343,7 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
       movementsByType.set(m.type, entry);
     });
 
-  const shifts = src.shifts.filter((s) => inRange(s.closedAt, range) || inRange(s.openedAt, range));
+  const shifts = src.shifts.filter((s) => !s.voided && (inRange(s.closedAt, range) || inRange(s.openedAt, range)));
 
   return {
     range,

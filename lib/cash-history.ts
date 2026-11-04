@@ -45,6 +45,11 @@ export type CashCloseRecord = {
   whatsappPhone?: string;
   cutMessage: string;
   cutSentAt?: string;
+  /**
+   * Corte anulado (ej. de pruebas): se sigue viendo, pero él y las ventas de
+   * su turno ya no cuentan en reportes, finanzas, dashboard ni app del dueño.
+   */
+  voided?: { at: string; by: string; authorizedBy: string; reason: string };
 };
 
 const HISTORY_KEY = "bpos_shift_history";
@@ -83,11 +88,32 @@ export function getCashCloseHistory(): CashCloseRecord[] {
         whatsappPhone: record.whatsappPhone,
         cutMessage: record.cutMessage || "",
         cutSentAt: record.cutSentAt,
+        ...(record.staffHours ? { staffHours: record.staffHours } : {}),
+        ...(record.voided ? { voided: record.voided } : {}),
       }))
       .sort((a, b) => new Date(b.closedAt).getTime() - new Date(a.closedAt).getTime());
   } catch {
     return [];
   }
+}
+
+/** Turnos de cortes anulados: sus ventas no cuentan en reportes ni finanzas */
+export function voidedShiftIds(history = getCashCloseHistory()): Set<string> {
+  return new Set(history.filter((r) => r.voided && r.shiftSessionId && r.shiftSessionId !== "legacy").map((r) => r.shiftSessionId));
+}
+
+/** ¿La venta es de un turno anulado? */
+export const inVoidedShift = (order: { shiftSessionId?: string }, voided: Set<string>) => Boolean(order.shiftSessionId && voided.has(order.shiftSessionId));
+
+/** Anula un corte (con motivo y el admin que autorizó). No se borra: queda marcado. */
+export function voidCashClose(id: string, voided: NonNullable<CashCloseRecord["voided"]>) {
+  const history = getCashCloseHistory();
+  const record = history.find((r) => r.id === id);
+  if (!record) return null;
+  const next = { ...record, voided };
+  localStorage.setItem(HISTORY_KEY, JSON.stringify(history.map((r) => (r.id === id ? next : r))));
+  window.dispatchEvent(new Event("bpos:cash-history-updated"));
+  return next;
 }
 
 export function saveCashCloseRecord(record: CashCloseRecord) {

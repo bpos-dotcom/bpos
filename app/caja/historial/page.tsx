@@ -1,13 +1,15 @@
 "use client";
 
-import { ask } from "@/components/layout/Dialogs";
+import { ask, askText, notify } from "@/components/layout/Dialogs";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { getBusinessSettings, getOwnerWhatsapp } from "@/lib/business-settings";
 import { emailCashCut } from "@/lib/cash-cut-email";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
-import { getCashCloseHistory, type CashCloseRecord } from "@/lib/cash-history";
+import { getCashCloseHistory, voidCashClose, type CashCloseRecord } from "@/lib/cash-history";
+import { authorizeAdmin } from "@/lib/permissions";
+import { upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
 import { exportCuts } from "@/lib/exports";
 
 export default function CashHistoryPage() {
@@ -77,6 +79,45 @@ export default function CashHistoryPage() {
     }
   }
 
+  /**
+   * Anular un corte (ej. de pruebas): pide motivo y PIN de administrador. No
+   * se borra: queda marcado y sus ventas dejan de contar en reportes y
+   * finanzas. Se avisa al celular del dueño.
+   */
+  async function voidRecord(record: CashCloseRecord) {
+    const reason = (await askText(`¿Por qué se anula el corte ${record.folio}? Seguirá viéndose aquí, pero él y sus ventas (${record.orderCount} pedidos, $${record.totalSales.toFixed(2)}) ya no contarán en reportes ni finanzas.`, { placeholder: "Ej. eran pruebas", ok: "Continuar" }))?.trim();
+    if (!reason) return;
+    if (reason.length < 4) {
+      notify("Escribe un motivo más claro.", "error");
+      return;
+    }
+    const user = getCurrentUser();
+    const admin = await authorizeAdmin(`anular el corte ${record.folio}`, user);
+    if (!admin) return;
+    const voided = voidCashClose(record.id, { at: new Date().toISOString(), by: user?.name || "Usuario", authorizedBy: admin, reason: reason.slice(0, 200) });
+    if (!voided) return;
+    addAuditEvent({
+      category: "Caja",
+      action: "cash.voided",
+      description: `${user?.name || "Usuario"} anuló el corte ${record.folio} del ${new Date(record.closedAt).toLocaleString("es-MX")} (${record.orderCount} pedidos, $${record.totalSales.toFixed(2)}). Autorizó ${admin}. Motivo: ${reason}`,
+      entityId: record.id,
+      userId: user?.id ? String(user.id) : undefined,
+      userName: user?.name || "Usuario del sistema",
+      metadata: { folio: record.folio, total: record.totalSales, orders: record.orderCount, reason, authorizedBy: admin, shiftSessionId: record.shiftSessionId },
+    });
+    // También queda en Alertas (Centro de Operaciones y app del dueño)
+    upsertOperationsAlert({
+      id: `cash:voided:${record.id}`,
+      priority: "info",
+      title: `Corte ${record.folio} anulado`,
+      message: `${user?.name || "Usuario"} lo anuló (autorizó ${admin}): ${reason}. Sus ventas ya no cuentan.`,
+      source: "Caja",
+      moduleHref: "/caja/historial",
+      metadata: { folio: record.folio, total: record.totalSales },
+    });
+    notify(`Corte ${record.folio} anulado. Sus ventas ya no cuentan en reportes ni finanzas.`, "ok");
+  }
+
   function printRecord(record: CashCloseRecord) {
     const popup = window.open("", "_blank", "width=820,height=900");
     if (!popup) {
@@ -114,10 +155,13 @@ export default function CashHistoryPage() {
 
       <div className="space-y-4">
         {filtered.map((record) => (
-          <article key={record.id} className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+          <article key={record.id} className={`rounded-3xl border bg-zinc-950 p-6 ${record.voided ? "border-red-500/40 opacity-70" : "border-zinc-800"}`}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <p className="text-sm font-black text-orange-400">{record.folio}</p>
+                <p className="text-sm font-black text-orange-400">
+                  {record.folio}
+                  {record.voided && <span className="ml-2 rounded-full bg-red-500/15 px-2 py-0.5 text-xs text-red-300">🚫 ANULADO · no cuenta</span>}
+                </p>
                 <h2 className="mt-1 text-xl font-black">{new Date(record.closedAt).toLocaleDateString()}</h2>
                 <p className="mt-2 text-sm text-zinc-400">Apertura: {new Date(record.openedAt).toLocaleString()}</p>
                 <p className="text-sm text-zinc-400">Cierre: {new Date(record.closedAt).toLocaleString()}</p>
@@ -130,12 +174,22 @@ export default function CashHistoryPage() {
                 <Mini label="Diferencia" value={`$${record.difference.toFixed(2)}`} danger={record.difference !== 0} />
               </div>
             </div>
+            {record.voided && (
+              <p className="mt-4 rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">
+                Anulado el {new Date(record.voided.at).toLocaleString("es-MX")} por {record.voided.by} (autorizó {record.voided.authorizedBy}). Motivo: {record.voided.reason}
+              </p>
+            )}
             {record.differenceReason && <p className="mt-4 rounded-2xl border border-yellow-500/30 bg-yellow-500/10 p-3 text-sm text-yellow-100">Motivo de diferencia: {record.differenceReason}</p>}
             <div className="mt-5 flex flex-wrap gap-3">
               <button onClick={() => setSelected(record)} className="rounded-xl bg-orange-500 px-4 py-2 font-black text-black">Ver detalle</button>
               <button onClick={() => resend(record)} className="rounded-xl border border-green-500/40 px-4 py-2 font-black text-green-300">Reenviar WhatsApp</button>
               <button onClick={() => void resendEmail(record)} className="rounded-xl border border-sky-500/40 px-4 py-2 font-black text-sky-300">Enviar por correo</button>
               <button onClick={() => printRecord(record)} className="rounded-xl border border-zinc-700 px-4 py-2 font-black text-zinc-200">Imprimir</button>
+              {!record.voided && (
+                <button onClick={() => void voidRecord(record)} className="rounded-xl border border-red-500/40 px-4 py-2 font-black text-red-300 hover:bg-red-500/10">
+                  🚫 Anular corte
+                </button>
+              )}
             </div>
           </article>
         ))}

@@ -36,6 +36,7 @@ export const PUSH_ACTIONS = new Set([
   "sale.created",
   "sale.cancelled",
   "cash.closed",
+  "cash.voided",
   "backup.restored",
   "user.created",
   "permissions.updated",
@@ -82,6 +83,9 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
         url: "/dueno",
       };
     }
+    case "cash.voided":
+      if (!prefs.caja && !prefs.seguridad) return null;
+      return { title: "🚫 Corte de caja anulado", body: event.description, tag, url: "/caja/historial" };
     case "drawer.unjustified":
       if (!prefs.seguridad) return null;
       return { title: "⚠️ Cajón abierto sin venta en efectivo", body: event.description, tag, url: "/configuracion/auditoria" };
