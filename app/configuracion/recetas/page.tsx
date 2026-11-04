@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
+import { ask } from "@/components/layout/Dialogs";
 import { Ingredient, RecipeItem } from "@/data/inventory";
 import { Product } from "@/data/products";
 import {
@@ -90,6 +91,19 @@ export default function RecetasAdminPage() {
     saveRecipes(nextRecipes);
   }
 
+  /** Trae la receta de otro producto como copia (cambiarla después no toca la del otro) */
+  async function copyRecipeFrom(sourceId: number) {
+    if (!selectedProductId || !sourceId) return;
+    const source = recipes.filter((r) => r.productId === sourceId);
+    const name = products.find((p) => p.id === sourceId)?.name || "otro producto";
+    if (!source.length) return;
+    if (selectedRecipe.length && !(await ask(`¿Cambiar los ${selectedRecipe.length} ingredientes de esta receta por los de "${name}"?`, { ok: "Copiar" }))) return;
+    saveRecipes([
+      ...recipes.filter((r) => r.productId !== selectedProductId),
+      ...source.map((r) => ({ productId: selectedProductId, ingredientId: r.ingredientId, quantity: r.quantity })),
+    ]);
+  }
+
   function deleteRecipeItem(ingredientId: number) {
     const nextRecipes = recipes.filter(
       (recipe) =>
@@ -158,6 +172,22 @@ export default function RecetasAdminPage() {
                   <p className="text-zinc-400">
                     {selectedRecipe.length} ingredientes configurados
                   </p>
+                  <select
+                    value=""
+                    onChange={(event) => void copyRecipeFrom(Number(event.target.value))}
+                    className="mt-3 rounded-2xl border border-zinc-700 bg-black px-4 py-2 text-sm"
+                    aria-label="Copiar ingredientes de otro producto"
+                  >
+                    <option value="">📋 Copiar ingredientes de…</option>
+                    {products
+                      .filter((p) => p.id !== selectedProductId && recipes.some((r) => r.productId === p.id))
+                      .sort((a, b) => a.name.localeCompare(b.name, "es"))
+                      .map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} ({recipes.filter((r) => r.productId === p.id).length})
+                        </option>
+                      ))}
+                  </select>
                 </div>
 
                 <div className="mt-6 rounded-3xl border border-zinc-800 bg-black p-5">
