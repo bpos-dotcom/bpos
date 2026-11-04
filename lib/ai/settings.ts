@@ -3,8 +3,12 @@
  *
  * El dueño de B-POS las pone en Configuración → Administrador → Claves de
  * IA (app/api/admin/ia). Se guardan cifradas en bpos_ai_settings (0017).
- * Si una función no tiene clave guardada, se usa ANTHROPIC_API_KEY de
- * Vercel con Claude Opus, como antes.
+ * Cada función guarda una clave por proveedor (la de Claude y la de
+ * Gemini), así se puede cambiar de uno a otro sin volver a pegarla: en
+ * key_cipher va {"anthropic": "...", "gemini": "..."} cifrado y en key_hint
+ * los últimos 4 de cada una. Las filas viejas (una sola clave, sin JSON) son
+ * la clave del proveedor de la fila. Claude sin clave propia usa
+ * ANTHROPIC_API_KEY de Vercel; Gemini sin clave regresa a Claude Opus.
  *
  * Cifrado: AES-256-GCM con BPOS_SECRETS_KEY (si existe en Vercel) o, si no,
  * una llave derivada de SUPABASE_SERVICE_ROLE_KEY.
@@ -83,18 +87,72 @@ export const keyHint = (key: string) => (key ? `…${key.slice(-4)}` : "");
 
 export type AiSettingRow = { feature: AiFeature; provider: AiProvider; model: string; key_cipher: string; key_hint: string; price_in: number; price_out: number; updated_by: string; updated_at: string };
 
-/** Proveedor, modelo y clave para una función (null si no hay ninguna clave disponible) */
-export async function getAiConfig(feature: AiFeature): Promise<AiConfig | null> {
+export type ProviderKeys = Partial<Record<AiProvider, string>>;
+
+/** Claves guardadas de una fila, por proveedor */
+export function readKeys(row: Pick<AiSettingRow, "provider" | "key_cipher"> | null): ProviderKeys {
+  const plain = row?.key_cipher ? decryptKey(row.key_cipher) : "";
+  if (!plain) return {};
+  if (plain.startsWith("{")) {
+    try {
+      const o = JSON.parse(plain) as Record<string, unknown>;
+      return Object.fromEntries((["anthropic", "gemini"] as const).filter((p) => typeof o[p] === "string" && o[p]).map((p) => [p, o[p] as string]));
+    } catch {
+      return {};
+    }
+  }
+  return { [row!.provider]: plain };
+}
+
+/** Últimos 4 de cada clave guardada */
+export function readHints(row: Pick<AiSettingRow, "provider" | "key_hint"> | null): ProviderKeys {
+  const h = row?.key_hint || "";
+  if (h.startsWith("{")) {
+    try {
+      return JSON.parse(h) as ProviderKeys;
+    } catch {
+      return {};
+    }
+  }
+  return h ? { [row!.provider]: h } : {};
+}
+
+/** Columnas key_cipher y key_hint para guardar las claves */
+export function packKeys(keys: ProviderKeys) {
+  const clean = Object.fromEntries(Object.entries(keys).filter(([, k]) => k)) as ProviderKeys;
+  if (!Object.keys(clean).length) return { key_cipher: "", key_hint: "" };
+  return {
+    key_cipher: encryptKey(JSON.stringify(clean)),
+    key_hint: JSON.stringify(Object.fromEntries(Object.entries(clean).map(([p, k]) => [p, keyHint(k!)]))),
+  };
+}
+
+/** Precio de referencia de un modelo (el guardado si es el mismo de la fila) */
+function priceFor(row: AiSettingRow | null, provider: AiProvider, model: string) {
+  if (row && row.provider === provider && row.model === model) return { priceIn: Number(row.price_in) || 0, priceOut: Number(row.price_out) || 0 };
+  const m = MODELS[provider].find((x) => x.id === model);
+  if (m?.priceIn !== undefined) return { priceIn: m.priceIn, priceOut: m.priceOut || 0 };
+  return model === DEFAULT.model ? { priceIn: DEFAULT.priceIn, priceOut: DEFAULT.priceOut } : { priceIn: 0, priceOut: 0 };
+}
+
+/**
+ * Proveedor, modelo y clave para una función (null si no hay ninguna clave
+ * disponible). `draft`: probar otro proveedor o modelo sin guardarlo.
+ */
+export async function getAiConfig(feature: AiFeature, draft?: { provider: AiProvider; model: string }): Promise<AiConfig | null> {
+  let row: AiSettingRow | null = null;
   try {
     const { data } = await adminDb().from("bpos_ai_settings").select("*").eq("feature", feature).maybeSingle();
-    const row = data as AiSettingRow | null;
-    const key = row?.key_cipher ? decryptKey(row.key_cipher) : "";
-    if (row && key) {
-      return { feature, provider: row.provider, model: row.model, key, priceIn: Number(row.price_in) || 0, priceOut: Number(row.price_out) || 0, source: "admin" };
-    }
+    row = data as AiSettingRow | null;
   } catch (e) {
     console.error("[B-POS] No se pudieron leer las claves de IA:", e instanceof Error ? e.message : e);
   }
+  const provider = draft?.provider || row?.provider || DEFAULT.provider;
+  const model = draft?.model || row?.model || DEFAULT.model;
+  const key = readKeys(row)[provider];
+  if (key) return { feature, provider, model, key, ...priceFor(row, provider, model), source: "admin" };
   const envKey = process.env.ANTHROPIC_API_KEY?.trim();
-  return envKey ? { feature, ...DEFAULT, key: envKey, source: "vercel" } : null;
+  if (!envKey) return null;
+  // Claude sin clave propia: la de Vercel con el modelo elegido. Gemini sin clave: Claude Opus, como antes
+  return provider === "anthropic" ? { feature, provider, model, key: envKey, ...priceFor(row, provider, model), source: "vercel" } : { feature, ...DEFAULT, key: envKey, source: "vercel" };
 }

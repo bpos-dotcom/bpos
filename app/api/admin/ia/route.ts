@@ -2,16 +2,17 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 import { AiFailure, generateText } from "@/lib/ai/engine";
-import { FEATURES, MODELS, adminDb, encryptKey, getAiConfig, keyHint, type AiFeature, type AiProvider, type AiSettingRow } from "@/lib/ai/settings";
+import { FEATURES, MODELS, adminDb, getAiConfig, packKeys, readHints, readKeys, type AiFeature, type AiProvider, type AiSettingRow } from "@/lib/ai/settings";
 
 /**
  * Configuración → Administrador → Claves de IA (solo administradores de la
  * plataforma, is_platform_admin):
- *   GET                                   → funciones, proveedor, modelo, últimos 4 de la clave
+ *   GET                                   → funciones, proveedor, modelo, últimos 4 de cada clave
  *   POST { action: "guardar", feature, provider, model, key?, priceIn, priceOut }
- *   POST { action: "probar", feature }    → una pregunta corta para revisar la clave
- *   POST { action: "quitar", feature }    → vuelve a la clave de Vercel
- * La clave nunca regresa al navegador.
+ *   POST { action: "probar", feature, provider?, model? } → una pregunta corta (lo elegido, aunque no esté guardado)
+ *   POST { action: "quitar", feature, provider } → borra la clave de ese proveedor
+ * Se guarda una clave por proveedor: cambiar de Gemini a Claude no borra la
+ * de Gemini. La clave nunca regresa al navegador.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -36,16 +37,22 @@ async function list() {
     vercelFallback: vercel,
     features: FEATURES.map((f) => {
       const r = rows.find((x) => x.feature === f.id);
+      const provider = r?.provider || "anthropic";
+      const model = r?.model || "claude-opus-5-5";
+      const hints = readHints(r || null);
+      const own = Boolean(hints[provider]);
       return {
         ...f,
-        provider: r?.provider || "anthropic",
-        model: r?.model || "claude-opus-5-5",
-        keyHint: r?.key_hint || "",
+        provider,
+        model,
+        keyHints: hints,
+        // Lo que de verdad se usa (Gemini sin clave regresa a Claude Opus de Vercel)
+        running: own ? { provider, model } : vercel ? { provider: "anthropic", model: provider === "anthropic" ? model : "claude-opus-5-5" } : null,
         priceIn: r ? Number(r.price_in) : 4,
         priceOut: r ? Number(r.price_out) : 20,
         updatedBy: r?.updated_by || "",
         updatedAt: r?.updated_at || "",
-        active: r?.key_hint ? "admin" : vercel ? "vercel" : "ninguna",
+        active: own ? "admin" : vercel ? "vercel" : "ninguna",
       };
     }),
   };
@@ -83,14 +90,16 @@ export async function POST(request: NextRequest) {
       const priceIn = Math.max(0, Number(body.priceIn) || 0);
       const priceOut = Math.max(0, Number(body.priceOut) || 0);
       const { data: current } = await db.from("bpos_ai_settings").select("provider, key_cipher").eq("feature", feature).maybeSingle();
-      // Cambiar de proveedor pide su clave
-      if (!key && (!current?.key_cipher || current.provider !== provider)) return reply({ error: `Pega la clave de ${provider === "gemini" ? "Google (Gemini)" : "Anthropic (Claude)"}.` }, 400);
+      const keys = readKeys(current as Pick<AiSettingRow, "provider" | "key_cipher"> | null);
       if (key && key.length < 20) return reply({ error: "La clave se ve incompleta." }, 400);
+      if (key) keys[provider] = key;
+      // Sin clave guardada de ese proveedor se pide (Claude puede usar la de Vercel)
+      if (!keys[provider] && !(provider === "anthropic" && process.env.ANTHROPIC_API_KEY)) return reply({ error: `Pega la clave de ${provider === "gemini" ? "Google (Gemini)" : "Anthropic (Claude)"}.` }, 400);
       const { error } = await db.from("bpos_ai_settings").upsert({
         feature,
         provider,
         model,
-        ...(key ? { key_cipher: encryptKey(key), key_hint: keyHint(key) } : {}),
+        ...packKeys(keys),
         price_in: priceIn,
         price_out: priceOut,
         updated_by: who,
@@ -101,14 +110,21 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "quitar") {
-      const { error } = await db.from("bpos_ai_settings").update({ key_cipher: "", key_hint: "", updated_by: who, updated_at: new Date().toISOString() }).eq("feature", feature);
+      const { data: current } = await db.from("bpos_ai_settings").select("provider, key_cipher").eq("feature", feature).maybeSingle();
+      const keys = readKeys(current as Pick<AiSettingRow, "provider" | "key_cipher"> | null);
+      const provider = (body.provider === "gemini" || body.provider === "anthropic" ? body.provider : current?.provider) as AiProvider | undefined;
+      if (provider) delete keys[provider];
+      const { error } = await db.from("bpos_ai_settings").update({ ...packKeys(keys), updated_by: who, updated_at: new Date().toISOString() }).eq("feature", feature);
       if (error) throw new Error(error.message);
       return reply(await list());
     }
 
     if (body.action === "probar") {
-      const cfg = await getAiConfig(feature);
+      const provider = body.provider === "gemini" || body.provider === "anthropic" ? (body.provider as AiProvider) : undefined;
+      const model = String(body.model || "").trim().slice(0, 80);
+      const cfg = await getAiConfig(feature, provider && /^[a-z0-9.\-]+$/i.test(model) ? { provider, model } : undefined);
       if (!cfg) return reply({ error: "No hay ninguna clave para esta función." }, 400);
+      if (provider && cfg.provider !== provider) return reply({ error: `No hay clave de ${provider === "gemini" ? "Gemini" : "Claude"} guardada. Pégala y toca Guardar.` }, 400);
       const started = Date.now();
       const r = await generateText(cfg, { system: "Responde en español con una sola palabra.", turns: [{ role: "user", text: "Di: listo" }], maxTokens: 50 });
       return reply({ ok: true, provider: cfg.provider, model: cfg.model, source: cfg.source, answer: r.text.slice(0, 60), ms: Date.now() - started });
