@@ -1,20 +1,18 @@
-import { initialIngredients, Ingredient, recipes, RecipeItem } from "@/data/inventory";
-import { products, Product } from "@/data/products";
+import type { Ingredient, RecipeItem } from "@/data/inventory";
+import type { Product } from "@/data/products";
 import { migrateComponents } from "@/lib/compound";
 
 const PRODUCTS_KEY = "bpos_products";
 const INGREDIENTS_KEY = "bpos_inventory";
 const RECIPES_KEY = "bpos_recipes";
 
+// Un negocio nuevo empieza vacío: sin productos, insumos ni recetas de ejemplo (antes salían los de Burger Planet)
 export function getAdminProducts(): Product[] {
-  if (typeof window === "undefined") return products;
+  if (typeof window === "undefined") return [];
 
   const saved = localStorage.getItem(PRODUCTS_KEY);
 
-  if (!saved) {
-    localStorage.setItem(PRODUCTS_KEY, JSON.stringify(products));
-    return products;
-  }
+  if (!saved) return [];
 
   const parsed: Product[] = JSON.parse(saved);
   // Combos de la 1.10 (partes) → opciones enlazadas; se guarda una sola vez
@@ -31,14 +29,11 @@ export function saveAdminProducts(nextProducts: Product[]) {
 }
 
 export function getAdminIngredients(): Ingredient[] {
-  if (typeof window === "undefined") return initialIngredients;
+  if (typeof window === "undefined") return [];
 
   const saved = localStorage.getItem(INGREDIENTS_KEY);
 
-  if (!saved) {
-    localStorage.setItem(INGREDIENTS_KEY, JSON.stringify(initialIngredients));
-    return initialIngredients;
-  }
+  if (!saved) return [];
 
   return JSON.parse(saved);
 }
@@ -48,14 +43,11 @@ export function saveAdminIngredients(nextIngredients: Ingredient[]) {
 }
 
 export function getAdminRecipes(): RecipeItem[] {
-  if (typeof window === "undefined") return recipes;
+  if (typeof window === "undefined") return [];
 
   const saved = localStorage.getItem(RECIPES_KEY);
 
-  if (!saved) {
-    localStorage.setItem(RECIPES_KEY, JSON.stringify(recipes));
-    return recipes;
-  }
+  if (!saved) return [];
 
   return JSON.parse(saved);
 }

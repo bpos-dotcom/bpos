@@ -21,7 +21,7 @@ export type SystemUser = {
 export const USERS_KEY = "bpos_users";
 // El PIN de fábrica (1234) se cifra en cuanto B-POS abre por primera vez
 export const DEFAULT_USERS: SystemUser[] = [
-  { id: 1, name: "Gerardo", pin: "1234", role: "Admin", active: true, createdAt: new Date(0).toISOString() },
+  { id: 1, name: "Administrador", pin: "1234", role: "Admin", active: true, createdAt: new Date(0).toISOString() },
 ];
 
 export function getUsers(): SystemUser[] {

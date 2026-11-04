@@ -1,6 +1,6 @@
 "use client";
 
-import { initialIngredients, recipes, type Ingredient } from "@/data/inventory";
+import { type Ingredient } from "@/data/inventory";
 import { getAdminIngredients, getAdminRecipes, saveAdminIngredients } from "@/lib/admin";
 import { itemConsumption, type SoldModifier, type SoldPart } from "@/lib/compound";
 

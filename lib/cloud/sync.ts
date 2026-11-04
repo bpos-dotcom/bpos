@@ -707,6 +707,21 @@ export function setPrimaryDevice(primary: boolean) {
 }
 
 /** Olvida la sincronización de este dispositivo (al desconectarlo) */
+/**
+ * Borra de este navegador los datos de negocio (ventas, productos, usuarios,
+ * configuración...) y deja los del dispositivo. Al dar de alta un negocio
+ * nuevo, para que no herede nada de otro negocio abierto antes aquí.
+ */
+export function clearLocalBusinessData() {
+  bindRawStorage();
+  const keys: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i++) {
+    const key = window.localStorage.key(i);
+    if (shouldSync(key)) keys.push(key);
+  }
+  keys.forEach((key) => rawRemove(key));
+}
+
 export function resetDeviceSync() {
   bindRawStorage();
   rawRemove(META_KEY);

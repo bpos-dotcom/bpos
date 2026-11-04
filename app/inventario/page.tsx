@@ -5,8 +5,9 @@ import { AppShell } from "@/components/layout/AppShell";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { getCurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
-import { Ingredient, recipes } from "@/data/inventory";
-import { products } from "@/data/products";
+import type { Ingredient, RecipeItem } from "@/data/inventory";
+import type { Product } from "@/data/products";
+import { getAdminProducts, getAdminRecipes } from "@/lib/admin";
 import {
   adjustInventory,
   getInventory,
@@ -16,6 +17,9 @@ import {
 
 export default function InventarioPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
+  // Los productos y recetas reales del negocio (antes se mostraban los de ejemplo)
+  const [products, setProducts] = useState<Product[]>([]);
+  const [recipes, setRecipes] = useState<RecipeItem[]>([]);
   const [kardex, setKardex] = useState<InventoryMovement[]>([]);
 
   const [ingredientId, setIngredientId] = useState("");
@@ -32,6 +36,8 @@ export default function InventarioPage() {
 
   useEffect(() => {
     refreshInventory();
+    setProducts(getAdminProducts());
+    setRecipes(getAdminRecipes());
   }, []);
 
   async function handleAdjustment() {

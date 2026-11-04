@@ -4,11 +4,12 @@
  *   1. nombre del negocio, dirección, teléfono, correo y contraseña
  *   2. código de 6 dígitos que llega al correo (/api/registro)
  *   3. se crea el usuario ya confirmado, entra, da de alta el negocio y
- *      deja el nombre, la dirección y el teléfono en la configuración.
+ *      deja el nombre, la dirección y el teléfono en la configuración; el
+ *      dueño queda como administrador con su nombre y PIN (lib/cloud/new-business).
  */
 import { useState } from "react";
-import { saveBusinessSettings } from "@/lib/business-settings";
 import { createBusiness, signIn } from "@/lib/cloud/account";
+import { PIN_RE, startNewBusinessHere } from "@/lib/cloud/new-business";
 import { TRIAL_DAYS } from "@/lib/plans";
 
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600";
@@ -29,6 +30,8 @@ export function SignupForm({ onDone }: { onDone: () => void }) {
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+  const [pin, setPin] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -40,6 +43,8 @@ export function SignupForm({ onDone }: { onDone: () => void }) {
     if (phone.replace(/\D/g, "").length < 10) return setMessage("Escribe un teléfono de 10 dígitos.");
     if (!email.includes("@")) return setMessage("Escribe un correo válido.");
     if (password.length < 6) return setMessage("La contraseña debe tener al menos 6 caracteres.");
+    if (ownerName.trim().length < 2) return setMessage("Escribe tu nombre (serás el administrador en la caja).");
+    if (!PIN_RE.test(pin)) return setMessage("Tu PIN para la caja debe ser de 4 a 8 números.");
     setBusy(true);
     try {
       await registro({ accion: "codigo", email });
@@ -58,8 +63,12 @@ export function SignupForm({ onDone }: { onDone: () => void }) {
       await registro({ accion: "crear", email, code, password, businessName, address, phone });
       await signIn(email, password);
       await createBusiness(businessName.trim(), "Matriz");
-      // Lo capturado queda en la configuración del negocio (tickets, menú digital, kiosco...)
-      saveBusinessSettings({ businessName: businessName.trim(), address: address.trim(), businessEmail: email.trim(), ticketPhone: phone, ownerWhatsapp: phone });
+      // Empieza en limpio: el dueño como administrador (su nombre y PIN) y lo capturado en la configuración
+      await startNewBusinessHere({
+        ownerName,
+        pin,
+        settings: { businessName: businessName.trim(), address: address.trim(), businessEmail: email.trim(), ticketPhone: phone, ownerWhatsapp: phone },
+      });
       onDone();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "No se pudo crear la cuenta.");
@@ -125,6 +134,22 @@ export function SignupForm({ onDone }: { onDone: () => void }) {
           placeholder="Mínimo 6 caracteres"
           type="password"
           autoComplete="new-password"
+          className={`${input} mt-1`}
+        />
+      </label>
+      <label className={label}>
+        Tu nombre (administrador en la caja)
+        <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} maxLength={40} placeholder="Ej. Tomás" autoComplete="name" className={`${input} mt-1`} />
+      </label>
+      <label className={label}>
+        Tu PIN para entrar a la caja (4 a 8 números)
+        <input
+          value={pin}
+          onChange={(e) => setPin(e.target.value.replace(/D/g, "").slice(0, 8))}
+          inputMode="numeric"
+          type="password"
+          autoComplete="off"
+          placeholder="••••"
           className={`${input} mt-1`}
         />
       </label>
