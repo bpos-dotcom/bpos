@@ -215,7 +215,7 @@ function CampaignPanel({ kind, customers, coupons, accountPhones, onClose }: { k
             <div>
               <p className="font-black">{c.name}</p>
               <p className="text-xs text-zinc-500">
-                {c.phone} · {c.orders} pedido{c.orders === 1 ? "" : "s"} · último {daysAgo(c.lastAt)}
+                {c.phone} · {c.orders} pedido{c.orders === 1 ? "" : "s"} · {c.channels.join(", ")} · último {daysAgo(c.lastAt)}
                 {c.contactedAt ? ` · le escribiste ${daysAgo(c.contactedAt)}` : ""}
               </p>
             </div>
