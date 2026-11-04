@@ -174,6 +174,11 @@ export default function BposLanding() {
           <span>·</span>
           <a href="mailto:soporte@bpos.com.mx" className="text-orange-300 hover:underline">soporte@bpos.com.mx</a>
         </p>
+        <p className="mt-2 space-x-3">
+          <Link href="/terminos" className="hover:text-orange-300 hover:underline">Términos y condiciones</Link>
+          <span>·</span>
+          <Link href="/privacidad" className="hover:text-orange-300 hover:underline">Aviso de privacidad</Link>
+        </p>
         <p className="mt-2">© {new Date().getFullYear()} B-POS · Punto de venta para restaurantes</p>
       </footer>
     </main>

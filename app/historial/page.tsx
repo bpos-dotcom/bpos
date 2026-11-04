@@ -6,6 +6,7 @@ import { OrderHistoryPanel, saleSource, type SavedOrder } from "@/components/Ord
 import { getCurrentUser, type CurrentUser } from "@/lib/auth";
 import { getCashCloseHistory } from "@/lib/cash-history";
 import { formatOrderNumber } from "@/lib/order-sequence";
+import { exportOrders } from "@/lib/exports";
 import { cancelSavedOrder, changeSavedOrderPayment, loadSavedOrders, markSavedOrderPaid, printSaleTicket, sendSaleWhatsapp } from "@/lib/sale-actions";
 
 const PLATFORM_LABEL: Record<string, string> = { uber: "Uber Eats", didi: "DiDi Food", rappi: "Rappi" };
@@ -99,6 +100,11 @@ export default function OrderHistoryPage() {
         {/* Periodo: turno abierto, últimos turnos cerrados o fechas */}
         <section className="flex flex-wrap items-center gap-3 rounded-3xl border border-zinc-800 bg-zinc-950 p-4">
           <label className="text-sm font-bold text-zinc-400">Periodo</label>
+          {visible.length > 0 && (
+            <button onClick={() => exportOrders(visible, "pedidos")} className="order-last ml-auto rounded-xl border border-zinc-700 px-3 py-2 text-sm font-black">
+              📥 Excel
+            </button>
+          )}
           <select value={period.key} onChange={(e) => setPeriodKey(e.target.value)} className="rounded-xl border border-zinc-800 bg-black px-3 py-2 text-sm font-black text-white">
             {periods.map((p) => (
               <option key={p.key} value={p.key}>

@@ -80,13 +80,16 @@ export default function RespaldosPage() {
             <h2 className="text-xl font-black text-orange-500">Respaldo automático</h2>
             <p className="mt-2 text-sm text-zinc-400">
               Todo vive en la nube y además, una vez al día, B-POS guarda una copia completa del negocio. Se conservan los últimos 7
-              días.
+              días y, además, una copia por semana durante 8 semanas (marcada como semanal).
             </p>
             <ul className="mt-4 space-y-2">
               {saved.length === 0 && <li className="text-sm text-zinc-500">Todavía no hay respaldos guardados.</li>}
               {saved.map((b) => (
                 <li key={b.day} className="flex items-center justify-between rounded-xl border border-zinc-800 bg-black px-4 py-3 text-sm">
-                  <span className="font-bold">{b.day}</span>
+                  <span className="font-bold">
+                    {b.day}
+                    {b.day < new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10) && <span className="ml-2 rounded-lg bg-orange-500/15 px-2 py-0.5 text-xs text-orange-300">semanal</span>}
+                  </span>
                   <span className="text-zinc-500">{(b.size / 1024).toFixed(0)} KB</span>
                   <button
                     onClick={() => void downloadSavedBackup(b.day).catch((e) => setError(e instanceof Error ? e.message : "No se pudo descargar."))}

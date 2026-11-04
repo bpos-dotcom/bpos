@@ -27,6 +27,7 @@ import { COUPONS_EVENT, couponLabel, couponState, deleteCoupon, getCoupons, newC
 import { getDigitalMenu } from "@/lib/digital-menu";
 import { clubName, getLoyalty, howItWorks, welcomeLabel } from "@/lib/loyalty";
 import { PUSH_SERVER } from "@/lib/push/rules";
+import { exportCustomers } from "@/lib/exports";
 import { loadReportSources } from "@/lib/reports";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-5";
@@ -290,6 +291,11 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
       {segment !== "todos" && <p className="text-sm text-zinc-400">{SEGMENTS[segment].hint}</p>}
 
       <div className="flex flex-wrap items-center gap-2">
+        {shown.length > 0 && (
+          <button onClick={() => exportCustomers(shown)} className="rounded-2xl border border-zinc-700 px-4 py-2 text-sm font-black">
+            📥 Excel ({shown.length})
+          </button>
+        )}
         <span className="text-sm font-bold text-zinc-400">📣 Campañas por WhatsApp:</span>
         {(Object.keys(CAMPAIGNS) as CampaignKind[]).map((k) => {
           const n = campaignCustomers(k, customers, accountPhones || new Set()).length;

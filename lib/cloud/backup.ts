@@ -5,7 +5,8 @@
  * Todo lo de B-POS vive en la nube como registros de sync_records. Un
  * respaldo es una copia completa de esos registros en un archivo JSON:
  * - Automático: una vez al día se guarda una copia en la nube (tabla
- *   bpos_backups, se conservan 7 días).
+ *   bpos_backups). Se conservan los de los últimos 7 días y, además, el
+ *   primero de cada semana durante 8 semanas (respaldo semanal).
  * - Manual: "Descargar respaldo" y "Restaurar" en Configuración → Respaldos.
  */
 import { loadCloudAccount } from "@/lib/cloud/account";
@@ -24,6 +25,26 @@ export type BackupFile = {
 const LAST_AUTO_KEY = "bpos_last_backup"; // solo de este dispositivo (ver DEVICE_LOCAL_KEYS)
 const PAGE = 1000;
 const KEEP_DAYS = 7;
+const KEEP_WEEKS = 8;
+
+/** Lunes de la semana de ese día (YYYY-MM-DD), para agrupar los respaldos semanales */
+export function weekOf(day: string) {
+  const d = new Date(`${day}T12:00:00Z`);
+  const back = (d.getUTCDay() + 6) % 7; // lunes = 0
+  d.setUTCDate(d.getUTCDate() - back);
+  return d.toISOString().slice(0, 10);
+}
+
+/** Qué respaldos se borran: más viejos de 7 días, salvo el primero de cada semana de las últimas 8 semanas */
+export function backupsToDelete(days: string[], todayDay: string): string[] {
+  const now = Date.parse(`${todayDay}T12:00:00Z`);
+  const oldestDaily = new Date(now - KEEP_DAYS * 86_400_000).toISOString().slice(0, 10);
+  const oldestWeekly = new Date(now - KEEP_WEEKS * 7 * 86_400_000).toISOString().slice(0, 10);
+  const firstOfWeek = new Map<string, string>();
+  for (const day of [...days].sort()) if (!firstOfWeek.has(weekOf(day))) firstOfWeek.set(weekOf(day), day);
+  const weekly = new Set(firstOfWeek.values());
+  return days.filter((day) => day < oldestDaily && !(weekly.has(day) && day >= oldestWeekly));
+}
 
 async function readyAccount() {
   if (!isCloudConfigured) throw new Error("B-POS no está conectado a la nube.");
@@ -34,15 +55,16 @@ async function readyAccount() {
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-/** Guarda el respaldo como el del día en la nube y borra los de hace más de 7 días. */
+/** Guarda el respaldo como el del día en la nube y borra los que ya no se conservan (ver backupsToDelete). */
 export async function saveDailyBackup(backup: BackupFile) {
   const day = today();
   const { error } = await getSupabase()
     .from("bpos_backups")
     .upsert({ business_id: backup.businessId, day, data: backup, size: JSON.stringify(backup).length }, { onConflict: "business_id,day" });
   if (error) throw new Error(error.message);
-  const oldest = new Date(Date.now() - KEEP_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-  await getSupabase().from("bpos_backups").delete().eq("business_id", backup.businessId).lt("day", oldest);
+  const { data: rows } = await getSupabase().from("bpos_backups").select("day").eq("business_id", backup.businessId);
+  const remove = backupsToDelete((rows ?? []).map((r) => String(r.day)), day);
+  if (remove.length) await getSupabase().from("bpos_backups").delete().eq("business_id", backup.businessId).in("day", remove);
 }
 
 /** Respaldos diarios guardados en la nube, el más nuevo primero. */

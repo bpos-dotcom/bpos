@@ -12,6 +12,7 @@ import { requirePermission, requirePermissionOrAdmin } from "@/lib/permissions";
 import { addAuditEvent } from "@/lib/audit";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { saveCashCloseRecord } from "@/lib/cash-history";
+import { formatHours, shiftStaffHours } from "@/lib/timeclock";
 import { isCancelled } from "@/lib/sale-cancel";
 import { paidWith, tipOf, tipPaidWith } from "@/lib/sale-payments";
 
@@ -353,6 +354,12 @@ export default function CajaPage() {
     .slice(0, 10)
     .replaceAll("-", "")}-${Date.now().toString().slice(-4)}`;
 
+  // Horas del personal en este turno (checador)
+  const staffHours = shiftStaffHours(shift.openedAt, new Date().toISOString());
+  const staffText = staffHours.length
+    ? staffHours.map((s) => `• ${s.userName}: ${formatHours(s.hours)}${s.open ? " (sigue en turno)" : ""}`).join("\n")
+    : "Nadie marcó en el checador.";
+
   const currentUserForCut = getCurrentUser();
   const cashierName = currentUserForCut?.name || "Usuario del sistema";
   const settings = getBusinessSettings();
@@ -387,6 +394,11 @@ export default function CajaPage() {
 *MOVIMIENTOS DE CAJA*
 
 ${movementsText}
+
+──────────────
+*HORAS DEL PERSONAL*
+
+${staffText}
 
 ──────────────
 *RESUMEN FINAL*
@@ -456,6 +468,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
     cashIn,
     cashOut,
     movements: shift.movements,
+    ...(staffHours.length ? { staffHours } : {}),
     shoppingListSent: shoppingListWasSentForShift(shift.openedAt),
     ...(phone ? { whatsappPhone: phone } : {}),
     cutMessage: message,

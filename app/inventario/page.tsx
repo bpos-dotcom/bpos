@@ -13,7 +13,14 @@ import {
   getInventory,
   getKardex,
   InventoryMovement,
+  MERMA_REASONS,
+  type AdjustmentType,
 } from "@/lib/inventory";
+import { getLatestIngredientCost } from "@/lib/purchases";
+import { canViewCosts } from "@/lib/auth";
+import { addAuditEvent } from "@/lib/audit";
+import { downloadXlsx } from "@/lib/xlsx";
+import { exportInventory } from "@/lib/exports";
 
 export default function InventarioPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -24,7 +31,7 @@ export default function InventarioPage() {
 
   const [ingredientId, setIngredientId] = useState("");
   const [adjustmentType, setAdjustmentType] = useState<
-    "Ajuste positivo" | "Ajuste negativo"
+    AdjustmentType
   >("Ajuste positivo");
   const [quantity, setQuantity] = useState("");
   const [reason, setReason] = useState("");
@@ -49,12 +56,18 @@ export default function InventarioPage() {
         return;
       }
 
-      adjustInventory({
+      // Merma: se guarda lo que costó lo tirado (último costo de compra del insumo)
+      const unitCost = adjustmentType === "Merma" ? getLatestIngredientCost(Number(ingredientId))?.unitCost : undefined;
+      const movement = adjustInventory({
         ingredientId: Number(ingredientId),
         quantity: Number(quantity),
         adjustmentType,
         reason,
+        ...(unitCost !== undefined ? { cost: unitCost * Number(quantity) } : {}),
       });
+      if (adjustmentType === "Merma") {
+        addAuditEvent({ category: "Inventario", action: "inventory.waste", description: `${user?.name || "Usuario"} registró merma: ${movement.quantity} ${movement.unit} de ${movement.ingredientName} (${reason})${movement.cost !== undefined ? `, costo $${movement.cost.toFixed(2)}` : ""}`, userId: user?.id ? String(user.id) : undefined, userName: user?.name, entityId: movement.id, metadata: { ingredientId: movement.ingredientId, quantity: movement.quantity, cost: movement.cost, reason } });
+      }
 
       setIngredientId("");
       setQuantity("");
@@ -108,13 +121,14 @@ export default function InventarioPage() {
             value={adjustmentType}
             onChange={(event) =>
               setAdjustmentType(
-                event.target.value as "Ajuste positivo" | "Ajuste negativo"
+                event.target.value as AdjustmentType
               )
             }
             className="rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
           >
             <option>Ajuste positivo</option>
             <option>Ajuste negativo</option>
+            <option value="Merma">Merma (se tiró o se echó a perder)</option>
           </select>
 
           <input
@@ -139,10 +153,28 @@ export default function InventarioPage() {
             Aplicar
           </button>
         </div>
+        {adjustmentType === "Merma" && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {MERMA_REASONS.map((r) => (
+              <button key={r} type="button" onClick={() => setReason(r)} className={`rounded-xl border px-3 py-2 text-sm font-bold ${reason === r ? "border-orange-500 bg-orange-500/15 text-orange-200" : "border-zinc-800 text-zinc-400"}`}>
+                {r}
+              </button>
+            ))}
+          </div>
+        )}
       </section>
 
+      <WasteSection kardex={kardex} />
+
       <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-        <h2 className="text-xl font-black text-orange-500">Inventario real</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-xl font-black text-orange-500">Inventario real</h2>
+          {ingredients.length > 0 && (
+            <button onClick={() => exportInventory(ingredients, kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
+              📥 Excel (existencias y kardex)
+            </button>
+          )}
+        </div>
 
         <div className="mt-6 space-y-3">
           {ingredients.map((ingredient) => {
@@ -299,5 +331,81 @@ function Metric({ title, value }: { title: string; value: string }) {
       <p className="text-sm text-zinc-400">{title}</p>
       <p className="mt-2 text-3xl font-black text-orange-500">{value}</p>
     </div>
+  );
+}
+/** Mermas de los últimos 30 días: qué se tiró, por qué y cuánto costó (el costo solo lo ve el administrador) */
+function WasteSection({ kardex }: { kardex: InventoryMovement[] }) {
+  const [since] = useState(() => Date.now() - 30 * 24 * 3600_000);
+  const showCost = canViewCosts(getCurrentUser().role);
+  const waste = kardex.filter((m) => m.type === "Merma" && Date.parse(m.createdAt) >= since).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const total = waste.reduce((s, m) => s + (m.cost || 0), 0);
+  const unknown = waste.filter((m) => m.cost === undefined).length;
+  const byReason = new Map<string, number>();
+  for (const m of waste) byReason.set(m.reason || "Sin motivo", (byReason.get(m.reason || "Sin motivo") || 0) + (m.cost || 0));
+
+  function exportExcel() {
+    downloadXlsx(`mermas-${new Date().toISOString().slice(0, 10)}.xlsx`, [
+      {
+        name: "Mermas",
+        rows: [
+          ["Fecha", "Insumo", "Cantidad", "Unidad", "Motivo", ...(showCost ? ["Costo"] : [])],
+          ...waste.map((m) => [new Date(m.createdAt).toLocaleString("es-MX"), m.ingredientName, m.quantity, m.unit, m.reason || "", ...(showCost ? [m.cost ?? null] : [])]),
+        ],
+      },
+    ]);
+  }
+
+  return (
+    <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="text-xl font-black text-orange-500">Mermas (últimos 30 días)</h2>
+          <p className="mt-1 text-sm text-zinc-400">Lo que se tiró o se echó a perder. Se registra arriba con el tipo &quot;Merma&quot;.</p>
+        </div>
+        {waste.length > 0 && (
+          <button onClick={exportExcel} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
+            📥 Excel
+          </button>
+        )}
+      </div>
+      {waste.length === 0 ? (
+        <p className="mt-4 text-sm text-zinc-500">Sin mermas registradas en los últimos 30 días.</p>
+      ) : (
+        <>
+          {showCost && (
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl bg-black p-4">
+                <p className="text-sm text-zinc-400">Costo de lo tirado</p>
+                <p className="text-2xl font-black text-red-400">${total.toFixed(2)}</p>
+                {unknown > 0 && <p className="mt-1 text-xs text-zinc-500">{unknown} sin costo (el insumo no tiene compras registradas).</p>}
+              </div>
+              <div className="rounded-2xl bg-black p-4 text-sm">
+                <p className="text-zinc-400">Por motivo</p>
+                {[...byReason.entries()].sort((a, b) => b[1] - a[1]).map(([r, c]) => (
+                  <p key={r} className="flex justify-between">
+                    <span>{r}</span>
+                    <span className="font-black">${c.toFixed(2)}</span>
+                  </p>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="mt-4 max-h-72 space-y-2 overflow-y-auto">
+            {waste.map((m) => (
+              <div key={m.id} className="flex items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-black p-3 text-sm">
+                <div>
+                  <p className="font-black">{m.ingredientName}</p>
+                  <p className="text-xs text-zinc-500">{new Date(m.createdAt).toLocaleString("es-MX")} · {m.reason}</p>
+                </div>
+                <p className="text-right font-black">
+                  -{m.quantity} {m.unit}
+                  {showCost && m.cost !== undefined && <span className="block text-xs text-red-400">${m.cost.toFixed(2)}</span>}
+                </p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </section>
   );
 }
