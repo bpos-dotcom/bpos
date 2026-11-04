@@ -111,6 +111,12 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
       // guardados en este equipo entra en 8 s y la sincronización se pone al día sola.
       const cachedReady = readCachedAccount();
       const canStartFromCache = Boolean(cachedReady && localStorage.getItem("bpos_sync_meta"));
+      // Sin internet: entra de inmediato con lo guardado (modo sin internet); se sincroniza al regresar
+      if (canStartFromCache && !navigator.onLine) {
+        startSync(cachedReady!);
+        setState({ step: "ready", account: cachedReady! });
+        return;
+      }
       const slow = new Promise<"lenta">((resolve) => setTimeout(() => resolve("lenta"), CLOUD_SLOW_MS));
       const first = await (canStartFromCache ? Promise.race([loadCloudAccount(), slow]) : loadCloudAccount());
       if (first === "lenta") {
