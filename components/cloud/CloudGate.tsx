@@ -16,6 +16,7 @@ import {
 } from "@/lib/cloud/account";
 import {
   detectInitialSituation,
+  hasLocalBusinessData,
   flush,
   initialSync,
   isPrimaryDevice,
@@ -29,7 +30,7 @@ import {
 } from "@/lib/cloud/sync";
 import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
 import { PLANS, TRIAL_DAYS, planAccess, type PlanState } from "@/lib/plans";
-import { saveBusinessSettings } from "@/lib/business-settings";
+import { PIN_RE, startNewBusinessHere } from "@/lib/cloud/new-business";
 import { SignupForm } from "@/components/cloud/SignupForm";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
@@ -85,6 +86,15 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
       await initialSync(account, "download-cloud", (text) =>
         setState({ step: "working", text }),
       );
+      startSync(account);
+      setState({ step: "ready", account });
+      return;
+    }
+
+    // Negocio recién creado (nube vacía y este navegador sin ventas ni productos): se sube solo
+    if (situation === "upload-local" && !hasLocalBusinessData()) {
+      setState({ step: "working", text: "Preparando tu negocio..." });
+      await initialSync(account, "upload-local", (text) => setState({ step: "working", text }));
       startSync(account);
       setState({ step: "ready", account });
       return;
@@ -356,6 +366,8 @@ function BusinessForm({
   const [branchName, setBranchName] = useState("Matriz");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
+  const [ownerName, setOwnerName] = useState("");
+  const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
 
@@ -364,19 +376,21 @@ function BusinessForm({
       return setMessage("Escribe el nombre del negocio.");
     if (address.trim().length < 5)
       return setMessage("Escribe la dirección del negocio.");
-    if (phone.replace(/D/g, "").length < 10)
+    if (phone.replace(/\D/g, "").length < 10)
       return setMessage("Escribe un teléfono de 10 dígitos.");
+    if (ownerName.trim().length < 2)
+      return setMessage("Escribe tu nombre (serás el administrador en la caja).");
+    if (!PIN_RE.test(pin))
+      return setMessage("Tu PIN debe ser de 4 a 8 números.");
     setBusy(true);
     setMessage("");
     try {
       await createBusiness(businessName, branchName);
-      // Marca blanca: tickets y pantallas usan el nombre del negocio
-      saveBusinessSettings({
-        businessName: businessName.trim(),
-        address: address.trim(),
-        businessEmail: email,
-        ticketPhone: phone,
-        ownerWhatsapp: phone,
+      // Empieza en limpio, con el dueño como administrador y la marca del negocio en tickets y pantallas
+      await startNewBusinessHere({
+        ownerName,
+        pin,
+        settings: { businessName: businessName.trim(), address: address.trim(), businessEmail: email, ticketPhone: phone, ownerWhatsapp: phone },
       });
       onDone();
     } catch (error) {
@@ -428,6 +442,31 @@ function BusinessForm({
             onChange={(e) => setPhone(e.target.value)}
             placeholder="10 dígitos"
             type="tel"
+            className={input}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold text-zinc-400">
+            Tu nombre (administrador en la caja)
+          </span>
+          <input
+            value={ownerName}
+            onChange={(e) => setOwnerName(e.target.value)}
+            placeholder="Ej. Tomás"
+            className={input}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-2 block text-sm font-bold text-zinc-400">
+            Tu PIN para entrar a la caja (4 a 8 números)
+          </span>
+          <input
+            value={pin}
+            onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
+            inputMode="numeric"
+            type="password"
+            autoComplete="new-password"
+            placeholder="••••"
             className={input}
           />
         </label>
