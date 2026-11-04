@@ -54,6 +54,17 @@ server.use((req, res, next) => {
 // Los tickets propios llevan el logo dentro (imagen): más que el límite de 100 KB por omisión
 server.use(express.json({ limit: "5mb" }));
 
+// Permiso de uso (candado contra usar B-POS sin pagar): sin permiso vigente no se imprime ni se
+// abre el cajón por la vía local (la que funciona sin internet). Ver lib/license.js.
+const license = require("./lib/license");
+const LICENSED_ROUTES = new Set(["/print", "/print-tickets", "/open-drawer", "/print-original"]);
+server.use((req, res, next) => {
+  if (req.method !== "POST" || !LICENSED_ROUTES.has(req.path)) return next();
+  const check = license.status();
+  if (check.ok) return next();
+  res.status(402).json({ success: false, error: check.reason });
+});
+
 
 server.get("/", (req, res) => {
   // agentId: B-POS en esta computadora comprueba que es el Agent de su sucursal antes de imprimir directo (sin internet)

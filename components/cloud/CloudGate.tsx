@@ -32,6 +32,7 @@ import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
 import { PLANS, TRIAL_DAYS, planAccess, type PlanState } from "@/lib/plans";
 import { PIN_RE, startNewBusinessHere } from "@/lib/cloud/new-business";
 import { SignupForm } from "@/components/cloud/SignupForm";
+import { LicenseLock } from "@/components/cloud/LicenseLock";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
 /** Más que esto sin respuesta de la nube al abrir: se entra con la cuenta guardada en este equipo */
@@ -168,6 +169,7 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
       <>
         {children}
         <PlanLock account={state.account} />
+        <LicenseLock />
         <SyncBadge account={state.account} />
       </>
     );

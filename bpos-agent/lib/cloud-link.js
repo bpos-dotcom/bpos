@@ -12,6 +12,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 const { startWake, stopWake } = require("./agent-wake");
+const license = require("./license");
 
 // Proyecto de Supabase de B-POS. La llave "publishable" es pública por diseño
 // (la seguridad la dan las funciones, que revisan la llave del Agent).
@@ -198,6 +199,7 @@ async function pair(code) {
 }
 
 function unlink() {
+  license.clear();
   writeLink(null);
   setStatus({ state: "unlinked", message: "Sin vincular" });
 }
@@ -283,6 +285,9 @@ async function pollOnce() {
       }
     }
     setStatus({ state: "connected", message: "Conectado a B-POS", lastPollAt: new Date().toISOString() });
+    // Permiso de uso: se renueva cada 6 h mientras hay internet
+    // (o ya mismo si el permiso no está vigente, p. ej. recién pagó o volvió el internet)
+    void license.refresh(WEB_URL, link.token, !license.status().ok);
     for (const job of result.jobs || []) await runJob(job);
     return POLL_MS;
   } catch (error) {
@@ -340,6 +345,7 @@ function startCloudLink(opts) {
   handlers = opts.handlers;
   listPrinters = opts.listPrinters;
   applyStationPrinters = opts.applyStationPrinters;
+  license.init(dataDir);
   link = readLink();
   if (link) {
     setStatus({ state: "connecting", message: "Conectando..." });
