@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { isPackaging, type Ingredient } from "@/data/inventory";
-import { getInventory } from "@/lib/inventory";
+import { MERMA_REASONS, adjustInventory, getInventory } from "@/lib/inventory";
 import { recentWeeks, weekLabel } from "@/lib/finance";
 import {
   getLatestIngredientCost,
@@ -25,7 +25,8 @@ export type PurchasePrefill = {
 };
 
 type Props = { onPurchaseCreated?: () => void; prefill?: PurchasePrefill | null };
-type DraftLine = { id: string; ingredientId: string; presentations: string; inventoryQuantity: string; lineTotal: string; note: string };
+/** damaged: cuánto llegó en mal estado (en la unidad del ingrediente); se registra como merma al confirmar */
+type DraftLine = { id: string; ingredientId: string; presentations: string; inventoryQuantity: string; lineTotal: string; note: string; damagedOpen?: boolean; damaged?: string; damagedReason?: string };
 
 const newLine = (): DraftLine => ({
   id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
@@ -117,6 +118,9 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
           const pres = Number(l.presentations) || 1;
           const cost = Number(l.lineTotal) || 0;
           if (!Number.isFinite(inv) || inv <= 0) throw new Error(`Captura cuánto entra realmente al inventario para ${ingredient.name}.`);
+          const bad = l.damagedOpen ? Number(l.damaged) || 0 : 0;
+          if (bad < 0 || bad > inv) throw new Error(`Lo que llegó en mal estado de ${ingredient.name} no puede ser más de lo que entró (${inv} ${ingredient.unit}).`);
+          if (bad > 0 && !l.damagedReason) throw new Error(`Elige el motivo de lo que llegó en mal estado de ${ingredient.name}.`);
           return {
             id: `item-${Date.now()}-${index}`,
             ticketName: l.note || ingredient.name,
@@ -136,10 +140,29 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
         saveSupplier({ name: supplier.trim() });
       }
 
-      registerPurchase({ supplier: supplier.trim(), invoice, paymentMethod, subtotal: total, tax: 0, total, source, note, items, ocrText, imageName, paidWeekOf });
+      const purchase = registerPurchase({ supplier: supplier.trim(), invoice, paymentMethod, subtotal: total, tax: 0, total, source, note, items, ocrText, imageName, paidWeekOf });
+      // Lo que llegó en mal estado: entra con la compra (a su costo) y sale como merma con su motivo
+      const wasted: string[] = [];
+      lines
+        .filter((l) => l.ingredientId && l.damagedOpen && Number(l.damaged) > 0)
+        .forEach((l) => {
+          const ingredient = ingredients.find((x) => x.id === Number(l.ingredientId));
+          const inv = Number(l.inventoryQuantity) || 0;
+          if (!ingredient || !inv) return;
+          const bad = Number(l.damaged);
+          const unitCost = (Number(l.lineTotal) || 0) / inv;
+          adjustInventory({
+            ingredientId: ingredient.id,
+            quantity: bad,
+            adjustmentType: "Merma",
+            reason: `${l.damagedReason} · al recibir la compra ${purchase.folio} (${purchase.supplier})`,
+            cost: unitCost * bad,
+          });
+          wasted.push(`${ingredient.name}: ${bad} ${ingredient.unit} ($${(unitCost * bad).toFixed(2)})`);
+        });
       reset();
       onPurchaseCreated?.();
-      alert("Compra registrada. Inventario, Kardex y costos actualizados.");
+      alert(`Compra registrada. Inventario, Kardex y costos actualizados.${wasted.length ? `\n\nMerma al recibir: ${wasted.join(", ")}.` : ""}`);
     } catch (e) {
       alert(e instanceof Error ? e.message : "No se pudo registrar la compra.");
     }
@@ -244,6 +267,52 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
                 <p className="mt-2 text-xs font-black text-yellow-300">
                   ⚠️ Este precio es {change.toFixed(1)}% más caro que la última compra.
                 </p>
+              )}
+              {ing && (
+                <div className="mt-2">
+                  {!l.damagedOpen ? (
+                    <button type="button" onClick={() => patch(l.id, { damagedOpen: true, damagedReason: l.damagedReason || "" })} className="text-xs font-black text-zinc-500 underline-offset-2 hover:text-orange-400 hover:underline">
+                      ⚠️ ¿Llegó algo en mal estado?
+                    </button>
+                  ) : (
+                    <div className="flex flex-wrap items-center gap-2 rounded-xl border border-red-500/40 bg-red-500/10 p-2 text-xs">
+                      <span className="font-black text-red-300">Llegaron mal</span>
+                      <input
+                        type="number"
+                        min="0"
+                        step="any"
+                        value={l.damaged || ""}
+                        onChange={(e) => patch(l.id, { damaged: e.target.value })}
+                        placeholder="2"
+                        className="w-20 rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5"
+                        aria-label={`Cuánto llegó en mal estado de ${ing.name}`}
+                      />
+                      <span className="font-bold text-zinc-400">{ing.unit}</span>
+                      <select
+                        value={l.damagedReason || ""}
+                        onChange={(e) => patch(l.id, { damagedReason: e.target.value })}
+                        className="rounded-lg border border-zinc-800 bg-zinc-950 px-2 py-1.5"
+                        aria-label="Motivo"
+                      >
+                        <option value="">Motivo…</option>
+                        {MERMA_REASONS.map((r) => (
+                          <option key={r} value={r}>
+                            {r}
+                          </option>
+                        ))}
+                      </select>
+                      {Number(l.damaged) > 0 && inv > 0 && (
+                        <span className="text-zinc-400">
+                          Entran {inv} {ing.unit} y se registra merma de {l.damaged} {ing.unit}
+                          {unitCost > 0 ? ` ($${(unitCost * Number(l.damaged)).toFixed(2)})` : ""}: quedan {Math.round((inv - Number(l.damaged)) * 1000) / 1000} {ing.unit}.
+                        </span>
+                      )}
+                      <button type="button" onClick={() => patch(l.id, { damagedOpen: false, damaged: "", damagedReason: "" })} className="ml-auto font-black text-zinc-500 hover:text-white" aria-label="Quitar merma">
+                        ✕
+                      </button>
+                    </div>
+                  )}
+                </div>
               )}
               {change < -10 && (
                 <p className="mt-2 text-xs font-black text-green-400">✓ {Math.abs(change).toFixed(1)}% más barato que la última compra.</p>
