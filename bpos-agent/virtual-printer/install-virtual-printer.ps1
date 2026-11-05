@@ -91,10 +91,14 @@ if ($wpp) { Log ("Modo de impresion protegida de Windows: {0}" -f ($wpp | Out-St
 # Windows 11 completo puede ser "Microsoft Virtual Print Class Driver", que no
 # acepta un puerto de red: va al final.
 $pdfDrivers = @("Microsoft Print To PDF")
+# Sin PDF: PWG Raster (viene en Windows 10 y 11) manda el ticket ya dibujado
+# como imagen y el Agent lo lee con OCR. XPS queda de último recurso: trae las
+# letras como dibujos vectoriales y el OCR las lee mal.
+$pwgDrivers = @("Microsoft PWG Raster Class Driver")
 $xpsDrivers = @("Microsoft XPS Document Writer v4", "Microsoft XPS Document Writer")
 $classDrivers = @("Microsoft Virtual Print Class Driver")
 $pdfPrinter = Get-Printer -Name "Microsoft Print to PDF" -ErrorAction SilentlyContinue
-if ($pdfPrinter -and $pdfPrinter.DriverName -notin ($pdfDrivers + $xpsDrivers + $classDrivers)) { $classDrivers += $pdfPrinter.DriverName }
+if ($pdfPrinter -and $pdfPrinter.DriverName -notin ($pdfDrivers + $pwgDrivers + $xpsDrivers + $classDrivers)) { $classDrivers += $pdfPrinter.DriverName }
 
 function Ensure-Driver([string]$name, [string]$feature) {
   if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
@@ -147,8 +151,8 @@ function Try-Printer([string]$driver) {
   return $false
 }
 
-# 4) Impresora. Si ya existe con un controlador que sirve, solo se corrige el puerto
-$usable = $pdfDrivers + $xpsDrivers + $classDrivers
+# 4) Impresora. Si ya existe con PDF o PWG, solo se corrige el puerto (con XPS se vuelve a crear)
+$usable = $pdfDrivers + $pwgDrivers
 $existing = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
 if ($existing -and $existing.DriverName -in $usable) {
   if ($existing.PortName -ne $portName) {
@@ -165,6 +169,7 @@ if ($existing -and $existing.DriverName -in $usable) {
 $tried = @()
 $attempts = @()
 $attempts += $pdfDrivers | ForEach-Object { @{ Name = $_; Feature = "Printing-PrintToPDFServices-Features" } }
+$attempts += $pwgDrivers | ForEach-Object { @{ Name = $_; Feature = $null } }
 $attempts += $xpsDrivers | ForEach-Object { @{ Name = $_; Feature = "Printing-XPSServices-Features" } }
 $attempts += $classDrivers | ForEach-Object { @{ Name = $_; Feature = $null } }
 if ($TestDrivers.Count) { $attempts = @($TestDrivers | ForEach-Object { @{ Name = $_; Feature = $null } }) }

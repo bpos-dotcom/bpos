@@ -12,9 +12,11 @@ const { extractPdfText } = require("./lib/pdf-reader");
 const { printer: ThermalPrinter, types: PrinterTypes } = require("node-thermal-printer");
 const {
   extractPdfTextWithOcr,
+  ocrPages,
   terminateOcrWorker,
 } = require("./lib/pdf-ocr-reader");
 const { extractXpsTicket } = require("./lib/xps-reader");
+const { isPwgRaster, decodePwgRaster, pageToCanvas } = require("./lib/pwg-raster");
 const { initLogger } = require("./lib/logger");
 const { startDesktop } = require("./lib/desktop");
 const stationPrinter = require("./lib/station-printer");
@@ -97,6 +99,14 @@ function saveJobFile(folder, name, buffer) {
 
 async function readTicket(buffer) {
   const header = buffer.toString("latin1", 0, 20);
+
+  // Windows 11 nuevo sin controlador PDF: Windows manda el ticket ya dibujado (PWG Raster) y se lee con OCR
+  if (isPwgRaster(buffer)) {
+    const filePath = saveJobFile("pwg-jobs", `pedido-${Date.now()}.pwg`, buffer);
+    const pages = decodePwgRaster(buffer);
+    const ocr = await ocrPages(pages.map((page) => async () => pageToCanvas(page)));
+    return { format: "pwg", filePath, text: ocr.text, extractionMethod: "tesseract-ocr", ocrOrderId: ocr.orderId, ocrHeader: ocr.headerText };
+  }
 
   if (header.startsWith("%PDF")) {
     const filePath = saveJobFile("pdf-jobs", `pedido-${Date.now()}.pdf`, buffer);
