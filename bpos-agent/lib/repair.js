@@ -16,8 +16,10 @@ function run(file, args) {
 
 // Registro del instalador de la impresora (lo escribe install-virtual-printer.ps1)
 const PRINTER_LOG = path.join(process.env.ProgramData || "C:\\ProgramData", "B-POS", "virtual-printer.log");
-// Controladores que el Agent sabe leer: PDF (texto) y XPS (OCR). Con "Generic / Text Only" los tickets llegan vacíos
-const PRINTER_DRIVERS = ["Microsoft Print To PDF", "Microsoft Virtual Print Class Driver", "Microsoft XPS Document Writer v4", "Microsoft XPS Document Writer"];
+// Controladores que dejan bien la impresora: PDF (texto) y PWG Raster (imagen + OCR).
+// Con XPS las letras llegan como dibujos y el OCR las lee mal: se marca para reparar
+// y así se cambia sola a PWG. Con "Generic / Text Only" los tickets llegan vacíos.
+const PRINTER_DRIVERS = ["Microsoft Print To PDF", "Microsoft Virtual Print Class Driver", "Microsoft PWG Raster Class Driver"];
 
 /** El error que dejó el instalador de la impresora (si lo hubo). */
 function printerLogError() {

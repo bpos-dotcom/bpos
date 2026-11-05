@@ -15,6 +15,7 @@ const os = require("os");
 const path = require("path");
 const { createCanvas } = require("@napi-rs/canvas");
 const { printImageEscPos, openCashDrawer } = require("./raw-printer");
+const { isPwgRaster, decodePwgRaster, pageToCanvas } = require("./pwg-raster");
 
 const VIRTUAL_PRINTER = "B-POS Agent Virtual Printer";
 const FALLBACK_MS = 45_000;
@@ -99,10 +100,13 @@ function contentBox(canvas) {
  * guarda en hoja carta con mucho blanco; se recorta cada página a su
  * contenido y se unen, para que en el rollo llene el ancho del papel.
  */
-async function renderTicketStrip(filePath) {
+/** Páginas del ticket original dibujadas: PDF o PWG Raster (Windows 11 sin controlador PDF). */
+async function originalPages(filePath) {
+  const buffer = fs.readFileSync(filePath);
+  if (isPwgRaster(buffer)) return decodePwgRaster(buffer).map(pageToCanvas);
   const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
-  const doc = await pdfjs.getDocument({ data: new Uint8Array(fs.readFileSync(filePath)) }).promise;
-  const pieces = [];
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const canvases = [];
   for (let n = 1; n <= doc.numPages; n += 1) {
     const page = await doc.getPage(n);
     const base = page.getViewport({ scale: 1 });
@@ -112,6 +116,14 @@ async function renderTicketStrip(filePath) {
     ctx.fillStyle = "#ffffff";
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     await page.render({ canvasContext: ctx, viewport }).promise;
+    canvases.push(canvas);
+  }
+  return canvases;
+}
+
+async function renderTicketStrip(filePath) {
+  const pieces = [];
+  for (const canvas of await originalPages(filePath)) {
     const box = contentBox(canvas);
     if (box) pieces.push({ canvas, box }); // páginas en blanco no se imprimen
   }
