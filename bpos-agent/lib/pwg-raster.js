@@ -65,30 +65,46 @@ function decodePwgRaster(buffer) {
 
 /** Recorta el blanco de abajo (el ticket ocupa una parte de la hoja) y lo pasa a canvas para el OCR. */
 function pageToCanvas(page) {
-  let bottom = page.height - 1;
-  const rowHasInk = (y) => {
-    const row = page.gray.subarray(y * page.width, (y + 1) * page.width);
-    for (let i = 0; i < row.length; i++) if (row[i] < 200) return true;
-    return false;
-  };
-  while (bottom > 0 && !rowHasInk(bottom)) bottom--;
-  const height = Math.min(page.height, bottom + 40);
-  // Tesseract no necesita más de ~2000 pixeles de ancho
-  const scale = page.width > 2000 ? 2000 / page.width : 1;
-  const full = createCanvas(page.width, height);
-  const ctx = full.getContext("2d");
-  const img = ctx.createImageData(page.width, height);
-  for (let i = 0; i < page.width * height; i++) {
-    const v = page.gray[i];
-    img.data[i * 4] = v;
-    img.data[i * 4 + 1] = v;
-    img.data[i * 4 + 2] = v;
-    img.data[i * 4 + 3] = 255;
+  // DiDi imprime el ticket angosto en una esquina de la hoja carta: se recorta a
+  // lo impreso (con margen blanco: Tesseract pierde el "1x" pegado a la orilla)
+  // y se agranda a ~1500 px de ancho; con la hoja entera la letra quedaba chica
+  const { width, height, gray } = page;
+  let top = height, bottom = -1, left = width, right = -1;
+  for (let y = 0; y < height; y++) {
+    const row = y * width;
+    for (let x = 0; x < width; x++) {
+      if (gray[row + x] < 200) {
+        if (y < top) top = y;
+        if (y > bottom) bottom = y;
+        if (x < left) left = x;
+        if (x > right) right = x;
+      }
+    }
+  }
+  if (bottom < 0) return createCanvas(10, 10); // página en blanco
+  const pad = 30;
+  const cropW = right - left + 1 + pad * 2;
+  const cropH = bottom - top + 1 + pad * 2;
+  const crop = createCanvas(cropW, cropH);
+  const ctx = crop.getContext("2d");
+  const img = ctx.createImageData(cropW, cropH);
+  img.data.fill(255);
+  for (let y = top; y <= bottom; y++) {
+    for (let x = left; x <= right; x++) {
+      const v = gray[y * width + x];
+      const o = ((y - top + pad) * cropW + (x - left + pad)) * 4;
+      img.data[o] = v;
+      img.data[o + 1] = v;
+      img.data[o + 2] = v;
+    }
   }
   ctx.putImageData(img, 0, 0);
-  if (scale === 1) return full;
-  const out = createCanvas(Math.round(page.width * scale), Math.round(height * scale));
-  out.getContext("2d").drawImage(full, 0, 0, out.width, out.height);
+  const scale = cropW < 1500 ? Math.min(3, 1500 / cropW) : cropW > 2000 ? 2000 / cropW : 1;
+  if (scale === 1) return crop;
+  const out = createCanvas(Math.round(cropW * scale), Math.round(cropH * scale));
+  const octx = out.getContext("2d");
+  octx.imageSmoothingQuality = "high";
+  octx.drawImage(crop, 0, 0, out.width, out.height);
   return out;
 }
 
