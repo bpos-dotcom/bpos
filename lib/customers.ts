@@ -41,7 +41,20 @@ export type Customer = {
   onlineOrders: number;
   /** Última vez que el negocio le escribió desde Clientes (campañas) */
   contactedAt: string;
+  /** De dónde compra: "Locales" (POS, mostrador, domicilio, kiosco, menú digital) o la app (DiDi, Uber, Rappi...) */
+  origins: string[];
 };
+
+/** Clientes directos del negocio (todo lo que no entró por una app de delivery) */
+export const LOCAL_ORIGIN = "Locales";
+
+/** De dónde vino una venta: Locales o el nombre corto de la app ("Uber Eats" → "Uber") */
+export function saleOrigin(s: { source?: string; externalPlatform?: string; details?: { orderType?: string } }) {
+  if (s.source !== "B-POS Bridge" && !s.externalPlatform) return LOCAL_ORIGIN;
+  const raw = `${s.externalPlatform || s.details?.orderType || ""}`;
+  const low = raw.toLowerCase();
+  return low.includes("uber") ? "Uber" : low.includes("didi") ? "DiDi" : low.includes("rappi") ? "Rappi" : raw || "Otra app";
+}
 
 const NOTES_KEY = "bpos_customers";
 const CONTACTS_KEY = "bpos_customer_contacts";
@@ -189,6 +202,7 @@ export function buildCustomers(orders: SaleLike[], now = Date.now()): Customer[]
       })),
       onlineOrders: sales.filter(isOnline).length,
       contactedAt: contacted[key] || "",
+      origins: [...new Set(sales.map(saleOrigin))],
     };
   });
 

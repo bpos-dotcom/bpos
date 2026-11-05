@@ -11,6 +11,7 @@ import { getBusinessSettings } from "@/lib/business-settings";
 import {
   CAMPAIGNS,
   CUSTOMERS_EVENT,
+  LOCAL_ORIGIN,
   SEGMENTS,
   buildCustomers,
   campaignCustomers,
@@ -231,7 +232,9 @@ function CampaignPanel({ kind, customers, coupons, accountPhones, onClose }: { k
 }
 
 function CustomersTab({ coupons }: { coupons: Coupon[] }) {
-  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [allCustomers, setCustomers] = useState<Customer[]>([]);
+  // De dónde compran: todos, Locales (clientes directos) o una app de delivery
+  const [origin, setOrigin] = useState("todos");
   const [query, setQuery] = useState("");
   const [segment, setSegment] = useState<Segment | "todos">("todos");
   const [sort, setSort] = useState<"reciente" | "gasto" | "pedidos">("reciente");
@@ -254,6 +257,14 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
     };
   }, []);
 
+  const origins = useMemo(() => {
+    const c = new Map<string, number>();
+    allCustomers.forEach((x) => x.origins.forEach((o) => c.set(o, (c.get(o) || 0) + 1)));
+    // Locales primero; luego las apps de más a menos clientes
+    return [...c.entries()].sort((a, b) => (a[0] === LOCAL_ORIGIN ? -1 : b[0] === LOCAL_ORIGIN ? 1 : b[1] - a[1]));
+  }, [allCustomers]);
+  const customers = useMemo(() => (origin === "todos" ? allCustomers : allCustomers.filter((c) => c.origins.includes(origin))), [allCustomers, origin]);
+
   const counts = useMemo(() => {
     const c: Record<string, number> = { todos: customers.length };
     customers.forEach((x) => (c[x.segment] = (c[x.segment] || 0) + 1));
@@ -269,6 +280,22 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
 
   return (
     <div className="space-y-5">
+      {origins.length > 1 && (
+        <div className="flex flex-wrap items-center gap-2" role="group" aria-label="De dónde compran">
+          {[["todos", allCustomers.length] as [string, number], ...origins].map(([o, n]) => (
+            <button
+              key={o}
+              onClick={() => setOrigin(o)}
+              aria-pressed={origin === o}
+              className={`rounded-2xl border px-4 py-2 text-sm font-black ${origin === o ? "border-white bg-white text-black" : "border-zinc-800 text-zinc-300 hover:border-zinc-600"}`}
+            >
+              {o === "todos" ? "🌐 Todos los clientes" : o === LOCAL_ORIGIN ? "🏠 Locales" : `🛵 ${o}`} ({n})
+            </button>
+          ))}
+        </div>
+      )}
+      {origin === LOCAL_ORIGIN && <p className="-mt-2 text-xs text-zinc-500">Tus clientes directos: mostrador, domicilio, mesas, kiosco y menú digital.</p>}
+
       <div className="grid gap-4 md:grid-cols-4">
         <div className={card}><p className="text-sm text-zinc-400">Clientes</p><p className="text-4xl font-black">{customers.length}</p></div>
         <div className={card}><p className="text-sm text-zinc-400">Regresan (2+ pedidos)</p><p className="text-4xl font-black">{customers.length ? Math.round((repeat / customers.length) * 100) : 0}%</p></div>
