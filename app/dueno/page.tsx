@@ -358,10 +358,18 @@ function OwnerApp() {
                     {view.split.pays.length > 0 && <p className="mt-0.5 text-xs text-zinc-400">{view.split.pays.map(([m, v]) => `${m} ${money(v)}`).join(" · ")}</p>}
                   </div>
                   <div>
-                    <p className="flex justify-between gap-2 font-black">
+                    <div className="flex items-end justify-between gap-2 font-black">
                       <span>🛵 Apps de delivery · {view.split.appOrders} pedido{view.split.appOrders === 1 ? "" : "s"}</span>
-                      <span>{money(view.split.appSales)}</span>
-                    </p>
+                      <span className="text-right">
+                        {view.split.apps.some((a) => a.deposit !== null) && (
+                          <>
+                            <span className="block text-[10px] font-bold uppercase tracking-wide text-zinc-500">Depósito aprox.</span>
+                            <span className="block text-orange-400">{money(view.split.apps.reduce((t, a) => t + (a.deposit || 0), 0))}</span>
+                          </>
+                        )}
+                        <span className="block text-xs font-bold text-zinc-400">vendido {money(view.split.appSales)}</span>
+                      </span>
+                    </div>
                     {view.split.apps.map((a) => (
                       <p key={a.name} className="mt-0.5 flex justify-between gap-2 text-xs text-zinc-400">
                         <span>
