@@ -1,6 +1,6 @@
 "use client";
 
-import { ask } from "@/components/layout/Dialogs";
+import { ask, notify } from "@/components/layout/Dialogs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { PlanGate } from "@/components/cloud/PlanGate";
@@ -13,7 +13,7 @@ import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
-import { createAutomaticSale } from "@/lib/bridge/create-automatic-sale";
+import { correctAutomaticSale, createAutomaticSale } from "@/lib/bridge/create-automatic-sale";
 import BridgeAliases from "./BridgeAliases";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { addAuditEvent } from "@/lib/audit";
@@ -181,6 +181,9 @@ function BridgeScreen() {
   );
   const saleCreationLocks = useRef(new Set<string>());
   const [showFinalized, setShowFinalized] = useState(false);
+  /** Pedido finalizado abierto (ver y corregir sus equivalencias) */
+  const [openFinal, setOpenFinal] = useState<AgentOrder | null>(null);
+  const [correcting, setCorrecting] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -797,6 +800,70 @@ function BridgeScreen() {
     }
   }
 
+  /**
+   * Pedido finalizado mal equivalado: lo vuelve a interpretar con las
+   * equivalencias de hoy y corrige su venta y el inventario.
+   */
+  async function correctFinalized(order: AgentOrder) {
+    if (!order.createdOrderId || correcting) return;
+    setCorrecting(true);
+    try {
+      const interpretResponse = await bridgeFetch("/api/bridge/interpret", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: order.platform, rawText: order.rawText || "", aliases, products: catalogProducts, ingredients: catalogIngredients }),
+      });
+      const interpreted = (await interpretResponse.json()) as { success?: boolean; interpretation?: OrderInterpretation; error?: string };
+      if (!interpretResponse.ok || !interpreted.success || !interpreted.interpretation) throw new Error(interpreted.error || "No se pudo interpretar el pedido.");
+      const interpretation = interpreted.interpretation;
+      if (!interpretation.resolved) {
+        throw new Error(
+          interpretation.pendingCount > 0
+            ? `Todavía faltan ${interpretation.pendingCount} equivalencia(s) en este pedido. Equiválelas y vuelve a intentar.`
+            : `La interpretación tiene error(es): ${interpretation.errors.map((e) => e.message).join(" · ")}`
+        );
+      }
+      const validateResponse = await bridgeFetch("/api/bridge/validate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: order.platform, orderId: order.orderId, customer: order.customer, delivery: order.delivery, total: order.total, rawText: order.rawText || "", interpretation, products: catalogProducts, ingredients: catalogIngredients }),
+      });
+      const validated = (await validateResponse.json()) as { success?: boolean; validation?: FinalOrderValidation; saleReadyPayload?: SaleReadyPayload | null; error?: string };
+      if (!validateResponse.ok || !validated.success || !validated.saleReadyPayload) {
+        throw new Error(validated.error || validated.validation?.issues.map((i) => i.message).join(" · ") || "El pedido no pasó la validación.");
+      }
+      const payload = validated.saleReadyPayload;
+      const preview = payload.products.map((p) => `${p.quantity}x ${p.name}`).join("\n");
+      if (!(await ask(`Así quedaría la venta #${String(order.createdOrderId).padStart(6, "0")}:\n\n${preview}\n\nSe regresa al inventario lo que se descontó y se descuenta lo de estos productos.`, { ok: "Corregir venta" }))) return;
+      const by = getCurrentUser()?.name || "Usuario";
+      const result = correctAutomaticSale(order.createdOrderId, payload, {
+        by,
+        ticket: buildDeliveryTicket(order, stationsByLine(interpretation, catalogProducts, getAdminRecipes())),
+      });
+      if (!result.success) throw new Error(result.error);
+      await bridgeFetch("/api/bridge/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ platform: order.platform, orderId: order.orderId, interpretation, validation: validated.validation, saleReadyPayload: payload }),
+      }).catch(() => null);
+      addAuditEvent({
+        category: "Venta",
+        action: "sale.corrected",
+        description: `${by} corrigió las equivalencias del Pedido #${String(order.createdOrderId).padStart(6, "0")} (${platformLabel(order.platform)} #${order.orderId}). Antes: ${result.before}. Ahora: ${result.after}.`,
+        userName: by,
+        entityId: String(order.createdOrderId),
+        metadata: { platform: order.platform, orderNumber: order.orderId, previousTotal: result.previousTotal, total: result.sale.total },
+      });
+      notify(`Venta #${String(order.createdOrderId).padStart(6, "0")} corregida. El inventario ya quedó con los productos nuevos.`);
+      setOpenFinal(null);
+      await loadData();
+    } catch (error) {
+      notify(error instanceof Error ? error.message : "No se pudo corregir la venta.", "error");
+    } finally {
+      setCorrecting(false);
+    }
+  }
+
   function configureItem(externalName: string, platform: string) {
     setSelection({ externalName, platform, token: Date.now() });
     window.setTimeout(() => {
@@ -1267,12 +1334,15 @@ function BridgeScreen() {
                   <p className="text-sm text-zinc-500">Todavía no hay pedidos finalizados.</p>
                 ) : (
                   finalizedOrders.map((order) => (
-                    <div
+                    <button
+                      type="button"
                       key={`final-${normalize(order.platform)}-${order.orderId}-${order.id}`}
-                      className="rounded-2xl border border-emerald-900/70 bg-emerald-950/20 p-4"
+                      onClick={() => setOpenFinal(order)}
+                      className="block w-full rounded-2xl border border-emerald-900/70 bg-emerald-950/20 p-4 text-left transition hover:border-emerald-500"
                     >
-                      <p className="font-black text-white">
-                        Pedido #{String(order.createdOrderId || 0).padStart(6, "0")}
+                      <p className="flex items-center justify-between gap-3 font-black text-white">
+                        <span>Pedido #{String(order.createdOrderId || 0).padStart(6, "0")}</span>
+                        <span className="text-xs font-black text-emerald-400">Ver equivalencias →</span>
                       </p>
                       <p className="mt-1 text-sm font-bold text-orange-300">
                         Plataforma: {platformLabel(order.platform)} · #{String(order.orderId || "SIN-ID")}
@@ -1280,7 +1350,7 @@ function BridgeScreen() {
                       <p className="mt-1 text-xs text-zinc-500">
                         {order.customer?.name || "Cliente de plataforma"} · Venta creada
                       </p>
-                    </div>
+                    </button>
                   ))
                 )}
               </div>
@@ -1288,6 +1358,129 @@ function BridgeScreen() {
           )}
         </main>
       </div>
+      {openFinal && (
+        <FinalizedSheet
+          order={openFinal}
+          lines={extractQuantifiedItems(openFinal.rawText || "").map((item) => ({ ...item, alias: findAlias(aliases, item.externalName, normalize(openFinal.platform)) }))}
+          busy={correcting}
+          onClose={() => setOpenFinal(null)}
+          onChange={(externalName) => {
+            setOpenFinal(null);
+            configureItem(externalName, normalize(openFinal.platform));
+          }}
+          onCorrect={() => void correctFinalized(openFinal)}
+        />
+      )}
     </AppShell>
+  );
+}
+
+type SaleLine = { name: string; quantity: number; price: number; parts?: { name: string; quantity: number }[]; modifiers?: { name: string }[] };
+
+/** La venta que creó el pedido (en este dispositivo) */
+function readSale(id?: number) {
+  if (!id) return null;
+  try {
+    const orders = JSON.parse(localStorage.getItem("bpos_orders") || "[]") as { id: number; items: SaleLine[]; total: number }[];
+    return orders.find((o) => Number(o.id) === Number(id)) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Pedido finalizado: cómo se equivaló cada renglón, la venta que creó y corregirla */
+function FinalizedSheet({
+  order,
+  lines,
+  busy,
+  onClose,
+  onChange,
+  onCorrect,
+}: {
+  order: AgentOrder;
+  lines: (QuantifiedItem & { alias?: BridgeAlias })[];
+  busy: boolean;
+  onClose: () => void;
+  onChange: (externalName: string) => void;
+  onCorrect: () => void;
+}) {
+  const [sale] = useState(() => readSale(order.createdOrderId));
+  const money = (n: number) => `$${(Number(n) || 0).toFixed(2)}`;
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-3 sm:items-center" onClick={onClose}>
+      <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-zinc-800 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="Pedido finalizado">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xl font-black text-white">Pedido #{String(order.createdOrderId || 0).padStart(6, "0")}</p>
+            <p className="text-sm font-bold text-orange-300">
+              {platformLabel(order.platform)} · #{String(order.orderId || "SIN-ID")} · {order.customer?.name || "Cliente de plataforma"}
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-xl border border-zinc-800 px-3 py-1 font-black" aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
+
+        <h4 className="mt-5 font-black text-orange-500">Cómo se equivaló cada renglón</h4>
+        <p className="text-xs text-zinc-500">Si alguno está mal, toca Cambiar, corrige la equivalencia y vuelve a abrir este pedido para corregir la venta.</p>
+        <div className="mt-3 space-y-2">
+          {lines.length === 0 && <p className="text-sm text-zinc-500">No se encontraron renglones con cantidad en el ticket.</p>}
+          {lines.map((line) => (
+            <div key={line.id} className="flex items-start gap-3 rounded-2xl border border-zinc-800 bg-black p-3">
+              <span className="rounded-lg bg-orange-500 px-2 py-1 text-sm font-black text-black">{line.qty}x</span>
+              <div className="min-w-0 flex-1">
+                <p className="break-words font-black text-white">{line.externalName}</p>
+                {line.alias ? (
+                  <p className="mt-1 text-sm text-emerald-300">
+                    {line.alias.actionType === "ignore" ? "Sin acción (no va al inventario)" : line.alias.targets.map((t) => `→ ${t.name}${t.quantity !== undefined ? ` · ${t.quantity}${t.unit ? ` ${t.unit}` : ""}` : ""}`).join("  ")}
+                  </p>
+                ) : (
+                  <p className="mt-1 text-sm text-sky-300">Reconocido por nombre, opción del combo o sin equivalencia</p>
+                )}
+              </div>
+              <button onClick={() => onChange(line.externalName)} className="shrink-0 rounded-xl border border-zinc-700 px-3 py-1 text-xs font-black text-zinc-300 hover:border-orange-500">
+                Cambiar
+              </button>
+            </div>
+          ))}
+        </div>
+
+        <h4 className="mt-5 font-black text-violet-300">Venta que se creó</h4>
+        {sale ? (
+          <ul className="mt-2 divide-y divide-zinc-800 rounded-2xl border border-zinc-800 bg-black px-3">
+            {sale.items.map((item, i) => (
+              <li key={i} className="py-2 text-sm">
+                <p className="flex justify-between gap-3 font-bold text-white">
+                  <span>
+                    {item.quantity}x {item.name}
+                  </span>
+                  <span>{money(item.price * item.quantity)}</span>
+                </p>
+                {(item.parts || []).length > 0 && <p className="text-xs text-zinc-500">{(item.parts || []).map((p) => `${p.quantity}× ${p.name}`).join(" · ")}</p>}
+                {(item.modifiers || []).length > 0 && <p className="text-xs text-zinc-500">{(item.modifiers || []).map((m) => m.name).join(" · ")}</p>}
+              </li>
+            ))}
+            <li className="flex justify-between py-2 font-black">
+              <span>Total</span>
+              <span className="text-orange-400">{money(sale.total)}</span>
+            </li>
+          </ul>
+        ) : (
+          <p className="mt-2 text-sm text-zinc-500">La venta no está en este dispositivo (se creó en otra caja o ya no existe).</p>
+        )}
+
+        {sale && (
+          <button onClick={onCorrect} disabled={busy} className="mt-4 w-full rounded-2xl bg-orange-500 px-4 py-3 font-black text-black disabled:opacity-50">
+            {busy ? "Corrigiendo..." : "🔁 Corregir la venta con las equivalencias de hoy"}
+          </button>
+        )}
+        <p className="mt-2 text-xs text-zinc-500">Vuelve a leer el ticket con las equivalencias actuales: cambia los productos de la venta, regresa al inventario lo que se descontó y descuenta lo correcto (queda en la bitácora de inventario).</p>
+
+        <details className="mt-4 rounded-2xl border border-zinc-800 bg-black p-3">
+          <summary className="cursor-pointer text-sm font-black text-zinc-300">Ticket original</summary>
+          <pre className="mt-2 max-h-72 overflow-auto whitespace-pre-wrap break-words text-xs leading-6 text-zinc-400">{order.rawText || "Sin texto original"}</pre>
+        </details>
+      </div>
+    </div>
   );
 }

@@ -3,7 +3,7 @@
 import { getAdminProducts } from "@/lib/admin";
 import type { DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
-import { applyInventoryForOrder } from "@/lib/inventory";
+import { applyInventoryForOrder, correctInventoryForOrder } from "@/lib/inventory";
 import { createKdsCriticalError, notifyKdsUpdated } from "@/lib/kds";
 import type { KdsTicketLine } from "@/lib/bridge/ticket-structure";
 import { allocateShiftOrderNumber } from "@/lib/order-sequence";
@@ -173,6 +173,64 @@ const LATE_SALE_MS = 15 * 60 * 1000;
  */
 export const SAME_ORDER_WINDOW_MS = 12 * 60 * 60 * 1000;
 
+/** Productos de la venta a partir del pedido preparado (con las equivalencias de ese momento) */
+function buildSaleItems(payload: SaleReadyPayload, ticket: DeliveryTicket | undefined): { items: AutomaticSaleItem[] } | { error: string } {
+  const catalog = getAdminProducts();
+  const items: AutomaticSaleItem[] = [];
+  for (const preparedProduct of payload.products) {
+    const product = catalog.find((candidate) => String(candidate.id) === String(preparedProduct.productId));
+    if (!product) return { error: `El producto ${preparedProduct.productId} ya no existe en el catálogo.` };
+    const quantity = Number(preparedProduct.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) return { error: `Cantidad inválida para ${product.name}.` };
+    items.push({
+      ...product,
+      // Un producto que no se vende por separado es un modificador de la plataforma: su precio ya va en el renglón principal
+      ...(product.notSoldAlone ? { price: 0 } : {}),
+      quantity,
+      externalName: preparedProduct.externalName,
+      // Equivalencia compuesta: cada opción elegida va a su estación y descuenta
+      // su receta. Sin ella, el producto se descuenta con su receta tal cual.
+      ...(isCompoundLine(product, preparedProduct) ? deliverySelection(product, catalog, ticket, preparedProduct) : {}),
+    });
+  }
+  if (items.length === 0) return { error: "El pedido no contiene productos vendibles." };
+  return { items };
+}
+
+/**
+ * Pedido finalizado mal equivalado: rehace los productos de la venta con las
+ * equivalencias de hoy y corrige el inventario (regresa lo descontado y
+ * descuenta lo nuevo, anotado en la bitácora de inventario). El folio, la hora
+ * y el turno no cambian; el total se recalcula con los precios del catálogo,
+ * igual que al crear la venta.
+ */
+export function correctAutomaticSale(saleId: number, payload: SaleReadyPayload, options: { ticket?: DeliveryTicket; by: string }) {
+  const orders = readOrders();
+  const sale = orders.find((o) => Number(o.id) === Number(saleId));
+  if (!sale) return { success: false as const, error: "No encontré la venta de este pedido en este dispositivo." };
+  const built = buildSaleItems(payload, options.ticket);
+  if ("error" in built) return { success: false as const, error: built.error };
+  const subtotal = built.items.reduce((sum, item) => sum + Number(item.price || 0) * item.quantity, 0);
+  const updated: AutomaticSaleOrder = {
+    ...sale,
+    items: built.items,
+    subtotal,
+    total: Math.max(0, subtotal - Number(sale.details?.discount || 0)),
+    bridgeActions: { inventoryAdjustments: payload.inventoryAdjustments, ignoredLines: payload.ignoredLines },
+    ...(options.ticket ? { deliveryTicket: options.ticket } : {}),
+  };
+  const before = sale.items.map((i) => `${i.quantity}x ${i.name}`).join(", ");
+  const after = updated.items.map((i) => `${i.quantity}x ${i.name}`).join(", ");
+  try {
+    correctInventoryForOrder(updated, `equivalencia corregida por ${options.by}`);
+  } catch (error) {
+    return { success: false as const, error: error instanceof Error ? error.message : "No se pudo corregir el inventario." };
+  }
+  localStorage.setItem(ORDERS_KEY, JSON.stringify(orders.map((o) => (Number(o.id) === Number(saleId) ? updated : o))));
+  window.dispatchEvent(new CustomEvent("bpos:orders-updated", { detail: { orderId: sale.id, source: "bridge" } }));
+  return { success: true as const, sale: updated, before, after, previousTotal: sale.total };
+}
+
 export function createAutomaticSale(
   payload: SaleReadyPayload,
   options: { receivedAt?: string; ticket?: DeliveryTicket } = {}
@@ -217,50 +275,9 @@ export function createAutomaticSale(
     };
   }
 
-  const catalog = getAdminProducts();
-  const items: AutomaticSaleItem[] = [];
-
-  for (const preparedProduct of payload.products) {
-    const product = catalog.find(
-      (candidate) => String(candidate.id) === String(preparedProduct.productId)
-    );
-
-    if (!product) {
-      return {
-        success: false,
-        duplicate: false,
-        error: `El producto ${preparedProduct.productId} ya no existe en el catálogo.`,
-      };
-    }
-
-    const quantity = Number(preparedProduct.quantity);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-      return {
-        success: false,
-        duplicate: false,
-        error: `Cantidad inválida para ${product.name}.`,
-      };
-    }
-
-    items.push({
-      ...product,
-      // Un producto que no se vende por separado es un modificador de la plataforma: su precio ya va en el renglón principal
-      ...(product.notSoldAlone ? { price: 0 } : {}),
-      quantity,
-      externalName: preparedProduct.externalName,
-      // Equivalencia compuesta: cada opción elegida va a su estación y descuenta
-      // su receta. Sin ella, el producto se descuenta con su receta tal cual.
-      ...(isCompoundLine(product, preparedProduct) ? deliverySelection(product, catalog, options.ticket, preparedProduct) : {}),
-    });
-  }
-
-  if (items.length === 0) {
-    return {
-      success: false,
-      duplicate: false,
-      error: "El pedido no contiene productos vendibles.",
-    };
-  }
+  const built = buildSaleItems(payload, options.ticket);
+  if ("error" in built) return { success: false, duplicate: false, error: built.error };
+  const items = built.items;
 
   const subtotal = items.reduce(
     (sum, item) => sum + Number(item.price || 0) * item.quantity,

@@ -25,6 +25,7 @@ import { buildSelection, extrasPrice, lineIdFor, needsChoices } from "@/lib/comp
 import { getDigitalMenu, isAvailableOnline, sortCategories, sortProducts } from "@/lib/digital-menu";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { authorizeWithAdminPin } from "@/lib/permissions";
+import { askInventoryOnCancel } from "@/lib/sale-actions";
 import { verifyPin } from "@/lib/pin-hash";
 import { isOnSale } from "@/lib/sale-schedule";
 import { getTables, openTableOrder, tableLabel, tableZones, type Table } from "@/lib/tables";
@@ -385,7 +386,9 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
     const item = open.items[index];
     if (!(await ask(`¿Quitar ${item.quantity}x ${item.name} de la cuenta? Lo autoriza un administrador con su PIN.`, { ok: "Quitar" }))) return;
     if (!(await authorizeWithAdminPin(`quitar ${item.name} de ${tableLabel(open.details.table)}`, user))) return;
-    const updated = removeSentItem(open, index, "Admin", user);
+    const stock = await askInventoryOnCancel(open);
+    if (stock === null) return;
+    const updated = removeSentItem(open, index, "Admin", user, stock);
     setOrders(openTableOrders());
     if (updated?.cancelled) {
       notify("La cuenta quedó vacía y se canceló.");
