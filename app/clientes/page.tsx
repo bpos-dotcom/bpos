@@ -17,6 +17,8 @@ import {
   campaignCustomers,
   customerWhatsapp,
   fetchAccountPhones,
+  fetchClubMembers,
+  type ClubMember,
   fillCampaign,
   markContacted,
   saveCustomerNote,
@@ -236,7 +238,11 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
   // De dónde compran: todos, Locales (clientes directos) o una app de delivery
   const [origin, setOrigin] = useState("todos");
   const [query, setQuery] = useState("");
-  const [segment, setSegment] = useState<Segment | "todos">("todos");
+  const [segment, setSegment] = useState<Segment | "todos" | "club">("todos");
+  /** Miembros del club (null = todavía no se consulta) */
+  const [club, setClub] = useState<ClubMember[] | null>(null);
+  const loyalty = getLoyalty();
+  const clubLabel = clubName(loyalty, getBusinessSettings().businessName || "");
   const [sort, setSort] = useState<"reciente" | "gasto" | "pedidos">("reciente");
   const [open, setOpen] = useState<Customer | null>(null);
   const [campaign, setCampaign] = useState<CampaignKind | null>(null);
@@ -249,6 +255,9 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
     fetchAccountPhones()
       .then(setAccountPhones)
       .catch(() => setAccountPhones(new Set()));
+    fetchClubMembers()
+      .then(setClub)
+      .catch(() => setClub([]));
     window.addEventListener("bpos:orders-updated", load);
     window.addEventListener(CUSTOMERS_EVENT, load);
     return () => {
@@ -271,9 +280,23 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
     return c;
   }, [customers]);
 
+  // Club: los miembros que ya compraron (por teléfono) y los registrados que todavía no compran
+  const members = useMemo(() => new Map((club || []).map((m) => [m.phone, m])), [club]);
+  const clubList = useMemo(() => {
+    if (!club) return [] as Customer[];
+    const buyers = customers.filter((c) => c.phone && members.has(c.phone));
+    if (origin !== "todos" && origin !== LOCAL_ORIGIN) return buyers;
+    const known = new Set(buyers.map((c) => c.phone));
+    const noOrders: Customer[] = club
+      .filter((m) => !known.has(m.phone))
+      .map((m) => ({ key: `club:${m.phone}`, name: m.name || "Cliente", phone: m.phone, address: "", orders: 0, spent: 0, average: 0, firstAt: m.joinedAt, lastAt: m.joinedAt, favorites: [], channels: [], coupons: 0, notes: "", segment: "nuevo", visits: [], onlineOrders: 0, contactedAt: "", origins: [LOCAL_ORIGIN] }));
+    return [...buyers, ...noOrders];
+  }, [club, customers, members, origin]);
+  const clubBalance = (m: ClubMember) => (loyalty.kind === "sellos" ? `${m.stamps} sello${m.stamps === 1 ? "" : "s"}` : loyalty.kind === "cashback" ? `${money(m.cashback)} de saldo` : `${m.points} pts`);
+
   const q = query.trim().toLowerCase();
-  const shown = customers
-    .filter((c) => (segment === "todos" || c.segment === segment) && (!q || c.name.toLowerCase().includes(q) || c.phone.includes(q.replace(/\D/g, "") || "~")))
+  const shown = (segment === "club" ? clubList : customers)
+    .filter((c) => (segment === "todos" || segment === "club" || c.segment === segment) && (!q || c.name.toLowerCase().includes(q) || c.phone.includes(q.replace(/\D/g, "") || "~")))
     .sort((a, b) => (sort === "gasto" ? b.spent - a.spent : sort === "pedidos" ? b.orders - a.orders : b.lastAt.localeCompare(a.lastAt)));
   const total = customers.reduce((s, c) => s + c.spent, 0);
   const repeat = customers.filter((c) => c.orders >= 2).length;
@@ -304,18 +327,35 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
       </div>
 
       <div className="flex flex-wrap gap-2">
-        {(["todos", "vip", "frecuente", "nuevo", "dormido", "ocasional"] as const).map((s) => (
-          <button
-            key={s}
-            onClick={() => setSegment(s)}
-            title={s === "todos" ? "" : SEGMENTS[s].hint}
-            className={`rounded-2xl border px-4 py-2 text-sm font-black ${segment === s ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-800 text-zinc-300"}`}
-          >
-            {s === "todos" ? "Todos" : SEGMENTS[s].label} ({counts[s] || 0})
-          </button>
-        ))}
+        {(["todos", "vip", "club", "frecuente", "nuevo", "dormido", "ocasional"] as const).map((s) =>
+          s === "club" ? (
+            loyalty.enabled && (
+              <button
+                key={s}
+                onClick={() => setSegment("club")}
+                title="Los que se registraron en tu club"
+                className={`rounded-2xl border px-4 py-2 text-sm font-black ${segment === "club" ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-800 text-zinc-300"}`}
+              >
+                🎟️ {clubLabel} ({club === null ? "…" : clubList.length})
+              </button>
+            )
+          ) : (
+            <button
+              key={s}
+              onClick={() => setSegment(s)}
+              title={s === "todos" ? "" : SEGMENTS[s].hint}
+              className={`rounded-2xl border px-4 py-2 text-sm font-black ${segment === s ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-800 text-zinc-300"}`}
+            >
+              {s === "todos" ? "Todos" : SEGMENTS[s].label} ({counts[s] || 0})
+            </button>
+          )
+        )}
       </div>
-      {segment !== "todos" && <p className="text-sm text-zinc-400">{SEGMENTS[segment].hint}</p>}
+      {segment === "club" ? (
+        <p className="text-sm text-zinc-400">Registrados en {clubLabel}. Los que todavía no compran salen con 0 pedidos.</p>
+      ) : (
+        segment !== "todos" && <p className="text-sm text-zinc-400">{SEGMENTS[segment].hint}</p>
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
         {shown.length > 0 && (
@@ -365,18 +405,23 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
                 <td className="px-4 py-3">
                   <p className="font-black">{c.name}</p>
                   <p className="text-xs text-zinc-500">{c.phone || "sin teléfono"}</p>
+                  {c.phone && members.has(c.phone) && (
+                    <p className="mt-0.5 text-[11px] font-black text-orange-400">
+                      🎟️ {clubLabel} · {clubBalance(members.get(c.phone)!)}
+                    </p>
+                  )}
                 </td>
                 <td className="px-4 py-3"><span className={`rounded-full px-2 py-1 text-xs font-black ${SEGMENTS[c.segment].cls}`}>{SEGMENTS[c.segment].label}</span></td>
                 <td className="px-4 py-3 text-right font-black">{c.orders}</td>
                 <td className="px-4 py-3 text-right font-black text-orange-400">{money(c.spent)}</td>
-                <td className="px-4 py-3 text-zinc-400">{daysAgo(c.lastAt)}</td>
+                <td className="px-4 py-3 text-zinc-400">{c.orders ? daysAgo(c.lastAt) : `sin pedidos · se unió ${daysAgo(c.lastAt)}`}</td>
               </tr>
             ))}
           </tbody>
         </table>
         {shown.length === 0 && (
           <p className="p-8 text-center text-sm text-zinc-500">
-            {customers.length ? "Nadie coincide con la búsqueda." : "Aún no hay clientes. Se agregan solos con cada venta que lleve nombre o teléfono (domicilio, menú digital o mostrador)."}
+            {segment === "club" && !q ? `Todavía nadie se ha unido a ${clubLabel}.` : customers.length ? "Nadie coincide con la búsqueda." : "Aún no hay clientes. Se agregan solos con cada venta que lleve nombre o teléfono (domicilio, menú digital o mostrador)."}
           </p>
         )}
       </div>

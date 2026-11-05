@@ -88,6 +88,23 @@ export async function fetchAccountPhones(): Promise<Set<string>> {
   return new Set(((data as { phone: string }[]) || []).map((a) => phoneKey(a.phone)).filter(Boolean));
 }
 
+/** Miembro del club del restaurante (se une desde su cuenta del menú digital) */
+export type ClubMember = { phone: string; name: string; points: number; stamps: number; cashback: number; joinedAt: string };
+
+/** Miembros del club de este negocio (el personal los puede leer: is_member) */
+export async function fetchClubMembers(): Promise<ClubMember[]> {
+  const { getSupabase } = await import("@/lib/supabase/client");
+  const { data, error } = await getSupabase().from("bpos_loyalty_members").select("points, stamps, cashback, joined_at, bpos_customer_accounts(name, phone)").limit(5000);
+  if (error) throw new Error(error.message);
+  type Row = { points: number; stamps: number; cashback: number; joined_at: string; bpos_customer_accounts: { name: string; phone: string } | { name: string; phone: string }[] | null };
+  return ((data as unknown as Row[]) || [])
+    .map((r) => {
+      const acc = Array.isArray(r.bpos_customer_accounts) ? r.bpos_customer_accounts[0] : r.bpos_customer_accounts;
+      return { phone: phoneKey(acc?.phone || ""), name: acc?.name || "", points: Number(r.points) || 0, stamps: Number(r.stamps) || 0, cashback: Number(r.cashback) || 0, joinedAt: r.joined_at };
+    })
+    .filter((m) => m.phone);
+}
+
 export type CampaignKind = "dormidos" | "sin-cuenta";
 
 export const CAMPAIGNS: Record<CampaignKind, { label: string; hint: string }> = {
