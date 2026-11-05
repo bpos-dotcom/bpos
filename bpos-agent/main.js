@@ -14,6 +14,7 @@ const {
   extractPdfTextWithOcr,
   terminateOcrWorker,
 } = require("./lib/pdf-ocr-reader");
+const { extractXpsTicket } = require("./lib/xps-reader");
 const { initLogger } = require("./lib/logger");
 const { startDesktop } = require("./lib/desktop");
 const stationPrinter = require("./lib/station-printer");
@@ -118,9 +119,10 @@ async function readTicket(buffer) {
 
   const pkOffset = buffer.indexOf(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
   if (pkOffset !== -1) {
+    // Windows 11 nuevo no trae el controlador PDF: la impresora queda en XPS
     const filePath = saveJobFile("xps-jobs", `pedido-${Date.now()}.xps`, buffer.slice(pkOffset));
-    const ocr = await extractPdfTextWithOcr(filePath);
-    return { format: "xps", filePath, text: ocr.text, extractionMethod: "tesseract-ocr", ocrOrderId: ocr.orderId, ocrHeader: ocr.headerText };
+    const xps = await extractXpsTicket(filePath);
+    return { format: "xps", filePath, text: xps.text, extractionMethod: xps.method, ocrOrderId: xps.orderId, ocrHeader: xps.headerText };
   }
 
   const filePath = saveJobFile("print-jobs", `job-${Date.now()}.bin`, buffer);

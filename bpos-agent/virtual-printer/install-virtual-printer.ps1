@@ -96,6 +96,19 @@ function Ensure-Driver([string]$name, [string]$feature) {
   if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
   Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
   if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
+  # Windows 11 nuevo trae el controlador PDF guardado (prnms009.inf) pero sin instalar
+  if ($name -eq "Microsoft Print To PDF") {
+    $infs = @(Get-ChildItem -Path "$env:windir\System32\DriverStore\FileRepository\prnms009.inf_*\prnms009.inf" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+    if (Test-Path "$env:windir\INF\prnms009.inf") { $infs += "$env:windir\INF\prnms009.inf" }
+    foreach ($inf in $infs) {
+      try {
+        Add-PrinterDriver -Name $name -InfPath $inf -ErrorAction Stop
+        Log "Controlador PDF instalado desde $inf"
+        return $true
+      } catch { Log ("No se pudo instalar el controlador PDF desde {0}: {1}" -f $inf, (Error-Text $_)) }
+    }
+    if (-not $infs.Count) { Log "Windows no trae el archivo del controlador PDF (prnms009.inf)." }
+  }
   if ($feature) {
     Enable-Feature $feature
     Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue

@@ -138,6 +138,19 @@ async function extractPdfTextWithOcr(filePath) {
     disableFontFace: true,
   }).promise;
 
+  const pages = [];
+  for (let n = 1; n <= pdfDocument.numPages; n += 1) {
+    pages.push(() => pdfDocument.getPage(n).then((page) => renderPdfPage(page, 3)));
+  }
+  return ocrPages(pages);
+}
+
+/**
+ * OCR de páginas dibujadas (de un PDF o las imágenes de un XPS): texto
+ * completo, número de pedido y encabezado. Cada página es una función que
+ * regresa su canvas, para dibujarlas de una en una.
+ */
+async function ocrPages(pages) {
   const worker = await getOcrWorker();
   const temporaryFiles = [];
   const pageTexts = [];
@@ -146,17 +159,10 @@ async function extractPdfTextWithOcr(filePath) {
   let detectedHeaderText = "";
 
   try {
-    for (
-      let pageNumber = 1;
-      pageNumber <= pdfDocument.numPages;
-      pageNumber += 1
-    ) {
-      console.log(
-        `Procesando página ${pageNumber} de ${pdfDocument.numPages}`
-      );
+    for (let pageNumber = 1; pageNumber <= pages.length; pageNumber += 1) {
+      console.log(`Procesando página ${pageNumber} de ${pages.length}`);
 
-      const page = await pdfDocument.getPage(pageNumber);
-      const fullCanvas = await renderPdfPage(page, 3);
+      const fullCanvas = await pages[pageNumber - 1]();
 
      const fullImagePath = path.join(
   os.tmpdir(),
@@ -283,5 +289,6 @@ async function terminateOcrWorker() {
 
 module.exports = {
   extractPdfTextWithOcr,
+  ocrPages,
   terminateOcrWorker,
 };
