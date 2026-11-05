@@ -70,7 +70,7 @@ export function driverMessage(info: DispatchInfo) {
 /** Liga de WhatsApp al repartidor con el mensaje listo ("" si su número no es válido). */
 export function driverWhatsappLink(driver: Driver, info: DispatchInfo) {
   const number = whatsappNumber(driver.phone);
-  return number ? `https://wa.me/${number}?text=${encodeURIComponent(driverMessage(info))}` : "";
+  return number ? `https://api.whatsapp.com/send/?phone=${number}&text=${encodeURIComponent(driverMessage(info))}` : "";
 }
 
 /** Anota en la venta quién la llevó (para saber cuánto repartió cada uno). */

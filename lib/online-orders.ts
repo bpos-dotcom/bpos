@@ -320,7 +320,7 @@ export function customerWhatsappLink(order: OnlineOrder, notice: CustomerNotice,
     rechazado:
       `😔 ${hi}lo sentimos: no pudimos tomar tu pedido *${order.folio}* en ${business}.` + (opts.reason || order.reason ? `\nMotivo: ${opts.reason || order.reason}` : ""),
   };
-  return `https://wa.me/${phone}?text=${encodeURIComponent(texts[notice])}`;
+  return `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(texts[notice])}`;
 }
 
 /** Datos para el repartidor de un pedido del menú digital. */

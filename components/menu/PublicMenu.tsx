@@ -77,7 +77,7 @@ type Picks = Record<string, string[]>;
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 const price = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
-const waLink = (number: string, text: string) => `https://wa.me/${number}?text=${encodeURIComponent(text)}`;
+const waLink = (number: string, text: string) => `https://api.whatsapp.com/send/?phone=${number}&text=${encodeURIComponent(text)}`;
 
 export function PublicMenu({ slug, kiosk, onKioskDone }: { slug: string; kiosk?: KioskSession; onKioskDone?: () => void }) {
   const isKiosk = Boolean(kiosk);

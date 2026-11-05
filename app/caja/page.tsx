@@ -169,7 +169,7 @@ export default function CajaPage() {
 
     const message = buildShoppingListMessage();
     const currentUser = getCurrentUser();
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
+    window.open(`https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}`, "_blank");
     markShoppingListSent(shift.openedAt, {
       sentBy: currentUser?.name || "Usuario del sistema",
       phone,
@@ -430,7 +430,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
     window.location.href = "/configuracion/empresa";
     return;
   }
-  const whatsappUrl = phone ? `https://wa.me/${phone}?text=${encodeURIComponent(message)}` : null;
+  const whatsappUrl = phone ? `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}` : null;
 
   // Correo: lo manda el servidor sin que nadie toque nada; el resultado se muestra en la pantalla de caja cerrada
   setLastCut({ folio: cutFolio, message, url: whatsappUrl, email: cutEmail, emailStatus: cutEmail ? "enviando" : "apagado" });

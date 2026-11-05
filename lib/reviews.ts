@@ -67,7 +67,7 @@ export function reviewWhatsappLink(review: Review) {
   const name = review.customer_name.trim().split(/\s+/)[0] || "";
   const business = getBusinessSettings().businessName || "el negocio";
   const text = `Hola${name ? ` ${name}` : ""}, te escribimos de ${business}. Vimos tu opinión de tu pedido ${review.folio} y lamentamos que no haya sido como esperabas. ¿Nos cuentas qué pasó? Queremos arreglarlo.`;
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  return `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(text)}`;
 }
 
 /** Cuántas opiniones malas esperan ser atendidas (para el menú lateral) */

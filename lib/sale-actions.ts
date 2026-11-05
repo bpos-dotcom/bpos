@@ -176,7 +176,7 @@ Pago: ${order.details.paymentMethod}
 Gracias por pedir en ${businessName} 🚀`;
 
   window.open(
-    `https://wa.me/${phone}?text=${encodeURIComponent(message)}`,
+    `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}`,
     "_blank"
   );
 }

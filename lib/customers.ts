@@ -246,5 +246,5 @@ export function buildCustomers(orders: SaleLike[], now = Date.now()): Customer[]
 /** WhatsApp al cliente con un mensaje (ej. un cupón) */
 export function customerWhatsapp(customer: Pick<Customer, "phone">, text: string) {
   const phone = whatsappNumber(customer.phone);
-  return phone ? `https://wa.me/${phone}?text=${encodeURIComponent(text)}` : "";
+  return phone ? `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(text)}` : "";
 }
