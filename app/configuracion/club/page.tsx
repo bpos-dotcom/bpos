@@ -10,6 +10,7 @@ import RequireRole from "@/components/auth/RequireRole";
 import WalletCardSettings from "@/components/club/WalletCardSettings";
 import { AppShell } from "@/components/layout/AppShell";
 import { getBusinessSettings } from "@/lib/business-settings";
+import { getAdminProducts } from "@/lib/admin";
 import { DIGITAL_MENU_EVENT, getDigitalMenu } from "@/lib/digital-menu";
 import {
   LOYALTY_EVENT,
@@ -210,6 +211,28 @@ export default function ClubPage() {
               <label className={label}>
                 Otro regalo (opcional)
                 <input value={c.welcomeText} maxLength={100} placeholder="Papas gratis en tu siguiente visita" onChange={(e) => update({ welcomeText: e.target.value })} className={`${input} mt-1`} />
+              </label>
+              <label className={`${label} md:col-span-2`}>
+                Producto gratis (opcional)
+                <select
+                  value={c.welcomeProductId || ""}
+                  onChange={(e) => {
+                    const p = getAdminProducts().find((x) => x.id === Number(e.target.value));
+                    update({ welcomeProductId: p?.id || 0, welcomeProductName: p?.name || "" });
+                  }}
+                  className={`${input} mt-1`}
+                >
+                  <option value="">Ninguno</option>
+                  {getAdminProducts()
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name, "es"))
+                    .map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.name}
+                      </option>
+                    ))}
+                </select>
+                <span className="mt-1 block text-xs text-zinc-500">En el POS, al elegir a un socio que no lo ha recibido, sale “🎁 Cobrar regalo de bienvenida”: lo agrega al pedido a $0. Se da una sola vez por socio.</span>
               </label>
             </div>
             {welcomeLabel(c) && <p className="mt-3 text-sm text-zinc-300">Al unirse: <b className="text-white">{welcomeLabel(c)}</b></p>}
