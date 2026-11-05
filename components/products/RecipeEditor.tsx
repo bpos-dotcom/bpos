@@ -69,21 +69,30 @@ export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom 
         })}
       </div>
 
-      {sources.length > 0 && (
-        <select
-          value=""
-          onChange={(e) => void copy(Number(e.target.value))}
-          className="mt-3 mr-2 rounded-2xl border border-zinc-700 bg-black px-4 py-2 text-sm"
-          aria-label="Copiar ingredientes de otro producto"
-        >
-          <option value="">{packaging ? "📋 Copiar empaque de…" : "📋 Copiar ingredientes de…"}</option>
-          {sources.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name} ({p.lines.length})
-            </option>
-          ))}
-        </select>
-      )}
+      {/* Siempre visible: sin otro producto con receta/empaque guardado, dice por qué no hay de dónde copiar */}
+      <select
+        value=""
+        disabled={sources.length === 0}
+        onChange={(e) => void copy(Number(e.target.value))}
+        className="mt-3 mr-2 rounded-2xl border border-zinc-700 bg-black px-4 py-2 text-sm disabled:opacity-60"
+        aria-label={packaging ? "Copiar empaque de otro producto" : "Copiar ingredientes de otro producto"}
+        title={sources.length === 0 ? `Cuando otro producto tenga ${packaging ? "empaque" : "receta"} guardado, aquí lo copias` : undefined}
+      >
+        <option value="">
+          {sources.length === 0
+            ? packaging
+              ? "📋 Copiar empaque de… (ningún otro producto tiene todavía)"
+              : "📋 Copiar ingredientes de… (ningún otro producto tiene todavía)"
+            : packaging
+              ? "📋 Copiar empaque de…"
+              : "📋 Copiar ingredientes de…"}
+        </option>
+        {sources.map((p) => (
+          <option key={p.id} value={p.id}>
+            {p.name} ({p.lines.length})
+          </option>
+        ))}
+      </select>
       {ingredients.length === 0 ? (
         <p className="mt-3 text-sm text-zinc-500">{packaging ? "Primero da de alta tus empaques en Tu negocio → Packaging." : "Primero da de alta tus insumos en Tu negocio → Ingredientes."}</p>
       ) : (
