@@ -823,7 +823,7 @@ function BridgeScreen() {
       title="B-POS Bridge"
       subtitle="Los pedidos avanzan a Interpretado automáticamente cuando todas sus líneas cuantificadas tienen equivalencia."
     >
-      <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[minmax(360px,0.9fr)_minmax(0,1.7fr)]">
+      <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.6fr)]">
         <aside className="min-w-0 space-y-6">
           <section
             className={`rounded-3xl border p-6 ${
