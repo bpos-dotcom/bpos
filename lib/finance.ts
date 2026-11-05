@@ -168,10 +168,10 @@ export const isPlatformOrder = (o: { source?: string; externalPlatform?: string 
 
 export type FinancePeriod = "semana" | "semana-pasada" | "mes" | "mes-pasado" | "rango";
 export const FINANCE_PERIODS: [FinancePeriod, string][] = [
-  ["semana", "Esta semana"],
   ["semana-pasada", "Semana pasada"],
-  ["mes", "Este mes"],
+  ["semana", "Esta semana"],
   ["mes-pasado", "Mes pasado"],
+  ["mes", "Este mes"],
   ["rango", "Rango personalizado"],
 ];
 
