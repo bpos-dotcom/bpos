@@ -46,6 +46,23 @@ export async function earnLoyalty(accountId: string, amount: number, ref: string
   return result;
 }
 
+/** Referencia del regalo de bienvenida en el historial del club (una sola vez por socio) */
+export const WELCOME_GIFT_REF = "regalo-bienvenida";
+
+/** ¿Ya recibió su producto de regalo de bienvenida? */
+export async function welcomeGiftClaimed(accountId: string) {
+  const { data, error } = await getSupabase().from("bpos_loyalty_movements").select("id").eq("account_id", accountId).eq("ref", WELCOME_GIFT_REF).limit(1);
+  if (error) throw new Error(error.message);
+  return (data || []).length > 0;
+}
+
+/** Deja anotado que ya recibió su regalo (lo hace la nube; si ya lo tenía, avisa) */
+export async function claimWelcomeGift(accountId: string, product: string, order: string, by = "") {
+  const r = await aiFetch("/api/club/regalo", { method: "POST", body: JSON.stringify({ accountId, product, order, by }) });
+  const b = (await r.json().catch(() => ({}))) as { ok?: boolean; error?: string };
+  if (!r.ok || !b.ok) throw new Error(b.error || "No se pudo registrar el regalo.");
+}
+
 export async function redeemLoyalty(accountId: string, use: { points?: number; stamps?: number; cashback?: number }, note: string, ref = "", by = "") {
   const { data, error } = await getSupabase().rpc("bpos_loyalty_redeem", {
     p_account: accountId,

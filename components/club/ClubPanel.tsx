@@ -9,11 +9,27 @@ import { ask } from "@/components/layout/Dialogs";
 import { useEffect, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { LOYALTY_EVENT, balanceLabel, clubName, getLoyalty, type LoyaltyConfig } from "@/lib/loyalty";
-import { findMembers, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
+import { findMembers, redeemLoyalty, welcomeGiftClaimed, type ClubMember } from "@/lib/loyalty-pos";
 import { getBusinessSettings } from "@/lib/business-settings";
 
-export function ClubPanel({ member, onChange }: { member: ClubMember | null; onChange: (m: ClubMember | null) => void }) {
+/**
+ * welcomeInCart: el regalo de bienvenida ya está en el pedido; onWelcomeGift lo agrega a $0
+ * (se registra como recibido al cobrar).
+ */
+export function ClubPanel({
+  member,
+  onChange,
+  welcomeInCart = false,
+  onWelcomeGift,
+}: {
+  member: ClubMember | null;
+  onChange: (m: ClubMember | null) => void;
+  welcomeInCart?: boolean;
+  onWelcomeGift?: (productId: number) => void;
+}) {
   const [config, setConfig] = useState<LoyaltyConfig | null>(null);
+  /** ¿Ya recibió su regalo de bienvenida? (null = consultando) */
+  const [claimed, setClaimed] = useState<{ id: string; value: boolean | null } | null>(null);
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<ClubMember[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -25,6 +41,20 @@ export function ClubPanel({ member, onChange }: { member: ClubMember | null; onC
     window.addEventListener(LOYALTY_EVENT, load);
     return () => window.removeEventListener(LOYALTY_EVENT, load);
   }, []);
+
+  const giftId = config?.welcomeProductId || 0;
+  const accountId = member?.member ? member.account_id : "";
+  useEffect(() => {
+    if (!accountId || !giftId) return;
+    let alive = true;
+    welcomeGiftClaimed(accountId)
+      .then((v) => alive && setClaimed({ id: accountId, value: v }))
+      .catch(() => alive && setClaimed({ id: accountId, value: null }));
+    return () => {
+      alive = false;
+    };
+  }, [accountId, giftId]);
+  const giftClaimed = claimed?.id === accountId ? claimed.value : null;
 
   if (!config?.enabled) return null;
   const name = clubName(config, getBusinessSettings().businessName || "");
@@ -84,6 +114,17 @@ export function ClubPanel({ member, onChange }: { member: ClubMember | null; onC
           </div>
           {member.member && <p className="mt-2 text-lg font-black text-orange-300">{balanceLabel(config, member)}</p>}
           {member.member && <p className="text-xs text-zinc-500">Al cobrar se le suma esta venta.</p>}
+          {member.member && giftId > 0 && onWelcomeGift && (
+            welcomeInCart ? (
+              <p className="mt-2 rounded-xl bg-emerald-500/15 px-3 py-2 text-xs font-black text-emerald-300">🎁 Regalo de bienvenida en el pedido ({config.welcomeProductName}, $0). Se registra al cobrar.</p>
+            ) : giftClaimed === false ? (
+              <button onClick={() => onWelcomeGift(giftId)} className="mt-2 w-full rounded-xl bg-emerald-500 py-2 text-sm font-black text-black">
+                🎁 Cobrar regalo de bienvenida: {config.welcomeProductName}
+              </button>
+            ) : giftClaimed === true ? (
+              <p className="mt-2 text-xs text-zinc-500">Ya recibió su regalo de bienvenida.</p>
+            ) : null
+          )}
           {member.member && config.kind === "puntos" && config.rewards.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
               {config.rewards.map((r) => (

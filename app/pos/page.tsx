@@ -32,7 +32,7 @@ import { discountInventoryByOrder } from "@/lib/inventory";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { ClubPanel } from "@/components/club/ClubPanel";
 import { getLoyalty } from "@/lib/loyalty";
-import { earnLoyalty, findMembers, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
+import { claimWelcomeGift, earnLoyalty, findMembers, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
 import { BackButton } from "@/components/layout/BackButton";
 import { TablesModal } from "@/components/pos/TablesModal";
 import { getTables, openTableOrder, TABLES_EVENT, tableLabel, type Table } from "@/lib/tables";
@@ -446,7 +446,34 @@ function PosScreen() {
     );
   }
 
+  /** Regalo de bienvenida del club: el producto a $0, un solo renglón (se registra como recibido al cobrar) */
+  function addWelcomeGift(productId: number) {
+    const product = products.find((p) => Number(p.id) === Number(productId));
+    if (!product) return alert("El producto de regalo ya no existe: revisa Configuración → Club.");
+    const { parts, modifiers, ownTicket, extraStations } = buildSelection(product, products);
+    const lineId = `${lineIdFor(product.id, parts, modifiers)}|regalo`;
+    setCart((current) =>
+      current.some((i) => cartLineId(i) === lineId)
+        ? current
+        : [
+            ...current,
+            {
+              ...product,
+              price: 0,
+              quantity: 1,
+              lineId,
+              comment: "🎁 Regalo de bienvenida del club",
+              ...(parts?.length ? { parts, ownTicket } : {}),
+              ...(modifiers?.length ? { modifiers } : {}),
+              ...(extraStations?.length ? { extraStations } : {}),
+            },
+          ]
+    );
+  }
+  const welcomeInCart = cart.some((i) => cartLineId(i).endsWith("|regalo"));
+
   function increaseQuantity(lineId: string) {
+    if (lineId.endsWith("|regalo")) return; // el regalo es uno solo
     setCart((currentCart) =>
       currentCart.map((item) =>
         cartLineId(item) === lineId ? { ...item, quantity: item.quantity + 1 } : item
@@ -760,6 +787,13 @@ function PosScreen() {
         }
       })();
     }
+    // Regalo de bienvenida en el pedido: queda registrado para que no se dé otra vez
+    const gift = clubMember?.member ? cart.find((i) => cartLineId(i).endsWith("|regalo")) : undefined;
+    if (gift && clubMember) {
+      void claimWelcomeGift(clubMember.account_id, gift.name, `Pedido #${formatOrderNumber(newOrder)}`, currentUser?.name || "").catch((e) =>
+        alert(`Venta cobrada, pero no se pudo registrar el regalo de bienvenida: ${e instanceof Error ? e.message : "sin internet"}`)
+      );
+    }
     discountInventoryByOrder(newOrder.id, cart);
     // Cajón: si no se abrió al abrir el cobro y la configuración dice que sí (forma de pago y tipo de pedido),
     // se abre ahora, antes de armar el ticket; el ticket solo lo abre si el Agent no pudo (Agent viejo)
@@ -1020,6 +1054,8 @@ function PosScreen() {
             {/* Primero el Club (lo más importante para el cliente), luego los datos y al final el pedido */}
             <ClubPanel
               member={clubMember}
+              welcomeInCart={welcomeInCart}
+              onWelcomeGift={addWelcomeGift}
               onChange={(m) => {
                 setClubMember(m);
                 // Al encontrar al socio, sus datos llenan Cliente y WhatsApp (si están vacíos)

@@ -30,6 +30,9 @@ export type LoyaltyConfig = {
   welcomeAmount: number;
   /** Texto extra del regalo de bienvenida ("Papas gratis en tu siguiente visita") */
   welcomeText: string;
+  /** Producto gratis de bienvenida: en el POS, "Cobrar regalo de bienvenida" lo agrega a $0 (una sola vez por socio) */
+  welcomeProductId: number;
+  welcomeProductName: string;
   /** Botones en la página de fidelidad (solo salen los activados) */
   links: Record<SocialKey, SocialLink>;
   terms: string;
@@ -73,6 +76,8 @@ export const DEFAULT_LOYALTY: LoyaltyConfig = {
   cashbackPercent: 5,
   welcomeAmount: 0,
   welcomeText: "",
+  welcomeProductId: 0,
+  welcomeProductName: "",
   links: emptyLinks(),
   terms: "",
   cardHero: "",
@@ -114,6 +119,8 @@ export function normalizeLoyalty(raw: unknown): LoyaltyConfig {
     cashbackPercent: num(r.cashbackPercent, d.cashbackPercent, 0.5, 50),
     welcomeAmount: num(r.welcomeAmount, 0, 0, 100_000),
     welcomeText: str(r.welcomeText, 100),
+    welcomeProductId: Math.round(num(r.welcomeProductId, 0, 0, Number.MAX_SAFE_INTEGER)),
+    welcomeProductName: str(r.welcomeProductName, 60),
     links,
     terms: str(r.terms, 500),
     cardHero: httpsUrl(r.cardHero),
@@ -146,7 +153,8 @@ export function welcomeLabel(c: LoyaltyConfig) {
           ? `${money(c.welcomeAmount)} de saldo de regalo`
           : `${c.welcomeAmount} puntos de regalo`
       : "";
-  return [amount, c.welcomeText.trim()].filter(Boolean).join(" + ");
+  const product = c.welcomeProductId && c.welcomeProductName ? `${c.welcomeProductName} gratis` : "";
+  return [amount, c.welcomeText.trim(), product].filter(Boolean).join(" + ");
 }
 
 /** El saldo del socio en palabras ("120 puntos" · "4 de 6 sellos" · "$85.50 de saldo") */
