@@ -1,7 +1,7 @@
 "use client";
 
 import { type Ingredient } from "@/data/inventory";
-import { getAdminIngredients, getAdminRecipes, saveAdminIngredients } from "@/lib/admin";
+import { getAdminIngredients, getAdminProducts, getAdminRecipes, saveAdminIngredients } from "@/lib/admin";
 import { itemConsumption, type SoldModifier, type SoldPart } from "@/lib/compound";
 
 const KARDEX_KEY = "bpos_inventory_kardex";
@@ -224,6 +224,7 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
     const consumptions = new Map<number, number>();
 
     const recipeOf = (productId: number) => recipeList.filter((recipe) => Number(recipe.productId) === Number(productId));
+    const packagingOf = new Map(getAdminProducts().map((p) => [Number(p.id), p.packaging || []]));
     for (const item of order.items || []) {
       const qty = Number(item.quantity);
       if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Cantidad inválida en producto ${item.name || item.id}.`);
@@ -231,6 +232,11 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
       itemConsumption({ ...item, quantity: qty }, recipeOf).forEach((amount, ingredientId) => {
         consumptions.set(ingredientId, (consumptions.get(ingredientId) || 0) + amount);
       });
+      // Empaque: solo el del producto vendido (no el de las partes del combo)
+      for (const p of packagingOf.get(Number(item.id)) || []) {
+        const amount = (Number(p.quantity) || 0) * qty;
+        if (amount > 0) consumptions.set(Number(p.ingredientId), (consumptions.get(Number(p.ingredientId)) || 0) + amount);
+      }
     }
 
     for (const adjustment of order.bridgeActions?.inventoryAdjustments || []) {

@@ -22,7 +22,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { getInventory } from "@/lib/inventory";
 import { findPurchaseAlias, getPurchaseAliases } from "@/lib/purchases";
 import { UNITS, compatibleUnits, unitFactor, type Unit } from "@/lib/units";
-import { SUGGESTED_CATEGORIES, type Ingredient } from "@/data/inventory";
+import { SUGGESTED_CATEGORIES, SUGGESTED_PACKAGING_CATEGORIES, isPackaging, type Ingredient } from "@/data/inventory";
 
 export type AiPurchaseResult = {
   supplier: string;
@@ -79,7 +79,8 @@ async function compress(
  * conocido = ya tenía equivalencia; revisar = falta confirmarlo (la IA solo
  * sugiere); listo = confirmado aquí; fuera = no va al inventario (bolsas...).
  * qty: lo que trae cada uno, o el peso total si es a granel, en `unit`.
- * draftNew: el insumo no existe y se está dando de alta desde el ticket.
+ * draftNew: el insumo no existe y se está dando de alta desde el ticket
+ * (como ingrediente de receta o como packaging/empaque).
  */
 type Status = "conocido" | "revisar" | "listo" | "fuera";
 type Row = AiPurchaseTicket["lines"][number] & {
@@ -87,7 +88,7 @@ type Row = AiPurchaseTicket["lines"][number] & {
   status: Status;
   qty: string;
   unit: Unit;
-  draftNew?: { name: string; unit: Unit; category: string };
+  draftNew?: { name: string; unit: Unit; category: string; packaging: boolean };
 };
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
@@ -239,7 +240,7 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
   function chooseIngredient(r: Row, value: string) {
     if (value === "fuera")
       return update(r.key, { status: "fuera", draftNew: undefined });
-    if (value === "nuevo") {
+    if (value === "nuevo" || value === "nuevo-packaging") {
       // Nombre del ticket más legible: "QUESO OAXACA LALA" → "Queso oaxaca lala"
       const name = r.ticketName
         .toLowerCase()
@@ -247,7 +248,7 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
         .slice(0, 60);
       return update(r.key, {
         ingredientId: null,
-        draftNew: { name, unit: r.byWeight ? "kg" : "pza", category: "" },
+        draftNew: { name, unit: r.byWeight ? "kg" : "pza", category: "", packaging: value === "nuevo-packaging" },
       });
     }
     const id = value ? Number(value) : null;
@@ -264,7 +265,7 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
     const d = r.draftNew;
     if (!d) return;
     const name = d.name.trim().replace(/\s+/g, " ");
-    if (!name) return setError("Escribe el nombre del ingrediente nuevo.");
+    if (!name) return setError(d.packaging ? "Escribe el nombre del empaque nuevo." : "Escribe el nombre del ingrediente nuevo.");
     const all = getAdminIngredients();
     const same = all.find(
       (i) => i.name.trim().toLowerCase() === name.toLowerCase(),
@@ -286,12 +287,13 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
       ...(d.category.trim()
         ? { category: d.category.trim().slice(0, 40) }
         : {}),
+      ...(d.packaging ? { kind: "packaging" as const } : {}),
     };
     saveAdminIngredients([...all, ingredient]);
     addAuditEvent({
       category: "Inventario",
       action: "ingredient.created",
-      description: `${name} (${d.unit}) creado desde un ticket de compra: "${r.ticketName}"`,
+      description: `${d.packaging ? "Empaque" : "Ingrediente"} ${name} (${d.unit}) creado desde un ticket de compra: "${r.ticketName}"`,
       metadata: { ingredientId: ingredient.id },
     });
     setInventory(getInventory());
@@ -303,14 +305,16 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
     });
   }
 
-  const categories = [
-    ...new Set(
-      [
-        ...inventory.map((i) => i.category?.trim() || ""),
-        ...SUGGESTED_CATEGORIES,
-      ].filter(Boolean),
-    ),
-  ].sort((a, b) => a.localeCompare(b, "es"));
+  /** Categorías para el insumo nuevo: las de su tipo (ingredientes o empaques) y las sugeridas */
+  const categoriesFor = (packaging: boolean) =>
+    [
+      ...new Set(
+        [
+          ...inventory.filter((i) => isPackaging(i) === packaging).map((i) => i.category?.trim() || ""),
+          ...(packaging ? SUGGESTED_PACKAGING_CATEGORIES : SUGGESTED_CATEGORIES),
+        ].filter(Boolean),
+      ),
+    ].sort((a, b) => a.localeCompare(b, "es"));
 
   const pending = rows.filter((r) => !rowReady(r, inventory));
   const lineSum =
@@ -551,28 +555,62 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
                           : "¿A qué insumo de tu inventario corresponde?"}
                       </p>
                       <select
-                        value={r.draftNew ? "nuevo" : (r.ingredientId ?? "")}
+                        value={r.draftNew ? (r.draftNew.packaging ? "nuevo-packaging" : "nuevo") : (r.ingredientId ?? "")}
                         onChange={(e) => chooseIngredient(r, e.target.value)}
                         className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2"
                         aria-label="Insumo"
                       >
                         <option value="">Elige el insumo…</option>
-                        {inventory.map((i) => (
-                          <option key={i.id} value={i.id}>
-                            {i.name} ({i.unit})
-                          </option>
-                        ))}
+                        <optgroup label="🧂 Ingredientes">
+                          {inventory
+                            .filter((i) => !isPackaging(i))
+                            .map((i) => (
+                              <option key={i.id} value={i.id}>
+                                {i.name} ({i.unit})
+                              </option>
+                            ))}
+                        </optgroup>
+                        {inventory.some(isPackaging) && (
+                          <optgroup label="📦 Packaging">
+                            {inventory.filter(isPackaging).map((i) => (
+                              <option key={i.id} value={i.id}>
+                                {i.name} ({i.unit})
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
                         <option value="nuevo">
                           ➕ Crear ingrediente nuevo…
                         </option>
+                        <option value="nuevo-packaging">
+                          ➕ Crear empaque nuevo (packaging)…
+                        </option>
                         <option value="fuera">
-                          🚫 No va al inventario (bolsas, limpieza…)
+                          🚫 No va al inventario (limpieza, otros…)
                         </option>
                       </select>
                       {r.draftNew && (
                         <div className="space-y-2 rounded-xl border border-orange-500/40 bg-orange-500/5 p-3">
+                          <div className="flex overflow-hidden rounded-xl border border-zinc-800 text-xs font-black" role="group" aria-label="Tipo de insumo nuevo">
+                            <button
+                              type="button"
+                              onClick={() => update(r.key, { draftNew: { ...r.draftNew!, packaging: false, category: "" } })}
+                              aria-pressed={!r.draftNew.packaging}
+                              className={`flex-1 px-3 py-2 ${!r.draftNew.packaging ? "bg-orange-500 text-black" : "bg-zinc-950 text-zinc-400"}`}
+                            >
+                              🧂 Ingrediente
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => update(r.key, { draftNew: { ...r.draftNew!, packaging: true, category: "" } })}
+                              aria-pressed={r.draftNew.packaging}
+                              className={`flex-1 px-3 py-2 ${r.draftNew.packaging ? "bg-orange-500 text-black" : "bg-zinc-950 text-zinc-400"}`}
+                            >
+                              📦 Packaging
+                            </button>
+                          </div>
                           <p className="text-xs font-black text-orange-300">
-                            Ingrediente nuevo (se agrega a tu inventario)
+                            {r.draftNew.packaging ? "Empaque nuevo: se agrega a Tu negocio → Packaging" : "Ingrediente nuevo: se agrega a Tu negocio → Ingredientes"}
                           </p>
                           <input
                             value={r.draftNew.name}
@@ -622,7 +660,7 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
                               aria-label="Categoría del ingrediente nuevo"
                             >
                               <option value="">Sin categoría</option>
-                              {categories.map((c) => (
+                              {categoriesFor(r.draftNew.packaging).map((c) => (
                                 <option key={c} value={c}>
                                   {c}
                                 </option>
@@ -630,16 +668,16 @@ export default function PurchaseAiCapture({ onReady, onManual }: Props) {
                             </select>
                           </div>
                           <p className="text-[11px] text-zinc-500">
-                            La unidad es en la que lo vas a contar y gastar en
-                            tus recetas (ej. queso en pza si usas rebanadas,
-                            carne en g o kg).
+                            {r.draftNew.packaging
+                              ? "El empaque casi siempre va en pza (1 contenedor, 1 bolsa). Después pones en cada producto cuánto lleva, en su recuadro Packaging."
+                              : "La unidad es en la que lo vas a contar y gastar en tus recetas (ej. queso en pza si usas rebanadas, carne en g o kg)."}
                           </p>
                           <button
                             type="button"
                             onClick={() => createIngredient(r)}
                             className="w-full rounded-xl bg-orange-500 py-2 font-black text-black"
                           >
-                            Crear ingrediente
+                            {r.draftNew.packaging ? "Crear empaque" : "Crear ingrediente"}
                           </button>
                         </div>
                       )}

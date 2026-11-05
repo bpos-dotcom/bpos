@@ -77,6 +77,13 @@ export type Product = {
   modifierGroups?: ModifierGroup[];
   /** Horario de venta en el POS (ej. promoción solo los viernes). Sin horario se vende siempre. */
   saleSchedule?: SaleSchedule;
+  /**
+   * Empaque del producto (Tu negocio → Packaging): se descuenta solo cuando
+   * se vende ESTE producto, no cuando va dentro de un combo (el combo lleva
+   * el suyo). Así el combo descuenta su CM40 y no el hamburguesero de la
+   * hamburguesa que lleva dentro.
+   */
+  packaging?: { ingredientId: number; quantity: number }[];
 };
 
 export const products: Product[] = [

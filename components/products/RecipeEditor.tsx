@@ -17,9 +17,11 @@ type Props = {
   onChange: (lines: RecipeLine[]) => void;
   /** Otros productos con receta, para copiar la suya */
   copyFrom?: { id: number; name: string; lines: RecipeLine[] }[];
+  /** Recuadro de empaque del producto (Packaging) en vez de la receta */
+  packaging?: boolean;
 };
 
-export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom = [] }: Props) {
+export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom = [], packaging = false }: Props) {
   const byId = new Map(ingredients.map((i) => [i.id, i]));
   const available = ingredients.filter((i) => !lines.some((l) => l.ingredientId === i.id)).sort((a, b) => a.name.localeCompare(b.name));
   const sources = copyFrom.filter((p) => p.lines.length > 0).sort((a, b) => a.name.localeCompare(b.name, "es"));
@@ -27,22 +29,24 @@ export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom 
   async function copy(id: number) {
     const source = sources.find((p) => p.id === id);
     if (!source) return;
-    if (lines.length && !(await ask(`¿Cambiar los ${lines.length} ingredientes de esta receta por los de "${source.name}"?`, { ok: "Copiar" }))) return;
+    if (lines.length && !(await ask(`¿Cambiar ${packaging ? `los ${lines.length} empaques` : `los ${lines.length} ingredientes de esta receta`} por los de "${source.name}"?`, { ok: "Copiar" }))) return;
     // Copia nueva: los renglones son otros objetos, el otro producto no cambia
     onChange(source.lines.map((l) => ({ ingredientId: l.ingredientId, quantity: l.quantity })));
   }
 
   return (
     <section className="mt-6 rounded-3xl border border-zinc-800 bg-black p-6">
-      <h3 className="text-xl font-black text-orange-500">📖 {compound ? "Receta propia del combo (opcional)" : "Receta"}</h3>
+      <h3 className="text-xl font-black text-orange-500">{packaging ? "📦 Packaging" : `📖 ${compound ? "Receta propia del combo (opcional)" : "Receta"}`}</h3>
       <p className="mt-2 text-sm text-zinc-400">
-        {compound
-          ? "Los productos enlazados en sus opciones ya descuentan su propia receta. Aquí pon solo lo extra del combo, como la bolsa o la caja."
-          : "Lo que lleva una pieza de este producto. Se descuenta del inventario cada vez que se vende (también dentro de combos)."}
+        {packaging
+          ? "El empaque de este producto (contenedor, bolsa, vaso...). Se descuenta solo cuando se vende este producto: si va dentro de un combo, cuenta el empaque del combo y no este."
+          : compound
+            ? "Los productos enlazados en sus opciones ya descuentan su propia receta. Aquí pon solo lo extra del combo, como la bolsa o la caja."
+            : "Lo que lleva una pieza de este producto. Se descuenta del inventario cada vez que se vende (también dentro de combos)."}
       </p>
 
       <div className="mt-4 space-y-2">
-        {lines.length === 0 && <p className="rounded-2xl border border-dashed border-zinc-800 p-4 text-center text-sm text-zinc-500">Sin insumos todavía.</p>}
+        {lines.length === 0 && <p className="rounded-2xl border border-dashed border-zinc-800 p-4 text-center text-sm text-zinc-500">{packaging ? "Sin empaque todavía." : "Sin insumos todavía."}</p>}
         {lines.map((line) => {
           const ingredient = byId.get(line.ingredientId);
           return (
@@ -72,7 +76,7 @@ export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom 
           className="mt-3 mr-2 rounded-2xl border border-zinc-700 bg-black px-4 py-2 text-sm"
           aria-label="Copiar ingredientes de otro producto"
         >
-          <option value="">📋 Copiar ingredientes de…</option>
+          <option value="">{packaging ? "📋 Copiar empaque de…" : "📋 Copiar ingredientes de…"}</option>
           {sources.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name} ({p.lines.length})
@@ -81,7 +85,7 @@ export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom 
         </select>
       )}
       {ingredients.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500">Primero da de alta tus insumos en Configuración → Ingredientes.</p>
+        <p className="mt-3 text-sm text-zinc-500">{packaging ? "Primero da de alta tus empaques en Tu negocio → Packaging." : "Primero da de alta tus insumos en Tu negocio → Ingredientes."}</p>
       ) : (
         <select
           value=""
@@ -91,7 +95,7 @@ export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom 
           }}
           className="mt-3 rounded-2xl border border-zinc-700 bg-black px-4 py-2 text-sm"
         >
-          <option value="">+ Agregar insumo</option>
+          <option value="">{packaging ? "+ Agregar empaque" : "+ Agregar insumo"}</option>
           {available.map((i) => (
             <option key={i.id} value={i.id}>
               {i.name} ({i.unit})

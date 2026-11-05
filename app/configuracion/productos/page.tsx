@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { KitchenStation, Product } from "@/data/products";
-import type { Ingredient, RecipeItem } from "@/data/inventory";
+import { isPackaging, type Ingredient, type RecipeItem } from "@/data/inventory";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes, saveAdminProducts, saveAdminRecipes } from "@/lib/admin";
 import { RecipeEditor, type RecipeLine } from "@/components/products/RecipeEditor";
 import { ModifierEditor, cleanModifierGroups, modifierEditorProblems } from "@/components/products/ModifierEditor";
@@ -131,6 +131,10 @@ export default function ProductosAdminPage() {
       if (stations?.length) g.stations = stations;
       else delete g.stations;
     });
+    // Empaque sin renglones en cero
+    const packaging = (saved.packaging || []).filter((l) => Number(l.quantity) > 0);
+    if (packaging.length) saved.packaging = packaging;
+    else delete saved.packaging;
     if (!saved.noOwnTicket) delete saved.noOwnTicket;
     if (!saved.notSoldAlone) delete saved.notSoldAlone;
     if (!saved.image) delete saved.image;
@@ -672,12 +676,21 @@ export default function ProductosAdminPage() {
 
                 <RecipeEditor
                   lines={recipeDraft}
-                  ingredients={ingredients}
+                  ingredients={ingredients.filter((i) => !isPackaging(i))}
                   compound={Boolean(draft.noOwnTicket)}
                   onChange={setRecipeDraft}
                   copyFrom={products
                     .filter((p) => p.id !== draft.id)
                     .map((p) => ({ id: p.id, name: p.name, lines: recipes.filter((r) => r.productId === p.id).map((r) => ({ ingredientId: r.ingredientId, quantity: r.quantity })) }))}
+                />
+
+                <RecipeEditor
+                  packaging
+                  lines={draft.packaging || []}
+                  ingredients={ingredients.filter(isPackaging)}
+                  compound={false}
+                  onChange={(lines) => setDraft({ ...draft, packaging: lines })}
+                  copyFrom={products.filter((p) => p.id !== draft.id).map((p) => ({ id: p.id, name: p.name, lines: p.packaging || [] }))}
                 />
 
                 <p className="mt-4 text-sm text-zinc-500">Los cambios de opciones y receta se guardan con el botón Guardar cambios.</p>
