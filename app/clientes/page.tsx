@@ -28,7 +28,7 @@ import {
 } from "@/lib/customers";
 import { COUPONS_EVENT, couponLabel, couponState, deleteCoupon, getCoupons, newCoupon, normalizeCode, saveCoupon, type Coupon } from "@/lib/coupons";
 import { getDigitalMenu } from "@/lib/digital-menu";
-import { clubName, getLoyalty, howItWorks, welcomeLabel } from "@/lib/loyalty";
+import { balanceLabel, clubName, getLoyalty, howItWorks, welcomeLabel } from "@/lib/loyalty";
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { exportCustomers } from "@/lib/exports";
 import { loadReportSources } from "@/lib/reports";
@@ -45,18 +45,60 @@ const daysAgo = (iso: string) => {
 
 // ------------------------------------------------------------ clientes
 
-function CustomerDetail({ customer, coupons, onClose }: { customer: Customer; coupons: Coupon[]; onClose: () => void }) {
-  const [notes, setNotes] = useState(customer.notes);
-  const [couponId, setCouponId] = useState("");
+/**
+ * Mensajes listos para WhatsApp (se pueden editar antes de mandarlos):
+ * saludo con el menú, bienvenida al club (regalo, cómo se juntan y la
+ * tarjeta de Google Wallet, según Configuración → Club), recordatorio de
+ * "te extrañamos" y regalar un cupón.
+ */
+function customerMessage(kind: string, customer: Customer, coupon: Coupon | undefined, member: ClubMember | undefined) {
   const business = getBusinessSettings().businessName || "nosotros";
   const slug = getDigitalMenu().slug;
   const menuLink = slug ? `${PUSH_SERVER}/m/${slug}` : "";
+  const clubLink = slug ? `${PUSH_SERVER}/fidelidad/${slug}` : "";
+  const loyalty = getLoyalty();
+  const club = clubName(loyalty, business);
+  const first = customer.name === "Cliente" ? "" : customer.name.split(" ")[0];
+  const hola = first ? `¡Hola ${first}!` : "¡Hola!";
+  if (kind === "club") {
+    const gift = welcomeLabel(loyalty);
+    const unit = loyalty.kind === "sellos" ? "sellos" : loyalty.kind === "cashback" ? "saldo" : "puntos";
+    return [
+      `${hola} 🧡 Gracias por unirte a *${club}* de ${business}.`,
+      gift ? `🎁 Por ser parte del club, tu regalo de bienvenida: ${gift}.` : "",
+      `⭐ ${howItWorks(loyalty)}`,
+      menuLink ? `📲 Te recomendamos pedir desde nuestro menú en línea entrando a tu cuenta, así cada pedido suma a tu tarjeta: ${menuLink}` : "",
+      clubLink ? `💳 Agrega tu tarjeta a Google Wallet para ver tus ${unit} siempre a la mano: ${clubLink}` : "",
+      "¡Te esperamos!",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (kind === "recordatorio") {
+    return [
+      `${hola} Te extrañamos en ${business} 🧡`,
+      member && loyalty.enabled ? `Llevas ${balanceLabel(loyalty, member)} en ${club}, ¡ya casi!` : "",
+      menuLink ? `¿Se te antoja algo? Pide aquí: ${menuLink}` : "¿Se te antoja algo? Aquí te esperamos.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (coupon) return `${hola} 🧡 En ${business} te tenemos un regalo: usa el cupón *${coupon.code}* y obtén ${couponLabel(coupon)}.${menuLink ? `\nPide aquí: ${menuLink}` : ""}`;
+  return `${hola} Te saludamos de ${business}. ${menuLink ? `Te dejamos nuestro menú: ${menuLink}` : ""}`.trim();
+}
+
+function CustomerDetail({ customer, coupons, member, onClose }: { customer: Customer; coupons: Coupon[]; member?: ClubMember; onClose: () => void }) {
+  const [notes, setNotes] = useState(customer.notes);
   const usable = coupons.filter((c) => couponState(c) === "activo");
-  const coupon = usable.find((c) => c.id === couponId);
-  const first = customer.name.split(" ")[0];
-  const message = coupon
-    ? `¡Hola ${first}! 🧡 En ${business} te tenemos un regalo: usa el cupón *${coupon.code}* y obtén ${couponLabel(coupon)}.${menuLink ? `\nPide aquí: ${menuLink}` : ""}`
-    : `¡Hola ${first}! Te saludamos de ${business}. ${menuLink ? `Te dejamos nuestro menú: ${menuLink}` : ""}`;
+  const clubOn = getLoyalty().enabled;
+  // Mensaje: "saludo", "club", "recordatorio" o "cupon:<id>"; se puede editar antes de abrir WhatsApp
+  const [kind, setKind] = useState(member && clubOn ? "club" : customer.segment === "dormido" ? "recordatorio" : "saludo");
+  const couponOf = (k: string) => usable.find((c) => `cupon:${c.id}` === k);
+  const [message, setMessage] = useState(() => customerMessage(kind, customer, couponOf(kind), member));
+  function pickKind(k: string) {
+    setKind(k);
+    setMessage(customerMessage(k, customer, couponOf(k), member));
+  }
   const wa = customerWhatsapp(customer, message);
 
   return (
@@ -77,7 +119,8 @@ function CustomerDetail({ customer, coupons, onClose }: { customer: Customer; co
           <div className="rounded-2xl bg-black p-3"><p className="text-xs text-zinc-500">Ticket prom.</p><p className="text-xl font-black">{money(customer.average)}</p></div>
         </div>
         <p className="mt-3 text-sm text-zinc-400">
-          Cliente desde {date(customer.firstAt)} · último pedido {daysAgo(customer.lastAt)} · {customer.channels.join(", ")}
+          {customer.orders ? `Cliente desde ${date(customer.firstAt)} · último pedido ${daysAgo(customer.lastAt)}` : `Se unió ${daysAgo(customer.lastAt)} · todavía no compra`}
+          {customer.channels.length ? ` · ${customer.channels.join(", ")}` : ""}
           {customer.coupons ? ` · usó ${customer.coupons} cupón(es)` : ""}
         </p>
         {customer.favorites.length > 0 && (
@@ -89,14 +132,18 @@ function CustomerDetail({ customer, coupons, onClose }: { customer: Customer; co
         {customer.phone && (
           <div className="mt-4 rounded-2xl border border-zinc-800 p-4">
             <p className="font-black">📲 Escribirle por WhatsApp</p>
-            <select value={couponId} onChange={(e) => setCouponId(e.target.value)} className={`${input} mt-2 text-sm`}>
-              <option value="">Sin cupón (solo saludar y mandar el menú)</option>
+            <select value={kind} onChange={(e) => pickKind(e.target.value)} className={`${input} mt-2 text-sm`} aria-label="Qué mensaje mandar">
+              <option value="saludo">👋 Saludar y mandar el menú</option>
+              {clubOn && <option value="club">🎟️ Bienvenida al club</option>}
+              <option value="recordatorio">😴 Recordatorio: te extrañamos</option>
               {usable.map((c) => (
-                <option key={c.id} value={c.id}>
-                  Regalarle {c.code} · {couponLabel(c)}
+                <option key={c.id} value={`cupon:${c.id}`}>
+                  🎁 Regalarle {c.code} · {couponLabel(c)}
                 </option>
               ))}
             </select>
+            <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={7} className={`${input} mt-2 text-sm`} aria-label="Mensaje" />
+            <p className="mt-1 text-[11px] text-zinc-500">Puedes cambiar el mensaje antes de abrir WhatsApp.</p>
             {wa && (
               <a href={wa} target="_blank" rel="noreferrer" className="mt-2 block rounded-2xl bg-[#25d366] py-3 text-center font-black text-white">
                 Abrir WhatsApp
@@ -425,7 +472,7 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
           </p>
         )}
       </div>
-      {open && <CustomerDetail customer={open} coupons={coupons} onClose={() => setOpen(null)} />}
+      {open && <CustomerDetail customer={open} coupons={coupons} member={open.phone ? members.get(open.phone) : undefined} onClose={() => setOpen(null)} />}
     </div>
   );
 }
