@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { ThemeToggle } from "@/components/layout/TopCorner";
 import { Advisor } from "@/components/owner/Advisor";
+import { NotificationsHistory } from "@/components/owner/NotificationsHistory";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { canViewCosts, getCurrentUser } from "@/lib/auth";
@@ -59,9 +60,12 @@ export default function OwnerPage() {
   );
 }
 
+type Tab = "resumen" | "avisos" | "asesor";
+
 function OwnerApp() {
   const [preset, setPreset] = useState<Preset>("hoy");
-  const [tab, setTab] = useState<"resumen" | "asesor">("resumen");
+  // Al tocar una notificación se abre /dueno?vista=avisos
+  const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("vista") === "avisos" ? "avisos" : "resumen"));
   const [branch, setBranch] = useState("all");
   const [data, setData] = useState<Data | null>(null);
   const [alerts, setAlerts] = useState<OperationsAlert[]>([]);
@@ -216,6 +220,8 @@ function OwnerApp() {
       apps,
       appSales: apps.reduce((t, a) => t + a.sales, 0),
       appOrders: apps.reduce((t, a) => t + a.orders, 0),
+      /** Depósito aprox. de las apps (las que no tienen comisión configurada cuentan con lo vendido) */
+      appsNet: apps.reduce((t, a) => t + (a.deposit ?? a.sales), 0),
     };
     return { report, branches, byTime, split };
   }, [data, branch, range, preset]);
@@ -319,7 +325,7 @@ function OwnerApp() {
             )}
           </section>
         )}
-        <Chips items={[["resumen", "📊 Resumen"], ["asesor", "✨ Asesor IA"]] as ["resumen" | "asesor", string][]} value={tab} onChange={setTab} />
+        <Chips items={[["resumen", "📊 Resumen"], ["avisos", "🔔 Avisos"], ["asesor", "✨ Asesor IA"]] as [Tab, string][]} value={tab} onChange={setTab} />
         {tab === "resumen" && <Chips items={PRESETS} value={preset} onChange={setPreset} />}
         {data && data.branches.length > 1 && (
           <Chips items={[["all", "Todas"], ...data.branches.map((b) => [b.id, b.name] as [string, string])]} value={branch} onChange={setBranch} />
@@ -327,7 +333,9 @@ function OwnerApp() {
 
         {error && <p className="rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
 
-        {tab === "asesor" ? (
+        {tab === "avisos" ? (
+          <NotificationsHistory />
+        ) : tab === "asesor" ? (
           data ? (
             <Advisor
               orders={(branch === "all" ? data.orders : data.orders.filter((o) => o.branchId === branch)).map((o) => o.order)}
@@ -341,8 +349,22 @@ function OwnerApp() {
         ) : (
           <>
             <section className="rounded-3xl border border-orange-500/40 bg-gradient-to-br from-orange-500/15 to-zinc-950 p-5">
-              <p className="text-sm text-zinc-400">Ventas · {PRESETS.find(([p]) => p === preset)?.[1]}</p>
-              <p className="mt-1 text-4xl font-black text-orange-500">{money(kpis.sales)}</p>
+              {view.split.apps.some((a) => a.deposit !== null) ? (
+                // Con apps: lo grande es lo que te queda (local + depósito aprox. de las apps), no lo vendido
+                <>
+                  <p className="text-sm text-zinc-400">Te queda aprox. · {PRESETS.find(([p]) => p === preset)?.[1]}</p>
+                  <p className="mt-1 text-4xl font-black text-orange-500">{money(view.split.localSales + view.split.appsNet)}</p>
+                  <p className="mt-1 text-xs font-bold text-zinc-400">
+                    Local {money(view.split.localSales)} · Aprox. apps {money(view.split.appsNet)}
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-zinc-500">Vendido en total {money(kpis.sales)} (las apps se quedan con su comisión)</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-zinc-400">Ventas · {PRESETS.find(([p]) => p === preset)?.[1]}</p>
+                  <p className="mt-1 text-4xl font-black text-orange-500">{money(kpis.sales)}</p>
+                </>
+              )}
               <div className="mt-4 grid grid-cols-3 gap-2 text-center">
                 <Mini label="Pedidos" value={String(kpis.orders)} />
                 <Mini label="Ticket prom." value={money(kpis.averageTicket)} />
@@ -364,7 +386,7 @@ function OwnerApp() {
                         {view.split.apps.some((a) => a.deposit !== null) && (
                           <>
                             <span className="block text-[10px] font-bold uppercase tracking-wide text-zinc-500">Depósito aprox.</span>
-                            <span className="block text-orange-400">{money(view.split.apps.reduce((t, a) => t + (a.deposit || 0), 0))}</span>
+                            <span className="block text-orange-400">{money(view.split.appsNet)}</span>
                           </>
                         )}
                         <span className="block text-xs font-bold text-zinc-400">vendido {money(view.split.appSales)}</span>
@@ -379,13 +401,11 @@ function OwnerApp() {
                       </p>
                     ))}
                   </div>
-                  {view.split.apps.some((a) => a.deposit !== null) && (
-                    <p className="flex justify-between gap-2 rounded-xl bg-black/40 px-3 py-2 font-black">
-                      <span>Te queda aprox. (local + depósitos)</span>
-                      <span className="text-emerald-400">{money(view.split.localSales + view.split.apps.reduce((t, a) => t + (a.deposit || 0), 0))}</span>
+                  {view.split.apps.some((a) => a.deposit === null) && (
+                    <p className="text-[11px] text-zinc-500">
+                      {view.split.apps.some((a) => a.deposit !== null) ? "Las apps sin comisión configurada cuentan con lo vendido completo. " : ""}Configura las comisiones en Finanzas → Otros ingresos → ⚙️ Comisiones de apps para ver cuánto te depositan.
                     </p>
                   )}
-                  {view.split.apps.some((a) => a.deposit === null) && <p className="text-[11px] text-zinc-500">Configura las comisiones en Finanzas → Otros ingresos → ⚙️ Comisiones de apps para ver cuánto te depositan.</p>}
                 </div>
               )}
             </section>

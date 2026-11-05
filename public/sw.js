@@ -46,8 +46,10 @@ self.addEventListener("notificationclick", (event) => {
   const url = (event.notification.data && event.notification.data.url) || "/dueno";
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
-      const open = windows.find((w) => new URL(w.url).pathname === url);
-      if (open) return open.focus();
+      // La misma pantalla ya abierta: se enfoca y se lleva a la vista del aviso (ej. /dueno?vista=avisos)
+      const target = new URL(url, self.location.origin);
+      const open = windows.find((w) => new URL(w.url).pathname === target.pathname);
+      if (open) return open.focus().then((w) => (target.search && w && "navigate" in w ? w.navigate(target.href) : w));
       return self.clients.openWindow(url);
     })
   );

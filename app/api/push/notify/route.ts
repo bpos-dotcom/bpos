@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
       const payloads =
         messages.length <= MAX_SEPARATE
           ? messages
-          : [{ title: `B-POS · ${messages.length} avisos`, body: messages.slice(0, 4).map((m) => m.title).join("\n"), tag: "bpos-resumen", url: "/dueno" }];
+          : [{ title: `B-POS · ${messages.length} avisos`, body: messages.slice(0, 4).map((m) => m.title).join("\n"), tag: "bpos-resumen", url: "/dueno?vista=avisos" }];
 
       for (const payload of payloads) {
         const result = await sendPush(sub, payload);

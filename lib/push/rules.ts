@@ -64,11 +64,11 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
   switch (event.action) {
     case "delivery.received":
       if (!prefs.delivery) return null;
-      return { title: `🛵 Pedido ${meta.platform || "delivery"} · ${money(total)}`, body: event.description, tag, url: "/dueno" };
+      return { title: `🛵 Pedido ${meta.platform || "delivery"} · ${money(total)}`, body: event.description, tag, url: "/dueno?vista=avisos" };
     case "sale.created": {
       const big = prefs.ventaGrande > 0 && total >= prefs.ventaGrande;
       if (!prefs.todasVentas && !big) return null;
-      return { title: big ? `💰 Venta grande · ${money(total)}` : `Venta nueva · ${money(total)}`, body: event.description, tag, url: "/dueno" };
+      return { title: big ? `💰 Venta grande · ${money(total)}` : `Venta nueva · ${money(total)}`, body: event.description, tag, url: "/dueno?vista=avisos" };
     }
     case "sale.cancelled":
       if (!prefs.cancelaciones) return null;
@@ -80,7 +80,7 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
         title: diff === 0 ? "🔒 Corte de caja" : `⚠️ Corte con ${diff < 0 ? "faltante" : "sobrante"} de ${money(Math.abs(diff))}`,
         body: event.description,
         tag,
-        url: "/dueno",
+        url: "/dueno?vista=avisos",
       };
     }
     case "cash.voided":
