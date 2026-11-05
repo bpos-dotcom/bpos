@@ -8,12 +8,24 @@ const path = require("path");
 const { getLogDir, getLogFile, tailLog } = require("./logger");
 const updater = require("./updater");
 const cloudLink = require("./cloud-link");
-const { repairInstallation } = require("./repair");
+const { repairInstallation, printerStatus } = require("./repair");
 
 let win = null;
 let tray = null;
 let quitting = false;
 let lastRepair = null;
+// Se revisa en Windows al abrir y después de reparar (antes siempre se veía en verde)
+let printer = { ok: null, message: "Revisando..." };
+
+async function refreshPrinter() {
+  try {
+    printer = await printerStatus();
+  } catch (error) {
+    printer = { ok: false, message: `No se pudo revisar: ${error.message}` };
+  }
+  if (!printer.ok) console.warn(`Impresora virtual: ${printer.message}`);
+  broadcast();
+}
 
 function paths() {
   const resourcesDir = app.isPackaged ? process.resourcesPath : path.join(__dirname, "..");
@@ -45,6 +57,7 @@ function state() {
     packaged: app.isPackaged,
     logFile: getLogFile(),
     agent: { printerPort: 9100 },
+    printer,
     lastRepair,
   };
 }
@@ -112,7 +125,7 @@ async function runRepair() {
     cloudStatus: () => cloudLink.getStatus(),
   });
   lastRepair = { running: false, steps, at: new Date().toISOString() };
-  broadcast();
+  await refreshPrinter();
   return lastRepair;
 }
 
@@ -205,6 +218,7 @@ function startDesktop({ onQuit, cloud }) {
     refreshTray();
 
     setAutoStart();
+    void refreshPrinter();
     updater.onUpdateStatus(broadcast);
     updater.initUpdater({ isPackaged: app.isPackaged });
     cloudLink.onStatus(broadcast);
