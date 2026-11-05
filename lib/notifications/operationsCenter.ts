@@ -1,4 +1,5 @@
 "use client";
+import { getPendingLowStock } from "@/lib/inventory";
 
 export type OperationsAlertPriority = "critical" | "delivery" | "warning" | "info";
 export type OperationsAlertStatus = "pending" | "viewed" | "resolved";
@@ -151,7 +152,8 @@ export function syncCriticalInventoryAlerts() {
 }
 
 export function syncLowStockAlert() {
-  const ids = readJson<number[]>("bpos_low_stock_pending", []);
+  // Solo lo que sigue por debajo de su mínimo (lo ya comprado sale)
+  const ids = getPendingLowStock().map((i) => i.id);
   const alertId = "inventory:low-stock-current-shift";
   if (ids.length > 0) {
     upsertOperationsAlert({
@@ -166,7 +168,7 @@ export function syncLowStockAlert() {
   } else {
     const existing = getOperationsAlerts().find((item) => item.id === alertId);
     if (existing && existing.status !== "resolved") {
-      resolveOperationsAlert(alertId, "Sistema", "Lista resuelta al finalizar el turno.");
+      resolveOperationsAlert(alertId, "Sistema", "Ya no hay insumos por debajo de su mínimo.");
     }
   }
 }
