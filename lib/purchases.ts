@@ -53,6 +53,21 @@ export function registerPurchase(input:Omit<Purchase,"id"|"folio"|"createdAt"|"s
  return purchase;
 }
 
+/** Costo puesto a mano en la ficha del insumo (sin compra): no toca la existencia ni el Kardex y no cuenta como compra; la siguiente compra real, al ser más nueva, lo reemplaza */
+export const isManualCost=(c:Pick<IngredientCostRecord,"purchaseId">)=>String(c.purchaseId||"").startsWith("manual-");
+export function setManualCost(input:{ingredientId:number;ingredientName:string;unit:Ingredient["unit"];packages:number;perPackage:number;total:number}):IngredientCostRecord{
+ const quantity=Math.round(input.packages*input.perPackage*1e6)/1e6;
+ if(!(quantity>0)) throw new Error("Escribe cuántos paquetes y cuánto trae cada uno.");
+ if(!(input.total>0)) throw new Error("Escribe cuánto costó.");
+ const user=getCurrentUser(); const now=new Date().toISOString(); const unitCost=input.total/quantity;
+ const previous=getLatestIngredientCost(input.ingredientId);
+ const record:IngredientCostRecord={id:`cost-manual-${Date.now()}`,ingredientId:input.ingredientId,ingredientName:input.ingredientName,supplier:"Puesto a mano",purchaseId:`manual-${Date.now()}`,purchasedAt:now,inventoryQuantity:quantity,total:input.total,unitCost};
+ write(COSTS_KEY,[...getIngredientCostHistory(),record]);
+ if(previous?.unitCost && unitCost>previous.unitCost*1.1){ const pct=((unitCost/previous.unitCost)-1)*100; upsertOperationsAlert({id:`manual-cost:${record.id}`,priority:"warning",title:"Aumento de costo",message:`${input.ingredientName} aumentó ${pct.toFixed(1)}% (${previous.unitCost.toFixed(2)} → ${unitCost.toFixed(2)} por ${input.unit}).`,source:"Inventario",moduleHref:"/inventario",metadata:{ingredientId:input.ingredientId,previousUnitCost:previous.unitCost,unitCost}}); }
+ addAuditEvent({category:"Inventario",action:"ingredient.cost",description:`${input.ingredientName}: costo puesto a mano $${unitCost.toFixed(4)} por ${input.unit} (${input.packages} × ${input.perPackage} ${input.unit} = $${input.total.toFixed(2)})`,userId:String(user.id),userName:user.name,metadata:{ingredientId:input.ingredientId,unitCost,packages:input.packages,perPackage:input.perPackage,total:input.total}});
+ return record;
+}
+
 export function cancelPurchase(id:string,reason:string){ if(!reason.trim()) throw new Error("El motivo de cancelación es obligatorio."); const purchases=getPurchases(); const purchase=purchases.find(x=>x.id===id); if(!purchase||purchase.status==="cancelled") throw new Error("Compra no disponible para cancelar."); const user=getCurrentUser(); purchase.items.forEach(item=>adjustInventory({ingredientId:item.ingredientId,quantity:item.inventoryQuantity,adjustmentType:"Ajuste negativo",reason:`Cancelación ${purchase.folio} · ${reason}`})); const next=purchases.map(x=>x.id===id?{...x,status:"cancelled" as const,cancelledAt:new Date().toISOString(),cancelledBy:user.name,cancellationReason:reason}:x); write(PURCHASES_KEY,next); write(COSTS_KEY,getIngredientCostHistory().filter(c=>c.purchaseId!==id)); addAuditEvent({category:"Compras",action:"purchase.cancelled",description:`${purchase.folio} cancelada: ${reason}`,userId:String(user.id),userName:user.name,entityId:id}); }
 
 /** Cambia con qué semana de ingresos se pagó una compra (Finanzas la cuenta en esa semana) */
