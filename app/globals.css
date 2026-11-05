@@ -156,6 +156,38 @@ html.theme-light .text-black {
   color: #111114;
 }
 
+/* Textos de color muy claros (100, y 200/300 de los tonos sin variable arriba): sobre
+   fondo blanco no se leen; se oscurecen. Con atributo para que también aplique a
+   las variantes con transparencia (text-yellow-100/80). El menú digital y el
+   kiosco (.menu-shell) están diseñados en claro y no cambian. */
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-red-100"] { color: #991b1b; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-yellow-100"] { color: #854d0e; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-amber-100"] { color: #92400e; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-orange-100"] { color: #9a3412; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-emerald-100"] { color: #065f46; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-green-100"] { color: #166534; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-sky-100"] { color: #075985; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-blue-100"] { color: #1e40af; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-cyan-100"] { color: #155e75; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-teal-100"] { color: #115e59; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-violet-100"] { color: #5b21b6; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-purple-100"] { color: #6b21a8; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-pink-100"] { color: #9d174d; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-rose-100"] { color: #9f1239; }
+html.theme-light :not(.menu-shell, .menu-shell *)[class*="text-lime-100"] { color: #3f6212; }
+html.theme-light :not(.menu-shell, .menu-shell *):is([class*="text-violet-200"], [class*="text-violet-300"]) { color: #6d28d9; }
+html.theme-light :not(.menu-shell, .menu-shell *):is([class*="text-purple-200"], [class*="text-purple-300"]) { color: #7e22ce; }
+html.theme-light :not(.menu-shell, .menu-shell *):is([class*="text-pink-200"], [class*="text-pink-300"]) { color: #be185d; }
+html.theme-light :not(.menu-shell, .menu-shell *):is([class*="text-rose-200"], [class*="text-rose-300"]) { color: #be123c; }
+html.theme-light :not(.menu-shell, .menu-shell *):is([class*="text-teal-200"], [class*="text-teal-300"]) { color: #0f766e; }
+html.theme-light :not(.menu-shell, .menu-shell *):is([class*="text-lime-200"], [class*="text-lime-300"]) { color: #4d7c0f; }
+html.theme-light :not(.menu-shell, .menu-shell *):is([class*="text-cyan-200"], [class*="text-cyan-300"]) { color: #0e7490; }
+/* Botón blanco con letra negra (en oscuro resalta): en claro el blanco se vuelve negro, la letra va blanca */
+html.theme-light .bg-white.text-black { color: #ffffff; }
+/* Texto naranja y gris tenue: un poco más oscuros para leerse sobre blanco (los botones naranjas no cambian) */
+html.theme-light [class*="text-orange-500"] { color: #c2410c; }
+html.theme-light [class*="text-zinc-600"] { color: #71717a; }
+
 /* POS: destello naranja al tocar un producto (ProductCard) */
 @keyframes bpos-tap {
   0% {
