@@ -471,3 +471,17 @@ export function salesByBranch(
   });
   return finish(byBranch);
 }
+
+/** Un pedido de la nube por su id (para el detalle de un aviso en la App del dueño); null si no está. */
+export async function loadCloudOrder(id: string) {
+  const { getSupabase, isCloudConfigured } = await import("@/lib/supabase/client");
+  if (!isCloudConfigured || !id) return null;
+  const { data, error } = await getSupabase()
+    .from("sync_records")
+    .select("scope, data")
+    .eq("collection", "bpos_orders")
+    .eq("record_id", id)
+    .limit(1);
+  if (error) throw new Error(error.message);
+  return ((data ?? [])[0]?.data as ReportOrder | undefined) ?? null;
+}
