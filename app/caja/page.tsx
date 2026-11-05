@@ -14,6 +14,7 @@ import { saveCashCloseRecord } from "@/lib/cash-history";
 import { formatHours, shiftStaffHours } from "@/lib/timeclock";
 import { isCancelled } from "@/lib/sale-cancel";
 import { paidWith, tipOf, tipPaidWith } from "@/lib/sale-payments";
+import { deliveryApp, estimatedDeposit, getAppCommissions } from "@/lib/app-commissions";
 
 type CashMovement = {
   id: number;
@@ -348,6 +349,24 @@ export default function CajaPage() {
           )
           .join("\n");
 
+  // Lo que cobran las apps (no entra a caja), por app y con el depósito aproximado
+  // según Finanzas → Comisiones de apps, para que el total de ventas cuadre
+  const commissions = getAppCommissions();
+  const appRows = new Map<string, number>();
+  for (const order of shiftOrders) {
+    if (!PLATFORM_METHODS.has(order.details.paymentMethod || "")) continue;
+    const app = deliveryApp(order as Parameters<typeof deliveryApp>[0]);
+    appRows.set(app, (appRows.get(app) || 0) + order.total);
+  }
+  const appDeposits = [...appRows].map(([app, sales]) => ({ app, sales, deposit: estimatedDeposit(app, sales, commissions) }));
+  const appsText = appDeposits
+    .map((a) => `🛵 ${a.app} (lo cobra la app): $${a.sales.toFixed(2)}${a.deposit === null ? "" : ` → depósito aprox. $${a.deposit.toFixed(2)}`}`)
+    .join("\n");
+  const depositTotal = appDeposits.reduce((sum, a) => sum + (a.deposit || 0), 0);
+  const depositsText = appDeposits.some((a) => a.deposit !== null)
+    ? `\n💰 Te queda aprox. (caja + depósitos): $${(totalSales - platformSales + depositTotal).toFixed(2)}${appDeposits.some((a) => a.deposit === null) ? " (sin contar las apps sin comisión configurada)" : ""}`
+    : "";
+
   const cutFolio = `CC-${new Date()
     .toISOString()
     .slice(0, 10)
@@ -377,9 +396,9 @@ export default function CajaPage() {
 
 💵 Efectivo: $${cashSales.toFixed(2)}
 💳 Tarjeta: $${cardSales.toFixed(2)}
-🏦 Transferencia: ${transferSales.toFixed(2)}${mpSales ? `\n📲 Mercado Pago en línea: ${mpSales.toFixed(2)}` : ""}
+🏦 Transferencia: $${transferSales.toFixed(2)}${mpSales ? `\n📲 Mercado Pago en línea: $${mpSales.toFixed(2)}` : ""}${appsText ? `\n${appsText}` : ""}
 
-📈 Total ventas: $${totalSales.toFixed(2)}${tipsTotal ? `\n💛 Propinas: $${tipsTotal.toFixed(2)} (en efectivo $${tipsCash.toFixed(2)})` : ""}
+📈 Total ventas: $${totalSales.toFixed(2)}${depositsText}${tipsTotal ? `\n💛 Propinas: $${tipsTotal.toFixed(2)} (en efectivo $${tipsCash.toFixed(2)})` : ""}
 
 ──────────────
 *VENTAS POR CANAL*
