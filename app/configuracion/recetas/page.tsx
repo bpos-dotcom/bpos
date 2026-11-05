@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { ask } from "@/components/layout/Dialogs";
-import { Ingredient, RecipeItem } from "@/data/inventory";
+import { Ingredient, RecipeItem, isPackaging } from "@/data/inventory";
 import { Product } from "@/data/products";
 import {
   getAdminIngredients,
@@ -25,7 +25,8 @@ export default function RecetasAdminPage() {
   useEffect(() => {
     const savedProducts = getAdminProducts();
     setProducts(savedProducts);
-    setIngredients(getAdminIngredients());
+    // El empaque va en el recuadro Packaging de cada producto, no en la receta
+    setIngredients(getAdminIngredients().filter((i) => !isPackaging(i)));
     setRecipes(getAdminRecipes());
     setSelectedProductId(savedProducts[0]?.id ?? null);
   }, []);

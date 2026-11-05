@@ -9,9 +9,19 @@ export type Ingredient = {
   category?: string;
   /** Estación que lo prepara (ej. el boneless en Freidora): sugiere comanda extra a productos de otra estación que lo llevan */
   station?: KitchenStation;
+  /**
+   * "packaging": empaque (contenedor CM40, hamburguesero, bolsa, vaso...). Se
+   * lleva en el mismo inventario y compras, pero se lista en Tu negocio →
+   * Packaging y se pone en el recuadro Packaging de cada producto (no en su receta).
+   */
+  kind?: "packaging";
 };
 
+export const isPackaging = (i: Pick<Ingredient, "kind">) => i.kind === "packaging";
+
 /** Categorías que se sugieren al ordenar ingredientes (además de las que ya tenga el negocio) */
+export const SUGGESTED_PACKAGING_CATEGORIES = ["Contenedores", "Bolsas", "Vasos y tapas", "Aderezos para llevar", "Servilletas y cubiertos"];
+
 export const SUGGESTED_CATEGORIES = ["Carnes", "Lácteos", "Panadería", "Verduras", "Salsas y aderezos", "Bebidas", "Desechables", "Limpieza"];
 
 export const initialIngredients: Ingredient[] = [

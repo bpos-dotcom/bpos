@@ -241,6 +241,8 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
   const costAt = makeCostLookup(src.costHistory);
   const recipes = makeRecipeIndex(src.recipes);
   const productById = new Map(src.products.map((p) => [p.id, p]));
+  // Empaque de cada producto (solo cuenta el del producto vendido, no el de las partes del combo)
+  const packagingOf = new Map(src.products.map((p) => [Number(p.id), (p as { packaging?: { ingredientId: number; quantity: number }[] }).packaging || []]));
 
   // Las ventas de un corte anulado (ej. pruebas) no cuentan
   const voided = voidedShiftIds(src.shifts);
@@ -288,7 +290,14 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
     items.forEach((item) => {
       const qty = Number(item.quantity) || 0;
       const lineSales = (Number(item.price) || 0) * qty * factor;
-      const { cost: lineCost, known } = itemCost({ ...item, quantity: qty }, order.createdAt, recipes, costAt, use);
+      const { cost: recipeCost, known } = itemCost({ ...item, quantity: qty }, order.createdAt, recipes, costAt, use);
+      let lineCost = recipeCost;
+      for (const p of packagingOf.get(Number(item.id)) || []) {
+        const amount = (Number(p.quantity) || 0) * qty;
+        const c = costAt(Number(p.ingredientId), order.createdAt) * amount;
+        lineCost += c;
+        if (amount > 0) use(Number(p.ingredientId), amount, c);
+      }
       if (!known) orderKnown = false;
       orderCost += lineCost;
       itemsSold += qty;

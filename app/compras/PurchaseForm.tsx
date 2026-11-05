@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
-import type { Ingredient } from "@/data/inventory";
+import { isPackaging, type Ingredient } from "@/data/inventory";
 import { getInventory } from "@/lib/inventory";
 import { recentWeeks, weekLabel } from "@/lib/finance";
 import {
@@ -205,12 +205,21 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
               </div>
               <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <select value={l.ingredientId} onChange={(e) => patch(l.id, { ingredientId: e.target.value })} className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-3">
-                  <option value="">Ingrediente *</option>
-                  {ingredients.map((x) => (
-                    <option key={x.id} value={x.id}>
-                      {x.name} ({x.unit})
-                    </option>
-                  ))}
+                  <option value="">Ingrediente o empaque *</option>
+                  {[
+                    ["🧂 Ingredientes", ingredients.filter((x) => !isPackaging(x))],
+                    ["📦 Packaging", ingredients.filter(isPackaging)],
+                  ].map(([label, list]) =>
+                    (list as Ingredient[]).length ? (
+                      <optgroup key={label as string} label={label as string}>
+                        {(list as Ingredient[]).map((x) => (
+                          <option key={x.id} value={x.id}>
+                            {x.name} ({x.unit})
+                          </option>
+                        ))}
+                      </optgroup>
+                    ) : null
+                  )}
                 </select>
                 <input type="number" min="0" step="any" value={l.presentations} onChange={(e) => patch(l.id, { presentations: e.target.value })} placeholder="Presentaciones" className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-3" />
                 <input type="number" min="0" step="any" value={l.inventoryQuantity} onChange={(e) => patch(l.id, { inventoryQuantity: e.target.value })} placeholder={ing ? `Entrada real (${ing.unit})` : "Entrada real"} className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-3" />

@@ -47,7 +47,10 @@ const round = (n: number) => Math.round(n * 1e6) / 1e6;
 export function unitChangeImpact(ingredientId: number) {
   const recipes = getAdminRecipes().filter((r) => Number(r.ingredientId) === Number(ingredientId)).length;
   const options = getAdminProducts().reduce(
-    (n, p) => n + (p.modifierGroups || []).reduce((m, g) => m + g.options.filter((o) => Number(o.ingredientId) === Number(ingredientId)).length, 0),
+    (n, p) =>
+      n +
+      (p.modifierGroups || []).reduce((m, g) => m + g.options.filter((o) => Number(o.ingredientId) === Number(ingredientId)).length, 0) +
+      (p.packaging || []).filter((l) => Number(l.ingredientId) === Number(ingredientId)).length,
     0
   );
   return { recipes, options };
@@ -69,17 +72,21 @@ export function changeIngredientUnit(ingredientId: number, to: Unit) {
 
     saveAdminRecipes(getAdminRecipes().map((r) => (Number(r.ingredientId) === Number(ingredientId) ? { ...r, quantity: round(Number(r.quantity) * factor) } : r)));
     saveAdminProducts(
-      getAdminProducts().map((p) =>
-        p.modifierGroups?.some((g) => g.options.some((o) => Number(o.ingredientId) === Number(ingredientId)))
-          ? {
-              ...p,
-              modifierGroups: p.modifierGroups.map((g) => ({
-                ...g,
-                options: g.options.map((o) => (Number(o.ingredientId) === Number(ingredientId) && o.quantity !== undefined ? { ...o, quantity: round(Number(o.quantity) * factor) } : o)),
-              })),
-            }
-          : p
-      )
+      getAdminProducts().map((p) => {
+        let next = p;
+        if (p.modifierGroups?.some((g) => g.options.some((o) => Number(o.ingredientId) === Number(ingredientId))))
+          next = {
+            ...next,
+            modifierGroups: p.modifierGroups.map((g) => ({
+              ...g,
+              options: g.options.map((o) => (Number(o.ingredientId) === Number(ingredientId) && o.quantity !== undefined ? { ...o, quantity: round(Number(o.quantity) * factor) } : o)),
+            })),
+          };
+        // Empaque del producto
+        if (p.packaging?.some((l) => Number(l.ingredientId) === Number(ingredientId)))
+          next = { ...next, packaging: p.packaging.map((l) => (Number(l.ingredientId) === Number(ingredientId) ? { ...l, quantity: round(Number(l.quantity) * factor) } : l)) };
+        return next;
+      })
     );
     // Equivalencias de compra (cuánto trae cada presentación) y costos (precio por unidad)
     const aliases = JSON.parse(localStorage.getItem("bpos_purchase_aliases") || "[]") as { ingredientId: number; quantity: number; unit: Unit }[];
