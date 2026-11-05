@@ -5,7 +5,9 @@
 param(
   [string]$LogPath = (Join-Path $env:ProgramData "B-POS\virtual-printer.log"),
   # Solo para pruebas: otro nombre para no tocar la impresora que ya funciona
-  [string]$PrinterName = "B-POS Agent Virtual Printer"
+  [string]$PrinterName = "B-POS Agent Virtual Printer",
+  # Solo para pruebas: controladores a intentar, en orden
+  [string[]]$TestDrivers = @()
 )
 
 $printerName = $PrinterName
@@ -16,8 +18,10 @@ $portNumber = 9100
 try { New-Item -ItemType Directory -Force -Path (Split-Path $LogPath) | Out-Null } catch {}
 try { Set-Content -Path $LogPath -Value "" -Encoding UTF8 } catch {}
 
+# Write-Host y no Write-Output: dentro de una función, Write-Output se vuelve
+# parte de lo que regresa y un "no" con mensajes se leía como "sí"
 function Log([string]$message) {
-  Write-Output $message
+  Write-Host $message
   try { Add-Content -Path $LogPath -Value ("{0} {1}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"), $message) -Encoding UTF8 } catch {}
 }
 
@@ -94,7 +98,7 @@ if ($pdfPrinter -and $pdfPrinter.DriverName -notin ($pdfDrivers + $xpsDrivers + 
 
 function Ensure-Driver([string]$name, [string]$feature) {
   if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
-  Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
+  $null = Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
   if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
   # Windows 11 nuevo trae el controlador PDF guardado (prnms009.inf) pero sin instalar
   if ($name -eq "Microsoft Print To PDF") {
@@ -102,16 +106,16 @@ function Ensure-Driver([string]$name, [string]$feature) {
     if (Test-Path "$env:windir\INF\prnms009.inf") { $infs += "$env:windir\INF\prnms009.inf" }
     foreach ($inf in $infs) {
       try {
-        Add-PrinterDriver -Name $name -InfPath $inf -ErrorAction Stop
+        $null = Add-PrinterDriver -Name $name -InfPath $inf -ErrorAction Stop
         Log "Controlador PDF instalado desde $inf"
-        return $true
+        return [bool](Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue)
       } catch { Log ("No se pudo instalar el controlador PDF desde {0}: {1}" -f $inf, (Error-Text $_)) }
     }
     if (-not $infs.Count) { Log "Windows no trae el archivo del controlador PDF (prnms009.inf)." }
   }
   if ($feature) {
-    Enable-Feature $feature
-    Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
+    $null = Enable-Feature $feature
+    $null = Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
   }
   return [bool](Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue)
 }
@@ -126,10 +130,11 @@ function Error-Text($err) {
 # Crea la impresora con un controlador: primero con Add-Printer y, si Windows
 # lo rechaza, con WMI (otra vía del mismo servicio de impresión)
 function Try-Printer([string]$driver) {
-  Get-Printer -Name $printerName -ErrorAction SilentlyContinue | Remove-Printer -ErrorAction SilentlyContinue
+  $null = Get-Printer -Name $printerName -ErrorAction SilentlyContinue | Remove-Printer -ErrorAction SilentlyContinue
   try {
-    Add-Printer -Name $printerName -DriverName $driver -PortName $portName -ErrorAction Stop
-    return $true
+    $null = Add-Printer -Name $printerName -DriverName $driver -PortName $portName -ErrorAction Stop
+    if (Get-Printer -Name $printerName -ErrorAction SilentlyContinue) { return $true }
+    Log ("Add-Printer con '{0}' no marco error pero la impresora no aparece." -f $driver)
   } catch {
     Log ("Add-Printer con '{0}' fallo: {1}" -f $driver, (Error-Text $_))
   }
@@ -162,12 +167,14 @@ $attempts = @()
 $attempts += $pdfDrivers | ForEach-Object { @{ Name = $_; Feature = "Printing-PrintToPDFServices-Features" } }
 $attempts += $xpsDrivers | ForEach-Object { @{ Name = $_; Feature = "Printing-XPSServices-Features" } }
 $attempts += $classDrivers | ForEach-Object { @{ Name = $_; Feature = $null } }
+if ($TestDrivers.Count) { $attempts = @($TestDrivers | ForEach-Object { @{ Name = $_; Feature = $null } }) }
 foreach ($a in $attempts) {
-  if (-not (Ensure-Driver $a.Name $a.Feature)) { Log ("Windows no tiene el controlador '{0}'." -f $a.Name); continue }
+  if ((Ensure-Driver $a.Name $a.Feature) -ne $true) { Log ("Windows no tiene el controlador '{0}'." -f $a.Name); continue }
   $tried += $a.Name
   Log ("Creando la impresora con el controlador '{0}'..." -f $a.Name)
-  if (Try-Printer $a.Name) {
-    $final = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
+  $created = Try-Printer $a.Name
+  $final = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
+  if ($created -eq $true -and $final) {
     Log ("OK: {0} instalada (controlador {1}, puerto {2})." -f $printerName, $final.DriverName, $final.PortName)
     exit 0
   }
