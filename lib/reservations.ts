@@ -65,5 +65,5 @@ export function reservationWhatsappLink(r: Reservation, status: "confirmada" | "
     status === "confirmada"
       ? `✅ ${hi}tu reservación en ${business} está confirmada: mesa para ${r.people} el ${reservationWhen(r.reserved_at)}. ¡Te esperamos!`
       : `😔 ${hi}no podemos confirmar tu reservación en ${business} para el ${reservationWhen(r.reserved_at)}${reason ? ` (${reason})` : ""}. Escríbenos y buscamos otra hora.`;
-  return `https://wa.me/${phone}?text=${encodeURIComponent(text)}`;
+  return `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(text)}`;
 }

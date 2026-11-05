@@ -156,7 +156,7 @@ async function main() {
   const pagado = driverMessage({ ...info, payment: { paid: true, method: "Transferencia" } });
   check("repartidor: ya pagado no cobra", pagado.includes("YA PAGADO") && !pagado.includes("COBRAR"), pagado);
   const sale = { ...info, payment: { paid: true as const, method: "Efectivo" } };
-  check("WhatsApp al repartidor con 52", driverWhatsappLink({ id: "r", name: "Luis", phone: "8711112222", active: true }, sale).startsWith("https://wa.me/528711112222?text="));
+  check("WhatsApp al repartidor con 52", driverWhatsappLink({ id: "r", name: "Luis", phone: "8711112222", active: true }, sale).startsWith("https://api.whatsapp.com/send/?phone=528711112222&text="));
   check("número mal escrito no arma liga", driverWhatsappLink({ id: "r", name: "Luis", phone: "123", active: true }, sale) === "");
 
 

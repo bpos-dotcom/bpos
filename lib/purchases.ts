@@ -135,6 +135,6 @@ export function buildSupplierOrderMessage(supplierName:string,lines:{name:string
 
 export function whatsappUrl(phone:string,message:string){
  let digits=phone.replace(/\D/g,""); if(digits.length===10) digits=`52${digits}`;
- return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+ return `https://api.whatsapp.com/send/?phone=${digits}&text=${encodeURIComponent(message)}`;
 }
 

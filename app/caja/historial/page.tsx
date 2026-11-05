@@ -41,7 +41,7 @@ export default function CashHistoryPage() {
       return;
     }
     const message = record.cutMessage || buildFallbackMessage(record);
-    window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, "_blank");
+    window.open(`https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}`, "_blank");
     const user = getCurrentUser();
     addAuditEvent({
       category: "Caja",

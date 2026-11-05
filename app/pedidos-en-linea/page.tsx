@@ -125,7 +125,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   const phone = whatsappNumber(d.customer.phone);
   const confirmLink =
     later && phone
-      ? `https://wa.me/${phone}?text=${encodeURIComponent(`¡Hola ${d.customer.name.split(" ")[0]}! Recibimos tu pedido programado ${order.folio} para ${scheduledLabel(d.scheduledFor!)}. ¡Te esperamos! 🧡`)}`
+      ? `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(`¡Hola ${d.customer.name.split(" ")[0]}! Recibimos tu pedido programado ${order.folio} para ${scheduledLabel(d.scheduledFor!)}. ¡Te esperamos! 🧡`)}`
       : "";
   return (
     <div className={`rounded-3xl border p-5 ${isNew ? "border-emerald-400 bg-emerald-500/5" : "border-zinc-800 bg-zinc-950"}`}>
