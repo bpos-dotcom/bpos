@@ -17,7 +17,7 @@ import { addAuditEvent } from "@/lib/audit";
 import type { CurrentUser } from "@/lib/auth";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
 import { getDigitalMenu, isOpenNow, opensInLabel } from "@/lib/digital-menu";
-import { discountInventoryByOrder } from "@/lib/inventory";
+import { correctInventoryForOrder, discountInventoryByOrder, type InventoryOrderLike } from "@/lib/inventory";
 import { notifyKdsUpdated } from "@/lib/kds";
 import { allocateShiftOrderNumber, formatOrderNumber } from "@/lib/order-sequence";
 import { hasPermission } from "@/lib/permissions";
@@ -216,10 +216,10 @@ export function moveTable(order: SavedOrder, to: Table, user: CurrentUser) {
 
 /**
  * Quita un platillo ya mandado (requiere PIN de admin, lo pide la pantalla).
- * Si la cuenta se queda vacía, se cancela. El inventario no se regresa
- * (si el platillo ya se preparó, es merma; se ajusta desde Inventario).
+ * Si la cuenta se queda vacía, se cancela. Inventario: "regresar" (no se
+ * preparó) o "merma" (ya se preparó y se tiró).
  */
-export function removeSentItem(order: SavedOrder, index: number, by: string, user: CurrentUser) {
+export function removeSentItem(order: SavedOrder, index: number, by: string, user: CurrentUser, stock: "regresar" | "merma" = "regresar") {
   const orders = loadSavedOrders();
   const item = order.items[index];
   if (!item) return;
@@ -229,6 +229,12 @@ export function removeSentItem(order: SavedOrder, index: number, by: string, use
     ? { ...order, items, subtotal, total: Math.max(0, subtotal - (order.details.discount || 0)) + (order.details.deliveryFee || 0) }
     : { ...order, items, subtotal: 0, total: 0, cancelled: true, cancelReason: `Se quitó todo desde la app de meseros (autorizó ${by})` };
   saveOrders(orders.map((o) => (o.id === order.id ? updated : o)));
+  // Lo descontado se rehace con lo que quedó en la cuenta; lo quitado regresa o es merma
+  try {
+    correctInventoryForOrder(updated as unknown as InventoryOrderLike, `se quitó ${item.quantity}x ${item.name} (autorizó ${by})`, stock === "merma" ? [item as unknown as InventoryOrderLike["items"][number]] : []);
+  } catch (error) {
+    console.error("No se pudo ajustar el inventario al quitar el platillo:", error);
+  }
   notifyKdsUpdated(order.id);
   addAuditEvent({ category: "Venta", action: "sale.item.removed", description: `${user.name} (mesero) quitó ${item.quantity}x ${item.name} de ${tableLabel(order.details.table)} (Pedido #${formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}); autorizó ${by}${items.length ? "" : ". La cuenta quedó vacía y se canceló"}`, userId: String(user.id), userName: user.name, entityId: String(order.id), metadata: { item: item.name, quantity: item.quantity, price: item.price, authorizedBy: by } });
   return updated;

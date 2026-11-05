@@ -25,6 +25,8 @@ export type InventoryMovement = {
   reason?: string;
   /** Merma: lo que costó lo que se tiró (último costo de compra × cantidad), si se conoce */
   cost?: number;
+  /** Devolución de lo que se descontó por esa venta (cancelación o corrección de equivalencia) */
+  revertOf?: string;
   createdAt: string;
 };
 
@@ -133,8 +135,26 @@ export function createCriticalErrorTest() {
   );
 }
 
+/**
+ * Clave para no descontar dos veces la misma venta. Los pedidos de delivery
+ * llevan también el id de la venta: DiDi reinicia sus números cada día y con
+ * solo "didi:16" el DiDi #16 de hoy se tomaba como el de ayer (no descontaba).
+ */
 function applicationKey(order: InventoryOrderLike) {
-  return order.externalOrderKey || `order:${order.id}`;
+  return order.externalOrderKey ? `${order.externalOrderKey}@${order.id}` : `order:${order.id}`;
+}
+
+/** Hasta aquí los pedidos de delivery se marcaban solo con "plataforma:número" */
+const LEGACY_KEY_UNTIL = Date.parse("2026-11-05T11:30:00.000Z");
+
+function isApplied(applied: Set<string>, order: InventoryOrderLike) {
+  if (applied.has(applicationKey(order))) return true;
+  if (!order.externalOrderKey || !applied.has(order.externalOrderKey)) return false;
+  const at = Date.parse(order.createdAt || "");
+  if (!Number.isFinite(at) || at < LEGACY_KEY_UNTIL) return true;
+  // Una caja con la versión anterior abierta marca solo "plataforma:número": si ya hay
+  // descuento de esta venta en la bitácora, no se vuelve a descontar
+  return getKardex().some((m) => (m.type === "Venta plataforma" || m.type === "Venta POS") && String(m.orderId) === String(order.id));
 }
 
 /** Falta: tiene mínimo configurado y está en él o abajo (sin mínimo, nunca cuenta como faltante) */
@@ -212,43 +232,45 @@ export function markInventoryApplied(orderId: number | string) {
   writeJson(APPLIED_KEY, Array.from(applied));
 }
 
+/** Lo que descuenta una venta: receta (y partes de combo), empaque del producto vendido y ajustes del Bridge */
+function orderConsumption(order: InventoryOrderLike) {
+  const recipeList = getAdminRecipes();
+  const consumptions = new Map<number, number>();
+  const recipeOf = (productId: number) => recipeList.filter((recipe) => Number(recipe.productId) === Number(productId));
+  const packagingOf = new Map(getAdminProducts().map((p) => [Number(p.id), p.packaging || []]));
+  for (const item of order.items || []) {
+    const qty = Number(item.quantity);
+    if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Cantidad inválida en producto ${item.name || item.id}.`);
+    // Receta propia + la de cada parte si es combo
+    itemConsumption({ ...item, quantity: qty }, recipeOf).forEach((amount, ingredientId) => {
+      consumptions.set(ingredientId, (consumptions.get(ingredientId) || 0) + amount);
+    });
+    // Empaque: solo el del producto vendido (no el de las partes del combo)
+    for (const p of packagingOf.get(Number(item.id)) || []) {
+      const amount = (Number(p.quantity) || 0) * qty;
+      if (amount > 0) consumptions.set(Number(p.ingredientId), (consumptions.get(Number(p.ingredientId)) || 0) + amount);
+    }
+  }
+  for (const adjustment of order.bridgeActions?.inventoryAdjustments || []) {
+    const id = Number(adjustment.ingredientId);
+    const qty = Number(adjustment.quantity);
+    if (!Number.isFinite(id) || !Number.isFinite(qty) || qty <= 0) throw new Error(`Ajuste de inventario inválido: ${adjustment.name || adjustment.ingredientId}.`);
+    consumptions.set(id, (consumptions.get(id) || 0) + qty);
+  }
+  return consumptions;
+}
+
 export function applyInventoryForOrder(order: InventoryOrderLike): InventoryApplicationResult {
   if (typeof window === "undefined") return { success: false, duplicate: false, movements: [], lowStock: [], error: "Disponible solo en navegador." };
   const key = applicationKey(order);
   const applied = new Set(readJson<string[]>(APPLIED_KEY, []));
-  if (applied.has(key)) return { success: true, duplicate: true, movements: [], lowStock: getPendingLowStock() };
+  if (isApplied(applied, order)) return { success: true, duplicate: true, movements: [], lowStock: getPendingLowStock() };
 
   try {
     const inventory = structuredClone(getInventory());
-    const recipeList = getAdminRecipes();
-    const consumptions = new Map<number, number>();
-
-    const recipeOf = (productId: number) => recipeList.filter((recipe) => Number(recipe.productId) === Number(productId));
-    const packagingOf = new Map(getAdminProducts().map((p) => [Number(p.id), p.packaging || []]));
-    for (const item of order.items || []) {
-      const qty = Number(item.quantity);
-      if (!Number.isFinite(qty) || qty <= 0) throw new Error(`Cantidad inválida en producto ${item.name || item.id}.`);
-      // Receta propia + la de cada parte si es combo
-      itemConsumption({ ...item, quantity: qty }, recipeOf).forEach((amount, ingredientId) => {
-        consumptions.set(ingredientId, (consumptions.get(ingredientId) || 0) + amount);
-      });
-      // Empaque: solo el del producto vendido (no el de las partes del combo)
-      for (const p of packagingOf.get(Number(item.id)) || []) {
-        const amount = (Number(p.quantity) || 0) * qty;
-        if (amount > 0) consumptions.set(Number(p.ingredientId), (consumptions.get(Number(p.ingredientId)) || 0) + amount);
-      }
-    }
-
-    for (const adjustment of order.bridgeActions?.inventoryAdjustments || []) {
-      const id = Number(adjustment.ingredientId);
-      const qty = Number(adjustment.quantity);
-      if (!Number.isFinite(id) || !Number.isFinite(qty) || qty <= 0) throw new Error(`Ajuste de inventario inválido: ${adjustment.name || adjustment.ingredientId}.`);
-      consumptions.set(id, (consumptions.get(id) || 0) + qty);
-    }
-
     const now = new Date().toISOString();
     const movements: InventoryMovement[] = [];
-    for (const [ingredientId, quantity] of consumptions) {
+    for (const [ingredientId, quantity] of orderConsumption(order)) {
       const ingredient = inventory.find((item) => Number(item.id) === ingredientId);
       if (!ingredient) throw new Error(`El ingrediente ${ingredientId} no existe.`);
       const previousStock = Number(ingredient.stock);
@@ -320,6 +342,141 @@ export function discountInventoryByOrder(
     items,
     source: "POS",
   });
+}
+
+// ---------------------------------------------------------------- devolver lo de una venta
+
+const SALE_TYPES = new Set<InventoryMovement["type"]>(["Venta POS", "Venta plataforma"]);
+const round = (n: number) => Math.round(n * 10000) / 10000;
+
+/** ¿Ya se descontó el inventario de esta venta? (se descuenta pocos segundos después de cobrar) */
+export function inventoryWasApplied(order: InventoryOrderLike) {
+  return isApplied(new Set(readJson<string[]>(APPLIED_KEY, [])), order);
+}
+
+/**
+ * Lo que sigue descontado por esa venta, por ingrediente: lo que se descontó
+ * (según la bitácora de inventario, no la receta de hoy) menos lo que ya se devolvió.
+ */
+export function orderNetConsumption(orderId: number | string) {
+  const id = String(orderId);
+  const net = new Map<number, number>();
+  // Las rondas de una mesa se descuentan como "<id>-r2", "<id>-r3"…
+  const ofOrder = (orderOf: unknown) => String(orderOf) === id || String(orderOf).startsWith(`${id}-r`);
+  for (const m of getKardex()) {
+    const ingredientId = Number(m.ingredientId);
+    if (SALE_TYPES.has(m.type) && ofOrder(m.orderId)) net.set(ingredientId, (net.get(ingredientId) || 0) + Number(m.quantity));
+    else if (m.revertOf === id) net.set(ingredientId, (net.get(ingredientId) || 0) - Number(m.quantity));
+  }
+  for (const [ingredientId, qty] of net) if (round(qty) <= 0) net.delete(ingredientId);
+  return net;
+}
+
+/** Último costo por unidad (Compras o "Puesto a mano"); 0 si no se conoce */
+function latestUnitCost(ingredientId: number) {
+  const records = readJson<{ ingredientId: number; purchasedAt: string; unitCost: number }[]>("bpos_ingredient_cost_history", []);
+  const last = records.filter((r) => Number(r.ingredientId) === ingredientId).sort((a, b) => +new Date(b.purchasedAt) - +new Date(a.purchasedAt))[0];
+  return Number(last?.unitCost) || 0;
+}
+
+/** Suma (+) o resta (−) al inventario y lo anota en la bitácora */
+function moveStock(inventory: Ingredient[], ingredientId: number, delta: number, base: Omit<InventoryMovement, "id" | "ingredientId" | "ingredientName" | "unit" | "quantity" | "previousStock" | "finalStock" | "createdAt">): InventoryMovement | null {
+  const ingredient = inventory.find((item) => Number(item.id) === ingredientId);
+  if (!ingredient) return null; // se borró el ingrediente: no hay a dónde regresarlo
+  const previousStock = Number(ingredient.stock);
+  ingredient.stock = round(previousStock + delta);
+  return {
+    id: `mov-${Date.now()}-${ingredientId}-${Math.random().toString(36).slice(2, 7)}`,
+    ingredientId,
+    ingredientName: ingredient.name,
+    unit: ingredient.unit,
+    quantity: round(Math.abs(delta)),
+    previousStock,
+    finalStock: ingredient.stock,
+    createdAt: new Date().toISOString(),
+    ...base,
+  };
+}
+
+function saveMovements(inventory: Ingredient[], movements: InventoryMovement[], orderId: number | string) {
+  saveAdminIngredients(inventory);
+  writeJson(KARDEX_KEY, [...getKardex(), ...movements]);
+  updateLowStockPending(inventory);
+  window.dispatchEvent(new CustomEvent("bpos:inventory-updated", { detail: { orderId, movements } }));
+}
+
+/**
+ * Venta cancelada o devuelta:
+ *   "regresar": no se preparó → lo que se descontó regresa al inventario.
+ *   "merma": ya se preparó y se tiró → regresa y sale como merma (con su costo),
+ *            así el inventario queda igual pero se ve en Mermas y en el food cost.
+ * Si todavía no se descontaba, con "regresar" ya no se descuenta.
+ */
+export function revertInventoryForOrder(order: InventoryOrderLike, mode: "regresar" | "merma", reason: string) {
+  if (typeof window === "undefined") return { returned: 0, merma: 0 };
+  if (!inventoryWasApplied(order)) {
+    if (mode === "regresar") {
+      const applied = new Set(readJson<string[]>(APPLIED_KEY, []));
+      applied.add(applicationKey(order));
+      writeJson(APPLIED_KEY, [...applied]);
+      return { returned: 0, merma: 0 };
+    }
+    applyInventoryForOrder(order); // ya se preparó: sí se gastó
+  }
+  const inventory = structuredClone(getInventory());
+  const id = String(order.id);
+  const movements: InventoryMovement[] = [];
+  let merma = 0;
+  for (const [ingredientId, qty] of orderNetConsumption(id)) {
+    const back = moveStock(inventory, ingredientId, qty, { type: "Ajuste positivo", revertOf: id, platform: order.externalPlatform, reason: `Devolución de la venta #${id}: ${reason}` });
+    if (!back) continue;
+    movements.push(back);
+    if (mode === "merma") {
+      const cost = Math.round(latestUnitCost(ingredientId) * qty * 100) / 100;
+      merma += cost;
+      const out = moveStock(inventory, ingredientId, -qty, { type: "Merma", platform: order.externalPlatform, reason: `Venta #${id} cancelada, ya se había preparado: ${reason}`, ...(cost ? { cost } : {}) });
+      if (out) movements.push(out);
+    }
+  }
+  if (movements.length) saveMovements(inventory, movements, order.id);
+  return { returned: movements.filter((m) => m.type === "Ajuste positivo").length, merma };
+}
+
+/**
+ * Se corrigieron los productos de una venta (ej. una equivalencia mal hecha en
+ * el Bridge): regresa lo que se descontó y descuenta lo de los productos nuevos.
+ * Si todavía no se descontaba, no hace nada (se descontará con los nuevos).
+ */
+export function correctInventoryForOrder(order: InventoryOrderLike, reason: string, wasted: InventoryOrderLike["items"] = []) {
+  if (typeof window === "undefined" || !inventoryWasApplied(order)) return { corrected: false };
+  const inventory = structuredClone(getInventory());
+  const id = String(order.id);
+  const movements: InventoryMovement[] = [];
+  for (const [ingredientId, qty] of orderNetConsumption(id)) {
+    const back = moveStock(inventory, ingredientId, qty, { type: "Ajuste positivo", revertOf: id, platform: order.externalPlatform, reason: `Corrección de la venta #${id}: ${reason}` });
+    if (back) movements.push(back);
+  }
+  for (const [ingredientId, qty] of orderConsumption(order)) {
+    const out = moveStock(inventory, ingredientId, -qty, {
+      type: order.externalOrderKey ? "Venta plataforma" : "Venta POS",
+      orderId: order.id,
+      externalOrderKey: order.externalOrderKey,
+      platform: order.externalPlatform,
+      reason: `Corrección de la venta #${id}: ${reason}`,
+    });
+    if (!out) throw new Error(`El ingrediente ${ingredientId} no existe.`);
+    movements.push(out);
+  }
+  // Lo que se quitó de la cuenta pero ya se había preparado: merma con su costo
+  if (wasted.length) {
+    for (const [ingredientId, qty] of orderConsumption({ id: order.id, items: wasted })) {
+      const cost = Math.round(latestUnitCost(ingredientId) * qty * 100) / 100;
+      const out = moveStock(inventory, ingredientId, -qty, { type: "Merma", platform: order.externalPlatform, reason: `Venta #${id}, ya se había preparado: ${reason}`, ...(cost ? { cost } : {}) });
+      if (out) movements.push(out);
+    }
+  }
+  saveMovements(inventory, movements, order.id);
+  return { corrected: true };
 }
 
 export function processUnappliedOrders(): InventoryApplicationResult[] {

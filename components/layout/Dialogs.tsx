@@ -16,7 +16,8 @@ import { useEffect, useRef, useState } from "react";
 
 type Kind = "ok" | "error" | "info";
 type Toast = { id: number; message: string; kind: Kind };
-type TextOptions = { placeholder?: string; defaultValue?: string; password?: boolean; numeric?: boolean; ok?: string; cancel?: string };
+/** choices: en vez de escribir, se elige una opción (regresa su value; defaultValue = la marcada al inicio) */
+type TextOptions = { placeholder?: string; defaultValue?: string; password?: boolean; numeric?: boolean; ok?: string; cancel?: string; choices?: { value: string; label: string; hint?: string }[] };
 type Question =
   | { id: number; type: "confirm"; message: string; ok: string; cancel: string; resolve: (v: boolean) => void }
   | { id: number; type: "text"; message: string; options: TextOptions; resolve: (v: string | null) => void };
@@ -127,7 +128,20 @@ export function Dialogs() {
             className="w-full max-w-md rounded-3xl border border-zinc-700 bg-zinc-950 p-6 text-white shadow-2xl"
           >
             <p className="whitespace-pre-line text-base font-bold">{current.message}</p>
-            {current.type === "text" && (
+            {current.type === "text" && current.options.choices && (
+              <div className="mt-4 space-y-2">
+                {current.options.choices.map((c) => (
+                  <label key={c.value} className={`flex cursor-pointer items-start gap-3 rounded-2xl border p-3 ${text === c.value ? "border-orange-500 bg-orange-500/10" : "border-zinc-700"}`}>
+                    <input type="radio" name="bpos-choice" checked={text === c.value} onChange={() => setText(c.value)} className="mt-1 h-5 w-5 accent-orange-500" />
+                    <span>
+                      <span className="block font-black">{c.label}</span>
+                      {c.hint && <span className="block text-xs text-zinc-400">{c.hint}</span>}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            {current.type === "text" && !current.options.choices && (
               <input
                 ref={inputRef}
                 type={current.options.password ? "password" : "text"}

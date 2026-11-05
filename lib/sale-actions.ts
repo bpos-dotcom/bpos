@@ -12,6 +12,7 @@ import { earnLoyalty } from "@/lib/loyalty-pos";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { authorizeWithAdminPin, requirePermissionOrAdmin } from "@/lib/permissions";
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
+import { revertInventoryForOrder, type InventoryOrderLike } from "@/lib/inventory";
 
 export function printSaleTicket(order: SavedOrder) {
   const ticketWindow = window.open("", "_blank", "width=380,height=700");
@@ -205,6 +206,24 @@ function replaceOrder(updated: SavedOrder) {
   saveSavedOrders(loadSavedOrders().map((o) => (o.id === updated.id ? updated : o)));
 }
 
+/**
+ * Al cancelar: ¿la comida ya se preparó? No → lo descontado regresa al
+ * inventario. Sí → se anota como merma (no regresa). null = se arrepintió.
+ */
+export async function askInventoryOnCancel(order: { items?: unknown[] }): Promise<"regresar" | "merma" | null> {
+  if (!order.items?.length) return "regresar";
+  const choice = await askText("¿Qué pasa con el inventario?", {
+    choices: [
+      { value: "regresar", label: "No se preparó: regresar al inventario", hint: "Los ingredientes y el empaque vuelven a tu inventario." },
+      { value: "merma", label: "Ya se preparó: se tiró", hint: "No regresa; se anota como merma con su costo." },
+    ],
+    defaultValue: "regresar",
+    ok: "Cancelar pedido",
+    cancel: "Volver",
+  });
+  return choice === "merma" ? "merma" : choice === "regresar" ? "regresar" : null;
+}
+
 /** Cancela con motivo (queda guardada y en la bitácora). Admin: siempre con su PIN. */
 export async function cancelSavedOrder(order: SavedOrder, user: CurrentUser | null): Promise<boolean> {
   if (isCancelled(order)) return false;
@@ -215,16 +234,19 @@ export async function cancelSavedOrder(order: SavedOrder, user: CurrentUser | nu
     notify("El motivo es obligatorio para cancelar una venta.", "error");
     return false;
   }
+  const stock = await askInventoryOnCancel(order);
+  if (stock === null) return false;
   const by = user?.name || "Usuario";
   replaceOrder(cancelSale(order, reason, by));
+  const result = revertInventoryForOrder(order as unknown as InventoryOrderLike, stock, reason.trim());
   addAuditEvent({
     category: "Venta",
     action: "sale.cancelled",
-    description: `${by} canceló el Pedido #${formatOrderNumber(order)} por $${order.total.toFixed(2)}: ${reason.trim()}`,
+    description: `${by} canceló el Pedido #${formatOrderNumber(order)} por $${order.total.toFixed(2)}: ${reason.trim()} · ${stock === "merma" ? "ya se había preparado (merma)" : "se regresó al inventario"}`,
     userId: user?.id ? String(user.id) : undefined,
     userName: by,
     entityId: String(order.id),
-    metadata: { total: order.total, reason: reason.trim() },
+    metadata: { total: order.total, reason: reason.trim(), inventory: stock, merma: result.merma },
   });
   return true;
 }
