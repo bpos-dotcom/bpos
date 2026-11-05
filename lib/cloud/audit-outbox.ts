@@ -109,17 +109,17 @@ export async function loadOwnerNotifications(prefs: Partial<PushPrefs> | null, l
   if (account.status !== "ready") return null;
   const { data, error } = await getSupabase()
     .from("audit_events")
-    .select("event_id, action, description, metadata, user_name, happened_at")
+    .select("event_id, action, description, metadata, user_name, entity_id, happened_at")
     .in("action", [...PUSH_ACTIONS])
     .order("happened_at", { ascending: false })
     .limit(limit * 3);
   if (error) throw new Error(error.message);
-  type Row = PushEvent & { user_name: string | null; happened_at: string };
+  type Row = PushEvent & { user_name: string | null; entity_id: string | null; happened_at: string };
   return ((data || []) as Row[])
     .map((e) => {
       const message = pushMessage(e, prefs);
-      return message ? { ...message, id: e.event_id, at: e.happened_at, by: e.user_name } : null;
+      return message ? { ...message, id: e.event_id, action: e.action, entityId: e.entity_id, at: e.happened_at, by: e.user_name } : null;
     })
-    .filter((m): m is PushMessage & { id: string; at: string; by: string | null } => m !== null)
+    .filter((m): m is PushMessage & { id: string; action: string; entityId: string | null; at: string; by: string | null } => m !== null)
     .slice(0, limit);
 }
