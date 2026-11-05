@@ -10,7 +10,7 @@ import type { AuditEvent } from "@/lib/audit";
 import { loadCloudAccount } from "@/lib/cloud/account";
 import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
 import { flushPushEvents, queuePushEvents } from "@/lib/push/client";
-import { PUSH_ACTIONS } from "@/lib/push/rules";
+import { PUSH_ACTIONS, pushMessage, type PushEvent, type PushMessage, type PushPrefs } from "@/lib/push/rules";
 
 const OUTBOX_KEY = "bpos_audit_outbox"; // solo de este dispositivo (ver DEVICE_LOCAL_KEYS)
 const MAX_QUEUE = 5000;
@@ -97,4 +97,29 @@ export async function loadCloudAudit(limit = 200) {
     .limit(limit);
   if (error) throw new Error(error.message);
   return data as { event_id: string; category: string; action: string; description: string; user_name: string | null; device_id: string | null; happened_at: string; received_at: string }[];
+}
+
+/**
+ * Historial de avisos de la App del dueño: los eventos de la nube que mandan
+ * notificación, con el mismo texto del aviso (según lo que pidió este celular).
+ * Todas las sucursales que esta cuenta puede ver (RLS).
+ */
+export async function loadOwnerNotifications(prefs: Partial<PushPrefs> | null, limit = 150) {
+  const account = await loadCloudAccount();
+  if (account.status !== "ready") return null;
+  const { data, error } = await getSupabase()
+    .from("audit_events")
+    .select("event_id, action, description, metadata, user_name, happened_at")
+    .in("action", [...PUSH_ACTIONS])
+    .order("happened_at", { ascending: false })
+    .limit(limit * 3);
+  if (error) throw new Error(error.message);
+  type Row = PushEvent & { user_name: string | null; happened_at: string };
+  return ((data || []) as Row[])
+    .map((e) => {
+      const message = pushMessage(e, prefs);
+      return message ? { ...message, id: e.event_id, at: e.happened_at, by: e.user_name } : null;
+    })
+    .filter((m): m is PushMessage & { id: string; at: string; by: string | null } => m !== null)
+    .slice(0, limit);
 }
