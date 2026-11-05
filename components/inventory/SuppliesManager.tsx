@@ -11,6 +11,7 @@ import { Ingredient, SUGGESTED_CATEGORIES, SUGGESTED_PACKAGING_CATEGORIES, isPac
 import { getAdminIngredients, saveAdminIngredients } from "@/lib/admin";
 import { stationLabel } from "@/lib/kds-config";
 import { TicketEquivalences } from "@/components/inventory/TicketEquivalences";
+import { ManualCost } from "@/components/inventory/ManualCost";
 import { ask } from "@/components/layout/Dialogs";
 import { UNITS, changeIngredientUnit, unitChangeImpact, unitFactor } from "@/lib/units";
 
@@ -283,6 +284,8 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
                   </Field>
 
                   <TicketEquivalences key={`${draft.id}-${draft.unit}`} ingredient={draft} />
+
+                  <ManualCost key={`cost-${draft.id}-${draft.unit}`} ingredient={draft} />
 
                   <Field label="Categoría">
                     {newCategory ? (
