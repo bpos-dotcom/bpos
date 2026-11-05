@@ -2,9 +2,13 @@
 # Necesita permisos de administrador. Deja lo que pasó en
 # %ProgramData%\B-POS\virtual-printer.log para que "Reparar instalación" diga
 # el motivo exacto si algo falla.
-param([string]$LogPath = (Join-Path $env:ProgramData "B-POS\virtual-printer.log"))
+param(
+  [string]$LogPath = (Join-Path $env:ProgramData "B-POS\virtual-printer.log"),
+  # Solo para pruebas: otro nombre para no tocar la impresora que ya funciona
+  [string]$PrinterName = "B-POS Agent Virtual Printer"
+)
 
-$printerName = "B-POS Agent Virtual Printer"
+$printerName = $PrinterName
 $portName = "9100"
 $hostAddress = "127.0.0.1"
 $portNumber = 9100
@@ -22,7 +26,7 @@ function Fail([string]$message) {
   exit 1
 }
 
-Log "Instalando B-POS Agent Virtual Printer..."
+Log "Instalando $printerName..."
 
 # 1) Servicio de impresión de Windows (sin él no existe ninguna impresora de Windows)
 $spooler = Get-Service -Name Spooler -ErrorAction SilentlyContinue
@@ -58,11 +62,6 @@ if (-not $port) {
 # 3) Controlador. PDF primero (el Agent lee el texto del ticket); si Windows no
 # lo tiene se enciende "Microsoft Print to PDF"; si no se puede, XPS (el Agent
 # lo lee con OCR). "Generic / Text Only" no sirve: entrega los tickets vacíos.
-function Get-DriverName([string[]]$names) {
-  foreach ($n in $names) { if (Get-PrinterDriver -Name $n -ErrorAction SilentlyContinue) { return $n } }
-  return $null
-}
-
 function Enable-Feature([string]$feature) {
   try {
     $f = Get-WindowsOptionalFeature -Online -FeatureName $feature -ErrorAction Stop
@@ -76,55 +75,92 @@ function Enable-Feature([string]$feature) {
   }
 }
 
-$candidates = @()
-# En Windows 11 la impresora "Microsoft Print to PDF" a veces usa otro nombre de controlador
-$pdfPrinter = Get-Printer -Name "Microsoft Print to PDF" -ErrorAction SilentlyContinue
-if ($pdfPrinter) { $candidates += $pdfPrinter.DriverName }
-$candidates += @("Microsoft Print To PDF", "Microsoft Virtual Print Class Driver")
+# Datos de Windows para el registro (ayudan a entender un error)
+try {
+  $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+  Log ("Windows: {0} (version {1})" -f $os.Caption, $os.BuildNumber)
+} catch {}
+$wpp = Get-ItemProperty -Path "HKLM:\SOFTWARE\Policies\Microsoft\Windows NT\Printers\WPP" -ErrorAction SilentlyContinue
+if ($wpp) { Log ("Modo de impresion protegida de Windows: {0}" -f ($wpp | Out-String).Trim()) }
 
-$driverName = Get-DriverName $candidates
-if (-not $driverName) {
-  Enable-Feature "Printing-PrintToPDFServices-Features"
-  Add-PrinterDriver -Name "Microsoft Print To PDF" -ErrorAction SilentlyContinue
-  $driverName = Get-DriverName $candidates
+# Orden de prueba. El controlador de la impresora "Microsoft Print to PDF" de
+# Windows 11 completo puede ser "Microsoft Virtual Print Class Driver", que no
+# acepta un puerto de red: va al final.
+$pdfDrivers = @("Microsoft Print To PDF")
+$xpsDrivers = @("Microsoft XPS Document Writer v4", "Microsoft XPS Document Writer")
+$classDrivers = @("Microsoft Virtual Print Class Driver")
+$pdfPrinter = Get-Printer -Name "Microsoft Print to PDF" -ErrorAction SilentlyContinue
+if ($pdfPrinter -and $pdfPrinter.DriverName -notin ($pdfDrivers + $xpsDrivers + $classDrivers)) { $classDrivers += $pdfPrinter.DriverName }
+
+function Ensure-Driver([string]$name, [string]$feature) {
+  if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
+  Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
+  if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
+  if ($feature) {
+    Enable-Feature $feature
+    Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
+  }
+  return [bool](Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue)
 }
-if (-not $driverName) {
-  Log "Windows no tiene el controlador PDF. Probando con XPS..."
-  $xps = @("Microsoft XPS Document Writer v4", "Microsoft XPS Document Writer")
-  $driverName = Get-DriverName $xps
-  if (-not $driverName) {
-    Enable-Feature "Printing-XPSServices-Features"
-    Add-PrinterDriver -Name "Microsoft XPS Document Writer v4" -ErrorAction SilentlyContinue
-    $driverName = Get-DriverName $xps
+
+function Error-Text($err) {
+  $e = $err.Exception
+  $code = if ($e.HResult) { " (0x{0:X8})" -f $e.HResult } else { "" }
+  $native = if ($e.PSObject.Properties["ErrorData"] -and $e.ErrorData) { " " + ($e.ErrorData.CimInstanceProperties | Where-Object { $_.Name -in @("error_Code", "Message") } | ForEach-Object { "$($_.Name)=$($_.Value)" }) -join " " } else { "" }
+  return "$($e.Message.Trim())$code$native"
+}
+
+# Crea la impresora con un controlador: primero con Add-Printer y, si Windows
+# lo rechaza, con WMI (otra vía del mismo servicio de impresión)
+function Try-Printer([string]$driver) {
+  Get-Printer -Name $printerName -ErrorAction SilentlyContinue | Remove-Printer -ErrorAction SilentlyContinue
+  try {
+    Add-Printer -Name $printerName -DriverName $driver -PortName $portName -ErrorAction Stop
+    return $true
+  } catch {
+    Log ("Add-Printer con '{0}' fallo: {1}" -f $driver, (Error-Text $_))
+  }
+  try {
+    Set-WmiInstance -Class Win32_Printer -Arguments @{ DeviceID = $printerName; Name = $printerName; DriverName = $driver; PortName = $portName; Network = $false; Shared = $false } -ErrorAction Stop | Out-Null
+    if (Get-Printer -Name $printerName -ErrorAction SilentlyContinue) { return $true }
+  } catch {
+    Log ("WMI con '{0}' fallo: {1}" -f $driver, (Error-Text $_))
+  }
+  return $false
+}
+
+# 4) Impresora. Si ya existe con un controlador que sirve, solo se corrige el puerto
+$usable = $pdfDrivers + $xpsDrivers + $classDrivers
+$existing = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
+if ($existing -and $existing.DriverName -in $usable) {
+  if ($existing.PortName -ne $portName) {
+    try { Set-Printer -Name $printerName -PortName $portName -ErrorAction Stop; Log "Puerto actualizado a: $portName" }
+    catch { Log ("No se pudo cambiar el puerto: {0}" -f (Error-Text $_)) }
+  }
+  $final = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
+  if ($final.PortName -eq $portName) {
+    Log ("OK: {0} ya estaba instalada (controlador {1}, puerto {2})." -f $printerName, $final.DriverName, $final.PortName)
+    exit 0
   }
 }
-if (-not $driverName) {
+
+$tried = @()
+$attempts = @()
+$attempts += $pdfDrivers | ForEach-Object { @{ Name = $_; Feature = "Printing-PrintToPDFServices-Features" } }
+$attempts += $xpsDrivers | ForEach-Object { @{ Name = $_; Feature = "Printing-XPSServices-Features" } }
+$attempts += $classDrivers | ForEach-Object { @{ Name = $_; Feature = $null } }
+foreach ($a in $attempts) {
+  if (-not (Ensure-Driver $a.Name $a.Feature)) { Log ("Windows no tiene el controlador '{0}'." -f $a.Name); continue }
+  $tried += $a.Name
+  Log ("Creando la impresora con el controlador '{0}'..." -f $a.Name)
+  if (Try-Printer $a.Name) {
+    $final = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
+    Log ("OK: {0} instalada (controlador {1}, puerto {2})." -f $printerName, $final.DriverName, $final.PortName)
+    exit 0
+  }
+}
+
+if ($tried.Count -eq 0) {
   Fail "Windows no tiene el controlador 'Microsoft Print To PDF' ni XPS. Enciende 'Microsoft Print to PDF' en Caracteristicas de Windows (Windows + R, escribe optionalfeatures) y reinicia la computadora."
 }
-Log "Controlador: $driverName"
-
-# 4) Impresora
-$existing = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
-try {
-  if (-not $existing) {
-    Add-Printer -Name $printerName -DriverName $driverName -PortName $portName -ErrorAction Stop
-    Log "Impresora creada: $printerName"
-  } else {
-    if ($existing.DriverName -ne $driverName -and $existing.DriverName -notin $candidates) {
-      Set-Printer -Name $printerName -DriverName $driverName -ErrorAction Stop
-      Log "Controlador actualizado a: $driverName"
-    }
-    if ($existing.PortName -ne $portName) {
-      Set-Printer -Name $printerName -PortName $portName -ErrorAction Stop
-      Log "Puerto actualizado a: $portName"
-    }
-    Log "Impresora ya existe: $printerName"
-  }
-} catch {
-  Fail "Windows no dejo crear la impresora: $($_.Exception.Message)"
-}
-
-$final = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
-if (-not $final) { Fail "La impresora no aparece despues de crearla." }
-Log ("OK: {0} instalada (controlador {1}, puerto {2})." -f $printerName, $final.DriverName, $final.PortName)
-exit 0
+Fail ("Windows no dejo crear la impresora con ningun controlador ({0}). Reinicia la computadora y vuelve a usar Reparar instalacion; si sigue, manda a soporte C:\ProgramData\B-POS\virtual-printer.log." -f ($tried -join ", "))

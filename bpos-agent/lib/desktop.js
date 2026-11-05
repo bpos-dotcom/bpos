@@ -4,6 +4,7 @@
 // las pantallas (lib/cloud-link.js), se actualiza sola y muestra una ventana
 // de estado. Cerrar la ventana no detiene nada; "Salir" sí.
 const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, shell, dialog } = require("electron");
+const fs = require("fs");
 const path = require("path");
 const { getLogDir, getLogFile, tailLog } = require("./logger");
 const updater = require("./updater");
@@ -25,6 +26,22 @@ async function refreshPrinter() {
   }
   if (!printer.ok) console.warn(`Impresora virtual: ${printer.message}`);
   broadcast();
+}
+
+// Si falta la impresora al abrir, se repara sola una vez por versión (Windows
+// pide permiso de administrador; no se pregunta en cada arranque si sigue fallando)
+async function autoRepairPrinter() {
+  await refreshPrinter();
+  if (printer.ok !== false || !app.isPackaged) return;
+  const flag = path.join(app.getPath("userData"), "auto-reparar-impresora.txt");
+  try {
+    if (fs.readFileSync(flag, "utf8").trim() === app.getVersion()) return;
+  } catch {}
+  try {
+    fs.writeFileSync(flag, app.getVersion());
+  } catch {}
+  console.log("Impresora virtual: falta, se repara sola");
+  await runRepair();
 }
 
 function paths() {
@@ -218,7 +235,7 @@ function startDesktop({ onQuit, cloud }) {
     refreshTray();
 
     setAutoStart();
-    void refreshPrinter();
+    void autoRepairPrinter();
     updater.onUpdateStatus(broadcast);
     updater.initUpdater({ isPackaged: app.isPackaged });
     cloudLink.onStatus(broadcast);
