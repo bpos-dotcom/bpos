@@ -267,6 +267,15 @@ export async function DELETE(request: NextRequest) {
   const auth = await bridgeAuth(request);
   if ("denied" in auth) return auth.denied;
 
+  // ?platform=&orderId=: descarta un pedido pendiente (prueba o ticket ilegible); con venta creada no se toca
+  const platform = request.nextUrl.searchParams.get("platform");
+  const orderId = request.nextUrl.searchParams.get("orderId");
+  if (platform !== null && orderId !== null) {
+    const removed = await bridgeStore(auth.ctx).deletePendingOrder({ platform, orderId });
+    if (!removed) return NextResponse.json({ success: false, error: "El pedido ya no está pendiente o ya tiene venta creada." }, { status: 409 });
+    return NextResponse.json({ success: true });
+  }
+
   // ?finished=1: solo el historial (finalizados y con venta creada); los pendientes se quedan
   if (request.nextUrl.searchParams.get("finished") === "1") {
     const removed = await bridgeStore(auth.ctx).clearFinishedOrders();
