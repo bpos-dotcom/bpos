@@ -230,6 +230,7 @@ export default function FinanzasPage() {
   const [extra, setExtra] = useState({ date: ymd(new Date()), concept: "", amount: "" });
   const [deposit, setDeposit] = useState({ date: ymd(new Date()), source: "DiDi", concept: "", amount: "", weekOf: "" });
   const [error, setError] = useState("");
+  const [whyOpen, setWhyOpen] = useState(false);
 
   useEffect(() => {
     const load = () => {
@@ -423,23 +424,9 @@ export default function FinanzasPage() {
             </p>
           )}
           {foodCost > 45 && (cur?.costByIngredient.length || 0) > 0 && (
-            <div className="mt-3 rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-xs text-red-100">
-              <p className="font-black">🔎 ¿Por qué el costo es tan alto? Lo que más suma:</p>
-              <ul className="mt-1 space-y-0.5">
-                {cur!.costByIngredient.slice(0, 6).map((c) => {
-                  const odd = ((c.unit === "g" || c.unit === "ml") && c.unitCost > 2) || ((c.unit === "kg" || c.unit === "L") && c.unitCost > 2000);
-                  return (
-                    <li key={c.id} className={odd ? "font-black text-red-300" : ""}>
-                      {c.name}: usaste {Math.round(c.quantity * 100) / 100} {c.unit} × {c.unitCost < 1 ? `$${c.unitCost.toFixed(4)}` : money(c.unitCost)} por {c.unit} = {money(c.cost)}
-                      {odd ? " ← se ve muy caro por unidad" : ""}
-                    </li>
-                  );
-                })}
-              </ul>
-              <p className="mt-1 text-red-200/80">
-                Si un costo por unidad se ve muy alto, esa compra se capturó en otra unidad (ej. 10 cuando eran 10,000 g). Cancélala en Compras → Historial y vuelve a capturarla.
-              </p>
-            </div>
+            <button type="button" onClick={() => setWhyOpen(true)} className="mt-3 block text-left text-xs font-bold text-zinc-400 underline-offset-2 hover:text-orange-400 hover:underline">
+              🔎 ¿Por qué el food cost está en {pct(foodCost)}? Ver detalle
+            </button>
           )}
           </div>
 
@@ -718,6 +705,60 @@ export default function FinanzasPage() {
             </section>
           </div>
         </div>
+
+        {whyOpen && cur && (() => {
+          const odd = cur.costByIngredient.filter((c) => ((c.unit === "g" || c.unit === "ml") && c.unitCost > 2) || ((c.unit === "kg" || c.unit === "L") && c.unitCost > 2000));
+          const appCost = Math.max(0, cur.all.kpis.cost - cur.local.kpis.cost);
+          const missingDeposits = cur.platformOrders > 0 && cur.depositTotal < 1;
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur" onClick={() => setWhyOpen(false)}>
+              <div role="dialog" aria-label="Por qué el food cost está alto" className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-zinc-800 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
+                <div className="flex items-start justify-between gap-3">
+                  <h3 className="text-lg font-black">🔎 ¿Por qué el food cost está en {pct(foodCost)}?</h3>
+                  <button onClick={() => setWhyOpen(false)} className="rounded-xl border border-zinc-800 px-3 py-1 font-black" aria-label="Cerrar">
+                    ✕
+                  </button>
+                </div>
+                {missingDeposits && (
+                  <div className="mt-3 rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3 text-sm text-sky-100">
+                    <p className="font-black">🛵 Faltan los depósitos de las apps</p>
+                    <p className="mt-1">
+                      El costo incluye la comida de {cur.platformOrders} pedido{cur.platformOrders === 1 ? "" : "s"} de DiDi, Uber o Rappi ({money(appCost)}), pero sus depósitos todavía no están en los ingresos ($0). Regístralos abajo en Otros ingresos, con la semana de ventas, y el food cost baja a lo real.
+                    </p>
+                  </div>
+                )}
+                {coverage < 90 && (
+                  <p className="mt-3 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-100">
+                    Solo el {pct(coverage)} de lo vendido tiene receta completa con costo: mientras completas recetas y compras, este número todavía cambia.
+                  </p>
+                )}
+                <p className="mt-4 text-sm font-black">Lo que más suma al costo</p>
+                <ul className="mt-1 space-y-1 text-sm">
+                  {cur.costByIngredient.slice(0, 8).map((c) => {
+                    const bad = odd.includes(c);
+                    return (
+                      <li key={c.id} className={`flex justify-between gap-3 ${bad ? "font-black text-red-300" : "text-zinc-300"}`}>
+                        <span>
+                          {c.name}: {Math.round(c.quantity * 100) / 100} {c.unit} × {c.unitCost < 1 ? `$${c.unitCost.toFixed(4)}` : money(c.unitCost)}/{c.unit}
+                          {bad ? " ← muy caro por unidad" : ""}
+                        </span>
+                        <b>{money(c.cost)}</b>
+                      </li>
+                    );
+                  })}
+                </ul>
+                {odd.length > 0 && (
+                  <p className="mt-3 rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-100">
+                    Lo marcado en rojo cuesta demasiado por unidad: casi siempre la compra se capturó en otra unidad (ej. 10 cuando eran 10,000 g). Cancélala en Compras → Historial y vuelve a capturarla.
+                  </p>
+                )}
+                {!missingDeposits && !odd.length && coverage >= 90 && (
+                  <p className="mt-3 text-sm text-zinc-400">Los costos por unidad se ven normales: revisa precios de venta o porciones de las recetas de lo que más suma.</p>
+                )}
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </AppShell>
   );
