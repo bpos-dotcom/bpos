@@ -137,15 +137,19 @@ function applicationKey(order: InventoryOrderLike) {
   return order.externalOrderKey || `order:${order.id}`;
 }
 
+/** Falta: tiene mínimo configurado y está en él o abajo (sin mínimo, nunca cuenta como faltante) */
+export const isLowStock = (item: Pick<Ingredient, "stock" | "minimum">) => Number(item.minimum) > 0 && Number(item.stock) <= Number(item.minimum);
+
+/** Lo que bajó al mínimo en el turno y sigue abajo (si ya se compró o se ajustó, sale de la lista) */
 export function getPendingLowStock(): Ingredient[] {
   const ids = readJson<number[]>(LOW_STOCK_KEY, []);
   const inventory = getInventory();
-  return ids.map((id) => inventory.find((item) => item.id === id)).filter(Boolean) as Ingredient[];
+  return ids.map((id) => inventory.find((item) => item.id === id)).filter((item): item is Ingredient => Boolean(item) && isLowStock(item!));
 }
 
 function updateLowStockPending(inventory: Ingredient[]) {
   const existing = new Set(readJson<number[]>(LOW_STOCK_KEY, []));
-  inventory.filter((item) => item.stock <= item.minimum).forEach((item) => existing.add(item.id));
+  inventory.filter(isLowStock).forEach((item) => existing.add(item.id));
   writeJson(LOW_STOCK_KEY, [...existing]);
   window.dispatchEvent(new Event("bpos:inventory-alerts-updated"));
 }
@@ -283,7 +287,7 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
     writeJson(APPLIED_KEY, [...applied]);
     updateLowStockPending(inventory);
     window.dispatchEvent(new CustomEvent("bpos:inventory-updated", { detail: { orderId: order.id, movements } }));
-    return { success: true, duplicate: false, movements, lowStock: inventory.filter((item) => item.stock <= item.minimum) };
+    return { success: true, duplicate: false, movements, lowStock: inventory.filter(isLowStock) };
   } catch (error) {
     const message = error instanceof Error ? error.message : "No se pudo actualizar inventario.";
     addCriticalError(message, {
