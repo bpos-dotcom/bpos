@@ -800,6 +800,21 @@ function BridgeScreen() {
     }
   }
 
+  /** Quita un pedido pendiente que no sirve (prueba, ticket ilegible o repetido); no toca ventas ni inventario */
+  async function discardOrder(order: AgentOrder) {
+    const label = `${platformLabel(order.platform)} #${String(order.orderId || "SIN-ID")}`;
+    if (!(await ask(`¿Descartar el pedido ${label}? Se quita del Bridge sin crear venta. Si el ticket vuelve a llegar, entra como nuevo.`, { ok: "Descartar" }))) return;
+    try {
+      const params = new URLSearchParams({ platform: String(order.platform || ""), orderId: String(order.orderId || "") });
+      const response = await bridgeFetch(`/api/bridge/orders?${params}`, { method: "DELETE" });
+      const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
+      if (!response.ok || !result.success) throw new Error(result.error || `No se pudo descartar (código ${response.status}).`);
+      await loadData();
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "No se pudo descartar el pedido.");
+    }
+  }
+
   /**
    * Pedido finalizado mal equivalado: lo vuelve a interpretar con las
    * equivalencias de hoy y corrige su venta y el inventario.
@@ -1079,6 +1094,14 @@ function BridgeScreen() {
                         >
                           Imprimir original
                         </button>
+                        {!order.createdOrderId && (
+                          <button
+                            onClick={() => void discardOrder(order)}
+                            className="rounded-xl border border-zinc-700 px-3 py-1 text-xs font-black text-zinc-400 hover:border-red-500 hover:text-red-300"
+                          >
+                            Descartar pedido
+                          </button>
+                        )}
                       </div>
                     </div>
 
