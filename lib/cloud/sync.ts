@@ -52,6 +52,7 @@ const DEVICE_LOCAL_KEYS = new Set([
 
 /** Llaves compartidas por todas las sucursales del negocio */
 const BUSINESS_KEYS = new Set([
+  "bpos_app_commissions",
   "bpos_products",
   "bpos_recipes",
   "bpos_users",

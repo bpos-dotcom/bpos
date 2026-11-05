@@ -244,7 +244,7 @@ export default function PurchaseForm({ onPurchaseCreated, prefill }: Props) {
                     ) : null
                   )}
                 </select>
-                <input type="number" min="0" step="any" value={l.presentations} onChange={(e) => patch(l.id, { presentations: e.target.value })} placeholder="Presentaciones" className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-3" />
+                <input type="number" min="0" step="any" value={l.presentations} onChange={(e) => patch(l.id, { presentations: e.target.value })} placeholder="¿Cuántas compraste? (cajas, bolsas, piezas)" title="Cuántas compraste tal como vienen en el ticket. Lo que entra al inventario va en Entrada real." className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-3" />
                 <input type="number" min="0" step="any" value={l.inventoryQuantity} onChange={(e) => patch(l.id, { inventoryQuantity: e.target.value })} placeholder={ing ? `Entrada real (${ing.unit})` : "Entrada real"} className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-3" />
                 <input type="number" min="0" step="0.01" value={l.lineTotal} onChange={(e) => patch(l.id, { lineTotal: e.target.value })} placeholder="Costo total" className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-3" />
                 <input value={l.note} onChange={(e) => patch(l.id, { note: e.target.value })} placeholder="Presentación / nota" className="rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-3" />

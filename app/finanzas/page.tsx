@@ -8,6 +8,10 @@
  * Las ventas de DiDi, Uber y Rappi (Bridge) NO cuentan como ingreso: su
  * total no es lo que te pagan. Cuenta el depósito que registras en "Otros
  * ingresos". Su costo (la comida) sí cuenta, porque sí salió de tu cocina.
+ * Mientras una semana de una app no tiene su depósito real, cuenta el
+ * depósito ESTIMADO (lo vendido menos las comisiones de ⚙️ Comisiones de
+ * apps) y la utilidad y el punto de equilibrio dicen "estimado"; con todos
+ * los depósitos reales, "real ✓".
  *
  * Compras: no se restan de la utilidad (ahí cuenta el costo de lo vendido,
  * con recetas), pero se muestran como dinero que salió, en la semana de
@@ -54,6 +58,7 @@ import {
 } from "@/lib/finance";
 import { buildReport, loadReportSources, type ReportSources } from "@/lib/reports";
 import { paymentsOf, type PaidSale } from "@/lib/sale-payments";
+import { COMMISSIONS_EVENT, DELIVERY_APPS, deliveryApp, getAppCommissions, isConfigured, netFactor, saveAppCommissions, type AppCommission } from "@/lib/app-commissions";
 
 /** Orden en que se muestran las formas de pago; las demás van después */
 const PAY_ORDER = ["Efectivo", "Tarjeta", "Transferencia", "Mercado Pago"];
@@ -133,12 +138,32 @@ function appBreakdown(platform: ReportSources["orders"], deposits: OtherIncome[]
 }
 
 /** Todo lo de un periodo: ingresos (local + depósitos), costo, gastos y su avance día por día */
-function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], incomeDays: Map<string, number>, fixedMonthly: number, expenses: Expense[]) {
+function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], incomeDays: Map<string, number>, fixedMonthly: number, expenses: Expense[], commissions: Record<string, AppCommission>) {
   const local = buildReport({ ...src, orders: src.orders.filter((o) => !isPlatformOrder(o)) }, range);
   const all = buildReport(src, range);
   const from = ymd(range.from);
   const to = ymd(range.to);
   const inRange = (date: string) => date >= from && date < to;
+  // Depósito estimado: ventas de cada app en semanas que todavía no tienen su depósito real
+  const covered = new Set(income.map((i) => `${i.source}|${i.weekOf || weekStart(i.date)}`));
+  const estimateByDay = new Map<string, number>();
+  const estimateByApp = new Map<string, number>();
+  const pendingApps = new Set<string>();
+  const unconfigured = new Set<string>();
+  for (const o of all.orders.filter((x) => isPlatformOrder(x))) {
+    const app = deliveryApp(o as Parameters<typeof deliveryApp>[0]);
+    const day = ymd(new Date(o.createdAt));
+    if (covered.has(`${app}|${weekStart(day)}`)) continue;
+    pendingApps.add(app);
+    const c = commissions[app];
+    if (!isConfigured(c)) {
+      unconfigured.add(app);
+      continue;
+    }
+    const est = (Number(o.total) || 0) * netFactor(c);
+    estimateByDay.set(day, (estimateByDay.get(day) || 0) + est);
+    estimateByApp.set(app, (estimateByApp.get(app) || 0) + est);
+  }
   // Un depósito con semana cuenta en esa semana (aunque haya caído después)
   const deposits = income.filter((i) => (i.weekOf ? i.weekOf < to && ymd(new Date(parseYmdLocal(i.weekOf).getTime() + 6 * 86_400_000)) >= from : inRange(i.date)));
   const extras = expenses.filter((e) => inRange(e.date));
@@ -165,7 +190,7 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
   const costByDay = new Map(all.byDay.map((r) => [r.label, r.cost]));
   const days = rangeDays(range).map((d) => {
     const key = ymd(d);
-    const inc = (localByDay.get(key) || 0) + (incomeDays.get(key) || 0);
+    const inc = (localByDay.get(key) || 0) + (incomeDays.get(key) || 0) + (estimateByDay.get(key) || 0);
     const spent =
       (costByDay.get(key) || 0) +
       fixedForDay(fixedMonthly, d) +
@@ -177,6 +202,7 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
     const breakdown = [
       ...Object.entries(pays).sort((a, b) => (PAY_ORDER.indexOf(a[0]) + 1 || 99) - (PAY_ORDER.indexOf(b[0]) + 1 || 99)).map(([label, amount]) => ({ label, amount })),
       ...(deposit > 0.5 ? [{ label: "Depósitos de apps", amount: deposit }] : []),
+      ...((estimateByDay.get(key) || 0) > 0.5 ? [{ label: "Apps (estimado)", amount: estimateByDay.get(key) || 0 }] : []),
     ];
     return { date: d, key, income: inc, profit: inc - spent, breakdown };
   });
@@ -194,6 +220,12 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
     all,
     localSales: local.kpis.sales,
     depositTotal: rangeDays(range).reduce((s, d) => s + (incomeDays.get(ymd(d)) || 0), 0),
+    /** Depósito estimado de las semanas sin depósito real (por app) */
+    estimateTotal: [...estimateByApp.values()].reduce((s, v) => s + v, 0),
+    estimateByApp: [...estimateByApp.entries()],
+    /** Apps con ventas sin depósito real en el periodo (si hay, la utilidad es estimada) */
+    pendingApps: [...pendingApps],
+    unconfiguredApps: [...unconfigured],
     deposits,
     extras,
     extraTotal: extras.reduce((s, e) => s + e.amount, 0),
@@ -225,6 +257,8 @@ export default function FinanzasPage() {
   const [fixed, setFixed] = useState<FixedExpense[]>([]);
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [income, setIncome] = useState<OtherIncome[]>([]);
+  const [commissions, setCommissions] = useState<Record<string, AppCommission>>({});
+  const [commissionsOpen, setCommissionsOpen] = useState(false);
   const [src, setSrc] = useState<ReportSources | null>(null);
   const [form, setForm] = useState({ name: "", category: "Renta", amount: "" });
   const [extra, setExtra] = useState({ date: ymd(new Date()), concept: "", amount: "" });
@@ -237,13 +271,16 @@ export default function FinanzasPage() {
       setFixed(getFixedExpenses());
       setExpenses(getExpenses());
       setIncome(getOtherIncome());
+      setCommissions(getAppCommissions());
       setSrc(loadReportSources());
     };
     load();
     window.addEventListener(FINANCE_EVENT, load);
+    window.addEventListener(COMMISSIONS_EVENT, load);
     window.addEventListener("bpos:orders-updated", load);
     return () => {
       window.removeEventListener(FINANCE_EVENT, load);
+      window.removeEventListener(COMMISSIONS_EVENT, load);
       window.removeEventListener("bpos:orders-updated", load);
     };
   }, []);
@@ -254,9 +291,9 @@ export default function FinanzasPage() {
     () => {
       if (!src) return null;
       const days = incomeByDay(income, src.orders as Parameters<typeof incomeByDay>[1]);
-      return { cur: periodNumbers(src, ranges.main, income, days, fixedTotal, expenses), prev: periodNumbers(src, ranges.previous, income, days, fixedTotal, expenses) };
+      return { cur: periodNumbers(src, ranges.main, income, days, fixedTotal, expenses, commissions), prev: periodNumbers(src, ranges.previous, income, days, fixedTotal, expenses, commissions) };
     },
-    [src, ranges, income, fixedTotal, expenses]
+    [src, ranges, income, fixedTotal, expenses, commissions]
   );
 
   const cur = data?.cur;
@@ -265,7 +302,11 @@ export default function FinanzasPage() {
   const elapsed = elapsedDays(range);
   const isCurrent = elapsed > 0 && elapsed < totalDays;
   const daysSoFar = Math.max(1, isCurrent ? elapsed : totalDays);
-  const sales = (cur?.localSales || 0) + (cur?.depositTotal || 0);
+  const sales = (cur?.localSales || 0) + (cur?.depositTotal || 0) + (cur?.estimateTotal || 0);
+  // Estimado: hay ventas de apps sin su depósito real; real: todas las semanas ya tienen depósito
+  const estimated = (cur?.pendingApps.length || 0) > 0;
+  const hasApps = (cur?.platformOrders || 0) > 0;
+  const status = estimated ? " (estimado)" : hasApps ? " real ✓" : "";
   const cost = cur?.cost || 0;
   const gross = sales - cost;
   const grossMargin = sales > 0 ? (gross / sales) * 100 : 0;
@@ -374,7 +415,8 @@ export default function FinanzasPage() {
             value={money(sales)}
             hint={
               <>
-                Lo vendido en local y menú {money(cur?.localSales || 0)} ({cur?.local.kpis.orders || 0} pedidos) · depósitos de apps {money(cur?.depositTotal || 0)} · el fondo de caja no cuenta
+                Lo vendido en local y menú {money(cur?.localSales || 0)} ({cur?.local.kpis.orders || 0} pedidos) · depósitos de apps {money(cur?.depositTotal || 0)}
+                {(cur?.estimateTotal || 0) > 0 ? ` + ${money(cur!.estimateTotal)} estimado` : ""} · el fondo de caja no cuenta
               </>
             }
           />
@@ -390,12 +432,23 @@ export default function FinanzasPage() {
 
         <div className={`${card} grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] ${net >= 0 ? "border-emerald-500/50" : "border-red-500/50"}`}>
           <div className="min-w-0">
-          <p className="text-sm text-zinc-400">Utilidad real {isCurrent ? "hasta hoy" : `de ${periodName}`}</p>
+          <p className="text-sm text-zinc-400">
+            Utilidad {isCurrent ? "hasta hoy" : `de ${periodName}`}
+            <span className={`ml-1 font-black ${estimated ? "text-sky-300" : "text-emerald-400"}`}>{estimated ? "(estimada)" : hasApps ? "real ✓" : ""}</span>
+          </p>
           <p className={`text-5xl font-black ${net >= 0 ? "text-emerald-400" : "text-red-400"}`}>{money(net)}</p>
           <p className="mt-1 text-sm text-zinc-400">
             Margen neto {pct(netMargin)} · ingresos {money(sales)} − costo {money(cost)} − gastos {money(expensesTotal)}
             {cashDiff < 0 ? ` − faltantes de caja ${money(-cashDiff)}` : cashDiff > 0 ? ` + sobrantes de caja ${money(cashDiff)}` : ""}
           </p>
+          {estimated && (
+            <p className="mt-1 text-xs text-sky-300">
+              {(cur?.estimateTotal || 0) > 0
+                ? `Incluye ${money(cur!.estimateTotal)} estimados de ${cur!.estimateByApp.map(([a]) => a).join(" y ")} (lo vendido menos comisiones). Cuando registres los depósitos reales de esas semanas, queda real.`
+                : `Faltan los depósitos de ${cur!.pendingApps.join(" y ")}.`}
+              {(cur?.unconfiguredApps.length || 0) > 0 ? ` ${cur!.unconfiguredApps.join(" y ")} sin comisiones configuradas: no se estima.` : ""}
+            </p>
+          )}
           {isCurrent && sales > 0 && (
             <p className="mt-2 text-sm">
               Si sigues al mismo ritmo, cierras {word === "mes" ? "el mes" : word === "semana" ? "la semana" : "el periodo"} con <b>{money(projection)}</b> de ingresos y una utilidad de{" "}
@@ -515,6 +568,7 @@ export default function FinanzasPage() {
           </div>
           <div className="flex min-w-0 flex-col items-center text-center md:border-l md:border-zinc-800 md:pl-5">
             <h2 className="whitespace-nowrap text-lg font-black">⚖️ Punto de equilibrio</h2>
+            {status && <p className={`text-xs font-black ${estimated ? "text-sky-300" : "text-emerald-400"}`}>{estimated ? "Estimado (faltan depósitos de apps)" : "Real ✓"}</p>}
             {!toCover ? (
               <p className="mt-2 text-sm text-zinc-400">Agrega tus gastos fijos abajo para saber cuánto tienes que vender para no perder.</p>
             ) : !equilibrium ? (
@@ -622,6 +676,9 @@ export default function FinanzasPage() {
             <AppsPanel rows={cur?.byApp || []} periodName={periodName} money={money} pct={pct} />
             <section className={card}>
               <h2 className="text-lg font-black">💵 Otros ingresos (depósitos de delivery)</h2>
+              <button type="button" onClick={() => setCommissionsOpen(true)} className="mt-1 text-xs font-bold text-zinc-400 underline-offset-2 hover:text-orange-400 hover:underline">
+                ⚙️ Comisiones de apps{Object.values(commissions).some(isConfigured) ? "" : " (sin configurar)"}
+              </button>
               <p className="text-xs text-zinc-500">
                 Lo que te deposita cada app, ya sin comisiones ni impuestos. Elige de qué semana de ventas es: cuenta en esa semana aunque te caiga días después, para que las comparaciones sean justas.
               </p>
@@ -706,10 +763,11 @@ export default function FinanzasPage() {
           </div>
         </div>
 
+        {commissionsOpen && <CommissionsDialog initial={commissions} apps={[...new Set([...DELIVERY_APPS, ...(cur?.byApp.map((a) => a.name) || [])])]} onClose={() => setCommissionsOpen(false)} />}
         {whyOpen && cur && (() => {
           const odd = cur.costByIngredient.filter((c) => ((c.unit === "g" || c.unit === "ml") && c.unitCost > 2) || ((c.unit === "kg" || c.unit === "L") && c.unitCost > 2000));
           const appCost = Math.max(0, cur.all.kpis.cost - cur.local.kpis.cost);
-          const missingDeposits = cur.platformOrders > 0 && cur.depositTotal < 1;
+          const missingDeposits = cur.unconfiguredApps.length > 0;
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur" onClick={() => setWhyOpen(false)}>
               <div role="dialog" aria-label="Por qué el food cost está alto" className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-zinc-800 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
@@ -723,7 +781,7 @@ export default function FinanzasPage() {
                   <div className="mt-3 rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3 text-sm text-sky-100">
                     <p className="font-black">🛵 Faltan los depósitos de las apps</p>
                     <p className="mt-1">
-                      El costo incluye la comida de {cur.platformOrders} pedido{cur.platformOrders === 1 ? "" : "s"} de DiDi, Uber o Rappi ({money(appCost)}), pero sus depósitos todavía no están en los ingresos ($0). Regístralos abajo en Otros ingresos, con la semana de ventas, y el food cost baja a lo real.
+                      El costo incluye la comida de {cur.platformOrders} pedido{cur.platformOrders === 1 ? "" : "s"} de DiDi, Uber o Rappi ({money(appCost)}), pero lo de {cur.unconfiguredApps.join(" y ")} no está en los ingresos: registra sus depósitos en Otros ingresos o configura sus comisiones (⚙️ Comisiones de apps) para estimarlos.
                     </p>
                   </div>
                 )}
@@ -761,5 +819,75 @@ export default function FinanzasPage() {
         })()}
       </div>
     </AppShell>
+  );
+}
+
+/** ⚙️ Comisiones de apps: % de comisión y de impuestos por app, con el ejemplo de $1,000 */
+function CommissionsDialog({ initial, apps, onClose }: { initial: Record<string, AppCommission>; apps: string[]; onClose: () => void }) {
+  const [draft, setDraft] = useState<Record<string, { commission: string; taxes: string; taxOnSale: boolean }>>(() =>
+    Object.fromEntries(apps.map((a) => [a, { commission: initial[a]?.commission ? String(initial[a].commission) : "", taxes: initial[a]?.taxes ? String(initial[a].taxes) : "", taxOnSale: Boolean(initial[a]?.taxOnSale) }]))
+  );
+  function save() {
+    const next: Record<string, AppCommission> = {};
+    for (const [app, d] of Object.entries(draft)) {
+      const c = { commission: Math.min(100, Math.max(0, Number(d.commission) || 0)), taxes: Math.min(100, Math.max(0, Number(d.taxes) || 0)), ...(d.taxOnSale ? { taxOnSale: true } : {}) };
+      if (isConfigured(c)) next[app] = c;
+    }
+    saveAppCommissions(next);
+    onClose();
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur" onClick={onClose}>
+      <div role="dialog" aria-label="Comisiones de apps" className="max-h-[85vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-zinc-800 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black">⚙️ Comisiones de apps</h3>
+            <p className="mt-1 text-xs text-zinc-500">
+              Cuánto te quita cada app de lo vendido. Con esto B-POS estima tu depósito mientras no registras el real (Finanzas y App del dueño).
+            </p>
+          </div>
+          <button onClick={onClose} className="rounded-xl border border-zinc-800 px-3 py-1 font-black" aria-label="Cerrar">
+            ✕
+          </button>
+        </div>
+        <div className="mt-4 space-y-3">
+          {apps.map((app) => {
+            const d = draft[app] || { commission: "", taxes: "", taxOnSale: false };
+            const c = { commission: Number(d.commission) || 0, taxes: Number(d.taxes) || 0, taxOnSale: d.taxOnSale };
+            const set = (patch: Partial<typeof d>) => setDraft((all) => ({ ...all, [app]: { ...d, ...patch } }));
+            const afterCommission = 1000 * (1 - Math.min(100, c.commission) / 100);
+            return (
+              <div key={app} className="rounded-2xl border border-zinc-800 bg-black p-3">
+                <p className="font-black">🛵 {app}</p>
+                <div className="mt-2 grid grid-cols-2 gap-2">
+                  <label className="text-xs font-bold text-zinc-400">
+                    Comisión % (sobre lo vendido)
+                    <input type="number" min={0} max={100} step="0.1" value={d.commission} onChange={(e) => set({ commission: e.target.value })} placeholder="30" className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white" />
+                  </label>
+                  <label className="text-xs font-bold text-zinc-400">
+                    Impuestos / retenciones %
+                    <input type="number" min={0} max={100} step="0.1" value={d.taxes} onChange={(e) => set({ taxes: e.target.value })} placeholder="17" className="mt-1 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-white" />
+                  </label>
+                </div>
+                <select value={d.taxOnSale ? "venta" : "resto"} onChange={(e) => set({ taxOnSale: e.target.value === "venta" })} className="mt-2 w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-xs" aria-label={`Sobre qué se cobran los impuestos de ${app}`}>
+                  <option value="resto">Impuestos sobre lo que queda después de la comisión</option>
+                  <option value="venta">Impuestos sobre lo vendido</option>
+                </select>
+                {isConfigured(c) ? (
+                  <p className="mt-2 text-xs text-zinc-400">
+                    Ej. $1,000 vendidos{!c.taxOnSale && c.commission ? ` → $${afterCommission.toFixed(0)} después de comisión` : ""} → te depositan aprox. <b className="text-white">${(1000 * netFactor(c)).toFixed(0)}</b> ({(netFactor(c) * 100).toFixed(1)}%)
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-zinc-600">Sin configurar: no se estima su depósito.</p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        <button onClick={save} className="mt-4 w-full rounded-2xl bg-orange-500 py-3 font-black text-black">
+          Guardar comisiones
+        </button>
+      </div>
+    </div>
   );
 }
