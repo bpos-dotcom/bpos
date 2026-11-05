@@ -29,6 +29,7 @@
       .bar > div { height: 100%; background: #f97316; width: 0; }
       ul, ol { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
       li.fail { color: #fca5a5; }
+      .muted.fail { color: #f87171; }
       pre { background: var(--field); border: 1px solid var(--line); border-radius: 12px; padding: 10px; max-height: 170px; overflow: auto; font-size: 11px; color: var(--muted); white-space: pre-wrap; margin: 8px 0 0; }
       label { font-size: 13px; color: var(--soft); display: flex; gap: 8px; align-items: center; margin-top: 10px; }
       .pair { border-color: #f97316; background: var(--pair); }
@@ -70,8 +71,8 @@
 
       <div class="box">
         <h2>Impresora virtual</h2>
-        <div class="val"><span class="dot ok"></span>"B-POS Agent Virtual Printer"</div>
-        <div class="muted">Ahí se mandan los tickets de las plataformas</div>
+        <div class="val"><span id="printerDot" class="dot warn"></span>"B-POS Agent Virtual Printer"</div>
+        <div class="muted" id="printerMsg">Ahí se mandan los tickets de las plataformas</div>
       </div>
       <div class="box">
         <h2>Actualizaciones</h2>
@@ -130,6 +131,10 @@
         $("linkInfo").textContent = c.linked
           ? `${c.businessName} · ${c.branchName}${c.pending ? ` · ${c.pending} pedido(s) en espera de subir` : ""}`
           : "";
+        const p = s.printer || {};
+        $("printerDot").className = `dot ${p.ok === true ? "ok" : p.ok === false ? "bad" : "warn"}`;
+        $("printerMsg").textContent = p.ok === true ? "Ahí se mandan los tickets de las plataformas" : p.message || "Revisando...";
+        $("printerMsg").className = p.ok === false ? "muted fail" : "muted";
         $("updateMsg").textContent = s.update.message;
         const downloading = s.update.state === "downloading";
         $("updateBar").hidden = !downloading;
