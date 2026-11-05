@@ -1,6 +1,7 @@
 import type { KitchenStation } from "@/data/products";
 import type { LineRouting } from "@/lib/bridge/station-routing";
 import { getBusinessSettings } from "@/lib/business-settings";
+import { fixOcrQuantity } from "@/lib/bridge/ocr-quantity";
 
 /**
  * Pedido de delivery ya leído, listo para los tickets propios de Burger
@@ -107,7 +108,7 @@ export function buildDeliveryTicket(
       return;
     }
 
-    const quantified = line.match(QUANTIFIED);
+    const quantified = fixOcrQuantity(line).match(QUANTIFIED);
     if (quantified) {
       const { text, price } = splitPrice(quantified[2]);
       const route = routing.get(index);

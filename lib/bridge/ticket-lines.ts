@@ -8,6 +8,8 @@
  * precio y sin encabezado es un producto nuevo. Sin dependencias del
  * navegador, para poder usarse en el servidor al interpretar.
  */
+import { fixOcrQuantity } from "./ocr-quantity";
+
 const QUANTIFIED = /^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/;
 const TRAILING_MONEY = /\s*(-?)\s*(?:MX\$|\$)\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:MXN)?\s*$/i;
 const CHARGE = /^(sub\s*total|total(?:\s+a\s+pagar|\s+pagado)?|dto\.?\s+de\s+producto|descuento[^$]*|promoci[oó]n[^$]*|tarifa\s+de\s+(?:entrega|servicio)|costo\s+de\s+env[ií]o|env[ií]o|propina|cargo[^$]*)\s*[:\-]?\s*-?\s*(?:MX\$|\$)/i;
@@ -31,10 +33,13 @@ export function ticketLineParents(rawText: string): Map<number, number> {
         inCharges = true;
         return;
       }
-      const quantified = line.match(QUANTIFIED);
+      const quantified = fixOcrQuantity(line).match(QUANTIFIED);
       if (quantified) {
-        const hasPrice = TRAILING_MONEY.test(quantified[2]);
-        if (current !== null && (question !== null || !hasPrice)) {
+        // Igual que el ticket de cocina: $0 también es opción ("1x Mango habanero MX$0.00",
+        // segundo aderezo de la misma pregunta), no un producto nuevo
+        const money = quantified[2].match(TRAILING_MONEY);
+        const price = money ? Number(money[2].replace(/,/g, "")) : 0;
+        if (current !== null && (question !== null || !price)) {
           parents.set(index, current);
           question = null;
           return;
