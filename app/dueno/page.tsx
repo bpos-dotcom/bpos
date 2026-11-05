@@ -27,6 +27,9 @@ import {
 } from "@/lib/owner-app";
 import { disablePush, enablePush, getPushPrefs, pushEnabled, pushSupported, savePushPrefs, sendTestPush } from "@/lib/push/client";
 import { DEFAULT_PUSH_PREFS, type PushPrefs } from "@/lib/push/rules";
+import { deliveryApp, estimatedDeposit, getAppCommissions } from "@/lib/app-commissions";
+import { isPlatformOrder } from "@/lib/finance";
+import { paymentsOf, type PaidSale } from "@/lib/sale-payments";
 import {
   buildReport,
   loadCloudOrders,
@@ -192,7 +195,29 @@ function OwnerApp() {
     const report = buildReport({ ...loadReportSources(), orders: selected.map((o) => o.order) }, range);
     const branches = salesByBranch(data.branches, data.orders, range);
     const byTime = preset === "hoy" || preset === "ayer" ? trimHours(report.byHour) : report.byDay;
-    return { report, branches, byTime };
+    // Desglose: local (con cómo se pagó) y cada app de delivery con su depósito aproximado
+    const commissions = getAppCommissions();
+    const local = report.orders.filter((o) => !isPlatformOrder(o));
+    const pays: Record<string, number> = {};
+    for (const o of local) for (const [m, v] of Object.entries(paymentsOf(o as unknown as PaidSale))) pays[m] = (pays[m] || 0) + v;
+    const appsMap = new Map<string, { orders: number; sales: number }>();
+    for (const o of report.orders.filter((x) => isPlatformOrder(x))) {
+      const app = deliveryApp(o as Parameters<typeof deliveryApp>[0]);
+      const row = appsMap.get(app) || { orders: 0, sales: 0 };
+      row.orders += 1;
+      row.sales += Number(o.total) || 0;
+      appsMap.set(app, row);
+    }
+    const apps = [...appsMap.entries()].map(([name, r]) => ({ name, ...r, deposit: estimatedDeposit(name, r.sales, commissions) })).sort((a, b) => b.sales - a.sales);
+    const split = {
+      localSales: local.reduce((t, o) => t + (Number(o.total) || 0), 0),
+      localOrders: local.length,
+      pays: Object.entries(pays).sort((a, b) => b[1] - a[1]),
+      apps,
+      appSales: apps.reduce((t, a) => t + a.sales, 0),
+      appOrders: apps.reduce((t, a) => t + a.orders, 0),
+    };
+    return { report, branches, byTime, split };
   }, [data, branch, range, preset]);
 
   async function toggleNotifications() {
@@ -323,6 +348,38 @@ function OwnerApp() {
                 <Mini label="Ticket prom." value={money(kpis.averageTicket)} />
                 <Mini label="Descuentos" value={money(kpis.discounts)} />
               </div>
+              {view.split.appOrders > 0 && (
+                <div className="mt-4 space-y-3 border-t border-orange-500/20 pt-4 text-sm">
+                  <div>
+                    <p className="flex justify-between gap-2 font-black">
+                      <span>🏠 Local · {view.split.localOrders} pedido{view.split.localOrders === 1 ? "" : "s"}</span>
+                      <span>{money(view.split.localSales)}</span>
+                    </p>
+                    {view.split.pays.length > 0 && <p className="mt-0.5 text-xs text-zinc-400">{view.split.pays.map(([m, v]) => `${m} ${money(v)}`).join(" · ")}</p>}
+                  </div>
+                  <div>
+                    <p className="flex justify-between gap-2 font-black">
+                      <span>🛵 Apps de delivery · {view.split.appOrders} pedido{view.split.appOrders === 1 ? "" : "s"}</span>
+                      <span>{money(view.split.appSales)}</span>
+                    </p>
+                    {view.split.apps.map((a) => (
+                      <p key={a.name} className="mt-0.5 flex justify-between gap-2 text-xs text-zinc-400">
+                        <span>
+                          {a.name} · {a.orders} pedido{a.orders === 1 ? "" : "s"} · {money(a.sales)}
+                        </span>
+                        <span className={a.deposit === null ? "text-zinc-600" : "font-bold text-zinc-200"}>{a.deposit === null ? "sin comisión configurada" : `te deposita aprox. ${money(a.deposit)}`}</span>
+                      </p>
+                    ))}
+                  </div>
+                  {view.split.apps.some((a) => a.deposit !== null) && (
+                    <p className="flex justify-between gap-2 rounded-xl bg-black/40 px-3 py-2 font-black">
+                      <span>Te queda aprox. (local + depósitos)</span>
+                      <span className="text-emerald-400">{money(view.split.localSales + view.split.apps.reduce((t, a) => t + (a.deposit || 0), 0))}</span>
+                    </p>
+                  )}
+                  {view.split.apps.some((a) => a.deposit === null) && <p className="text-[11px] text-zinc-500">Configura las comisiones en Finanzas → Otros ingresos → ⚙️ Comisiones de apps para ver cuánto te depositan.</p>}
+                </div>
+              )}
             </section>
 
             {showCosts && kpis.sales > 0 && kpis.costCoverage < 50 && (
