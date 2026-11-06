@@ -72,6 +72,19 @@ check("DiDi real: 1 producto con sus opciones", didi.items.length === 1 && didi.
 check("DiDi real: solo a Freidora (el aderezo no manda comanda a Cocina)", didi.items[0].stations.join(",") === "Freidora", didi.items[0].stations);
 check("DiDi real: total $130.82 y cliente Jaime", didi.total === 130.82 && didi.customer === "Jaime");
 check("DiDi real: la comanda lleva el aderezo", stationTicketHtml(didi, "Freidora", settings, 58).includes("Búfalo ranch"));
+check("DiDi real: 'Cancelar sólo los productos agotados' no es nota", !didi.orderNotes);
+
+// Notas del pedido (DiDi #1): salen en todas las comandas y en el de la bolsa, sin el texto fijo de DiDi
+const notasText = [
+  "#1", "isabella", "66 Notas del pedido", "",
+  "bbq aparte , NO PONERLE NINGUN ADEREZO ( MOZTASA, CATSUP ) . Cancelar sólo los productos agotados", "",
+  "Hora de Aceptación de Pedido:06 de nov, 4:33 pm", "1x Combo Especial MX$189.00", "Elige tu hamburguesa especial", "1x Kansas city MX$0.00",
+].join("\n");
+const conNotas = buildDeliveryTicket({ platform: "didi", orderId: "1", rawText: notasText }, new Map());
+check("notas del pedido leídas", conNotas.orderNotes?.join("|") === "bbq aparte , NO PONERLE NINGUN ADEREZO ( MOZTASA, CATSUP )", conNotas.orderNotes);
+check("notas en la comanda y en la bolsa", stationTicketHtml(conNotas, conNotas.items[0].stations[0], settings, 58).includes("NOTAS DEL PEDIDO") && bagTicketHtml(conNotas, settings, "", 58).includes("bbq aparte"));
+const notaProducto = buildDeliveryTicket({ platform: "uber", orderId: "A", rawText: ["1x Hamburguesa 142,00 MXN", "Nota: sin cebolla"].join("\n") }, new Map());
+check("'Nota:' después de un producto sigue siendo del producto", !notaProducto.orderNotes && notaProducto.items[0].notes[0] === "Nota: sin cebolla");
 // Una opción que es otro producto (refresco del combo) sí va a su estación
 const conBebida = { ...didiInterp, products: [...(didiInterp.products as unknown[]), { type: "product", aliasId: "b", sourceIndex: idx("1x No, Gracias"), externalName: "Coca", sourceQuantity: 1, productId: "51", productName: "Coca", quantity: 1 }], ignored: [] } as unknown as Parameters<typeof stationsByLine>[0];
 const didi2 = buildDeliveryTicket({ platform: "didi", orderId: "10", rawText: didiText }, stationsByLine(conBebida, [...didiProducts, { id: 51, name: "Coca", station: "Barra" }], []));

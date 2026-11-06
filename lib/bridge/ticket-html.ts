@@ -52,6 +52,9 @@ function style(settings: BusinessSettings, paper: PaperWidth) {
   .meta { font-size: ${b}px; }
   .station { margin: 8px 0; padding: 4px 0; border: 5px solid #000; font-size: ${b * 1.6}px; font-weight: 900; letter-spacing: 1px; text-align: center; }
   .rule { border-top: 3px solid #000; margin: 8px 0; }
+  .notes { margin: 8px 0; border: 4px solid #000; }
+  .notes-title { background: #000; color: #fff; padding: 3px 0; font-size: ${b * 1.15}px; font-weight: 900; letter-spacing: 1px; text-align: center; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .notes-text { padding: 5px 6px; font-size: ${b * 1.15}px; font-weight: 900; overflow-wrap: anywhere; }
   .item { margin: 7px 0; }
   .row { display: flex; justify-content: space-between; gap: 8px; }
   .row .name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
@@ -81,6 +84,12 @@ function header(ticket: DeliveryTicket, settings: BusinessSettings) {
     <div class="center order">Pedido #${esc(ticket.orderId)}</div>
     <div class="center meta">${who}${esc(time(ticket.receivedAt))}</div>
     ${ticket.waiter ? `<div class="center meta">Mesero: ${esc(ticket.waiter)}</div>` : ""}`;
+}
+
+/** Notas del pedido completo: solo la franja del título va en negro (bloques grandes salen rayados en 58 mm) */
+function orderNotesBlock(ticket: DeliveryTicket) {
+  if (!ticket.orderNotes?.length) return "";
+  return `<div class="notes"><div class="notes-title">NOTAS DEL PEDIDO</div>${ticket.orderNotes.map((n) => `<div class="notes-text">${esc(n)}</div>`).join("")}</div>`;
 }
 
 function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boolean, station?: KitchenStation) {
@@ -134,6 +143,7 @@ export function stationTicketHtml(ticket: DeliveryTicket, station: KitchenStatio
     paper,
     `${header(ticket, settings)}
     <div class="station">${esc(stationLabel(station).toUpperCase())}</div>
+    ${orderNotesBlock(ticket)}
     ${items
       .map((i) => {
         const extraHere = i.extra?.find((e) => e.station === station);
@@ -160,7 +170,7 @@ export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings
     settings,
     paper,
     `${header(ticket, settings)}
-    <div class="rule"></div>
+    ${orderNotesBlock(ticket) || `<div class="rule"></div>`}
     ${ticket.items.map((i) => itemBlock(i, settings, true)).join("")}
     <div class="rule"></div>
     ${charges}
