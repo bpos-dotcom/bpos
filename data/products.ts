@@ -90,6 +90,8 @@ export type Product = {
    * y, si el ticket traía opciones, sus grupos de opciones.
    */
   fromBridge?: { platform: string; at: string; withOptions?: boolean };
+  /** No lleva empaque (ej. un extra que va en la misma caja): cuenta como completo sin packaging */
+  noPackaging?: boolean;
 };
 
 export const products: Product[] = [

@@ -7,6 +7,7 @@
  *    no lleva precio ni packaging propios: solo receta.
  *  - Lo creado desde el Bridge pide todo, y grupos de opciones si el ticket
  *    los traía.
+ *  - "No lleva empaque" (noPackaging) quita el packaging de lo que falta.
  */
 import type { Product } from "@/data/products";
 import type { RecipeItem } from "@/data/inventory";
@@ -21,7 +22,7 @@ export function productMissing(product: Product, recipes: Pick<RecipeItem, "prod
   if (full && !(Number(product.price) > 0)) missing.push("precio");
   const combo = Boolean(product.modifierGroups?.some((g) => g.options.some((o) => o.productId)));
   if (!combo && !recipes.some((r) => Number(r.productId) === Number(product.id) && Number(r.quantity) > 0)) missing.push("receta");
-  if (full && !(product.packaging || []).some((l) => Number(l.quantity) > 0)) missing.push("packaging");
+  if (full && !product.noPackaging && !(product.packaging || []).some((l) => Number(l.quantity) > 0)) missing.push("packaging");
   if (product.fromBridge?.withOptions && !product.modifierGroups?.length) missing.push("opciones");
   return missing;
 }

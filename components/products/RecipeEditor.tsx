@@ -19,9 +19,11 @@ type Props = {
   copyFrom?: { id: number; name: string; lines: RecipeLine[] }[];
   /** Recuadro de empaque del producto (Packaging) en vez de la receta */
   packaging?: boolean;
+  /** Algo más al final del recuadro (ej. "Este producto no lleva empaque") */
+  footer?: React.ReactNode;
 };
 
-export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom = [], packaging = false }: Props) {
+export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom = [], packaging = false, footer }: Props) {
   const byId = new Map(ingredients.map((i) => [i.id, i]));
   const available = ingredients.filter((i) => !lines.some((l) => l.ingredientId === i.id)).sort((a, b) => a.name.localeCompare(b.name));
   const sources = copyFrom.filter((p) => p.lines.length > 0).sort((a, b) => a.name.localeCompare(b.name, "es"));
@@ -112,6 +114,7 @@ export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom 
           ))}
         </select>
       )}
+      {footer}
     </section>
   );
 }

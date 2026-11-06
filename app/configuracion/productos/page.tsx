@@ -168,6 +168,7 @@ export default function ProductosAdminPage() {
     else delete saved.packaging;
     if (!saved.noOwnTicket) delete saved.noOwnTicket;
     if (!saved.notSoldAlone) delete saved.notSoldAlone;
+    if (!saved.noPackaging) delete saved.noPackaging;
     if (!saved.image) delete saved.image;
     if (saved.description?.trim()) saved.description = saved.description.trim().slice(0, 160);
     else delete saved.description;
@@ -561,7 +562,7 @@ export default function ProductosAdminPage() {
                       ⚠️ Falta: {missingText(missing)}.{saved.fromBridge ? ` Se creó desde el Bridge (${saved.fromBridge.platform}).` : ""}
                     </p>
                   ) : (
-                    <p className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-200">✅ Completo: precio, receta y packaging.</p>
+                    <p className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-200">✅ Completo: precio, receta y {saved.noPackaging ? "no lleva empaque" : "packaging"}.</p>
                   );
                 })()}
                 <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
@@ -776,6 +777,17 @@ export default function ProductosAdminPage() {
                   compound={false}
                   onChange={(lines) => setDraft({ ...draft, packaging: lines })}
                   copyFrom={products.filter((p) => p.id !== draft.id).map((p) => ({ id: p.id, name: p.name, lines: p.packaging || [] }))}
+                  footer={
+                    !(draft.packaging || []).some((l) => Number(l.quantity) > 0) && (
+                      <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-2xl border border-zinc-800 bg-zinc-950 p-3">
+                        <input type="checkbox" checked={Boolean(draft.noPackaging)} onChange={(e) => setDraft({ ...draft, noPackaging: e.target.checked })} className="mt-0.5 h-5 w-5 accent-emerald-500" />
+                        <span className="text-sm font-bold text-zinc-200">
+                          ✅ Este producto no lleva empaque
+                          <span className="block text-xs font-normal text-zinc-500">Por ejemplo un extra que va en la misma caja. Así cuenta como completo con su receta y precio.</span>
+                        </span>
+                      </label>
+                    )
+                  }
                 />
 
                 <p className="mt-4 text-sm text-zinc-500">Los cambios de opciones y receta se guardan con el botón Guardar cambios.</p>
