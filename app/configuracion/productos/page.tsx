@@ -14,6 +14,7 @@ import { stationLabel } from "@/lib/kds-config";
 import { SaleScheduleEditor, saveSchedule } from "@/components/products/SaleScheduleEditor";
 import { scheduleLabel } from "@/lib/sale-schedule";
 import { uploadBusinessImage } from "@/lib/media";
+import { PhotoStudio } from "@/components/products/PhotoStudio";
 import { DeleteProductModal, type DeliveryAlias } from "@/components/products/DeleteProductModal";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { ImportProductsModal } from "@/components/products/ImportProductsModal";
@@ -34,6 +35,7 @@ export default function ProductosAdminPage() {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [studio, setStudio] = useState(false);
 
   async function uploadPhoto(file: File | undefined) {
     if (!file || !draft) return;
@@ -608,6 +610,9 @@ export default function ProductosAdminPage() {
                         {uploading ? "Subiendo..." : draft.image ? "Cambiar foto" : "Subir foto"}
                         <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={uploading} onChange={(e) => void uploadPhoto(e.target.files?.[0])} />
                       </label>
+                      <button onClick={() => setStudio(true)} disabled={uploading} className="rounded-2xl border border-violet-500 px-4 py-3 text-sm font-black text-violet-300 hover:bg-violet-500/10 disabled:opacity-40">
+                        ✨ Mejorar con IA
+                      </button>
                       {draft.image && (
                         <button onClick={() => setDraft({ ...draft, image: undefined })} className="rounded-2xl border border-zinc-800 px-4 py-3 text-sm text-zinc-400">
                           Quitar foto
@@ -615,6 +620,17 @@ export default function ProductosAdminPage() {
                       )}
                     </div>
                     <p className="mt-1 text-xs text-zinc-500">Aparece en tu menú digital. Guarda los cambios para que se vea.</p>
+                    {studio && (
+                      <PhotoStudio
+                        image={draft.image}
+                        productName={draft.name}
+                        onClose={() => setStudio(false)}
+                        onUse={(image) => {
+                          setDraft((d) => (d ? { ...d, image } : d));
+                          setStudio(false);
+                        }}
+                      />
+                    )}
                   </Field>
 
                   <Field label="Descripción (menú digital)">

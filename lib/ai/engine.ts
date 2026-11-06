@@ -36,7 +36,9 @@ function friendly(cfg: AiConfig, error: unknown): AiFailure {
 
 type GeminiPart = { text: string } | { inline_data: { mime_type: string; data: string } };
 
-async function gemini(cfg: AiConfig, body: object): Promise<{ text: string; finish: string; usage: AiUsage }> {
+type GeminiImage = { mimeType: string; data: string };
+
+async function gemini(cfg: AiConfig, body: object): Promise<{ text: string; images: GeminiImage[]; finish: string; usage: AiUsage }> {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(cfg.model)}:generateContent`, {
     method: "POST",
     headers: { "content-type": "application/json", "x-goog-api-key": cfg.key },
@@ -44,7 +46,10 @@ async function gemini(cfg: AiConfig, body: object): Promise<{ text: string; fini
   });
   const json = (await res.json().catch(() => ({}))) as {
     error?: { message?: string; status?: string };
-    candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[];
+    candidates?: {
+      content?: { parts?: { text?: string; inlineData?: GeminiImage; inline_data?: { mime_type?: string; data?: string } }[] };
+      finishReason?: string;
+    }[];
     promptFeedback?: { blockReason?: string };
     usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
   };
@@ -58,6 +63,10 @@ async function gemini(cfg: AiConfig, body: object): Promise<{ text: string; fini
   const u = json.usageMetadata || {};
   return {
     text: (c?.content?.parts || []).map((p) => p.text || "").join(""),
+    // Los modelos de imagen regresan la foto como datos en base64
+    images: (c?.content?.parts || [])
+      .map((p) => p.inlineData || (p.inline_data ? { mimeType: p.inline_data.mime_type || "image/png", data: p.inline_data.data || "" } : null))
+      .filter((img): img is GeminiImage => Boolean(img?.data)),
     finish: json.promptFeedback?.blockReason ? "SAFETY" : c?.finishReason || "",
     usage: { input: u.promptTokenCount || 0, output: (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) },
   };
@@ -139,6 +148,29 @@ export async function generateText(cfg: AiConfig, opts: { system: string; turns:
     });
     const text = response.content.map((b) => (b.type === "text" ? b.text : "")).join("").trim();
     return { text, usage: { input: response.usage.input_tokens || 0, output: response.usage.output_tokens || 0 } };
+  } catch (error) {
+    throw friendly(cfg, error);
+  }
+}
+
+// ------------------------------------------------------------ imagen (Estudio de fotos)
+
+/**
+ * Edita una foto con un modelo de imagen de Gemini (ej. gemini-2.5-flash-image):
+ * regresa la imagen nueva en base64. `refusal`: el modelo no quiso editarla.
+ */
+export async function editImage(
+  cfg: AiConfig,
+  opts: { prompt: string; image: { mediaType: string; data: string } }
+): Promise<{ image: GeminiImage | null; refusal: boolean; text: string; usage: AiUsage }> {
+  if (cfg.provider !== "gemini") throw new AiFailure("El Estudio de fotos solo funciona con Gemini.", 400);
+  try {
+    const r = await gemini(cfg, {
+      contents: [{ role: "user", parts: [{ inline_data: { mime_type: opts.image.mediaType, data: opts.image.data } }, { text: opts.prompt }] }],
+      generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
+    });
+    const refusal = r.finish === "SAFETY" || r.finish === "PROHIBITED_CONTENT" || r.finish === "IMAGE_SAFETY";
+    return { image: r.images[0] || null, refusal, text: r.text.trim(), usage: r.usage };
   } catch (error) {
     throw friendly(cfg, error);
   }
