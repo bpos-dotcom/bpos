@@ -49,6 +49,7 @@ export const NAV: NavGroup[] = [
       { label: "Ingredientes", href: "/configuracion/ingredientes", icon: "🧂" },
       { label: "Packaging", href: "/configuracion/packaging", icon: "🥡" },
       { label: "Productos", href: "/configuracion/productos", icon: "🍔" },
+      { label: "Estudio IA", href: "/configuracion/estudio-ia", icon: "✨" },
       { label: "Food cost", href: "/configuracion/food-cost", icon: "💲" },
     ],
   },

@@ -13,8 +13,8 @@ import { compoundRouting, suggestExtraStations } from "@/lib/compound";
 import { stationLabel } from "@/lib/kds-config";
 import { SaleScheduleEditor, saveSchedule } from "@/components/products/SaleScheduleEditor";
 import { scheduleLabel } from "@/lib/sale-schedule";
-import { uploadBusinessImage } from "@/lib/media";
-import { PhotoStudio } from "@/components/products/PhotoStudio";
+import { addToGallery, photoName } from "@/lib/photo-gallery";
+import { GalleryPicker } from "@/components/products/GalleryPicker";
 import { DeleteProductModal, type DeliveryAlias } from "@/components/products/DeleteProductModal";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { ImportProductsModal } from "@/components/products/ImportProductsModal";
@@ -35,13 +35,14 @@ export default function ProductosAdminPage() {
   const [uploading, setUploading] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [studio, setStudio] = useState(false);
+  const [picking, setPicking] = useState(false);
 
+  // La foto subida aquí también queda en la galería (Tu negocio → Estudio IA)
   async function uploadPhoto(file: File | undefined) {
     if (!file || !draft) return;
     setUploading(true);
     try {
-      const image = await uploadBusinessImage(file, "productos", 900);
+      const { url: image } = await addToGallery(file, draft.name || photoName(file.name), false);
       setDraft((d) => (d ? { ...d, image } : d));
     } catch (e) {
       alert(e instanceof Error ? e.message : "No se pudo subir la foto.");
@@ -607,27 +608,37 @@ export default function ProductosAdminPage() {
                   <Field label="📷 Foto (menú digital)">
                     <div className="flex flex-wrap items-center gap-2">
                       <label className="cursor-pointer rounded-2xl border border-orange-500 px-4 py-3 text-sm font-black text-orange-300 hover:bg-orange-500/10">
-                        {uploading ? "Subiendo..." : draft.image ? "Cambiar foto" : "Subir foto"}
-                        <input type="file" accept="image/png,image/jpeg,image/webp" className="hidden" disabled={uploading} onChange={(e) => void uploadPhoto(e.target.files?.[0])} />
+                        {uploading ? "Subiendo..." : "📷 Subir foto"}
+                        <input
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          disabled={uploading}
+                          onChange={(e) => {
+                            void uploadPhoto(e.target.files?.[0]);
+                            e.target.value = "";
+                          }}
+                        />
                       </label>
-                      <button onClick={() => setStudio(true)} disabled={uploading} className="rounded-2xl border border-violet-500 px-4 py-3 text-sm font-black text-violet-300 hover:bg-violet-500/10 disabled:opacity-40">
-                        ✨ Mejorar con IA
+                      <button onClick={() => setPicking(true)} disabled={uploading} className="rounded-2xl border border-violet-500 px-4 py-3 text-sm font-black text-violet-300 hover:bg-violet-500/10 disabled:opacity-40">
+                        🖼️ Seleccionar foto
                       </button>
                       {draft.image && (
-                        <button onClick={() => setDraft({ ...draft, image: undefined })} className="rounded-2xl border border-zinc-800 px-4 py-3 text-sm text-zinc-400">
-                          Quitar foto
+                        <button onClick={() => setDraft({ ...draft, image: undefined })} className="rounded-2xl border border-zinc-800 px-4 py-3 text-sm text-zinc-400 hover:border-red-500 hover:text-red-300">
+                          Eliminar foto
                         </button>
                       )}
                     </div>
-                    <p className="mt-1 text-xs text-zinc-500">Aparece en tu menú digital. Guarda los cambios para que se vea.</p>
-                    {studio && (
-                      <PhotoStudio
-                        image={draft.image}
-                        productName={draft.name}
-                        onClose={() => setStudio(false)}
-                        onUse={(image) => {
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Aparece en tu menú digital. Las fotos se guardan en tu galería; para mejorarlas con IA usa Tu negocio → Estudio IA. Guarda los cambios para que se vea.
+                    </p>
+                    {picking && (
+                      <GalleryPicker
+                        current={draft.image}
+                        onClose={() => setPicking(false)}
+                        onPick={(image) => {
                           setDraft((d) => (d ? { ...d, image } : d));
-                          setStudio(false);
+                          setPicking(false);
                         }}
                       />
                     )}
