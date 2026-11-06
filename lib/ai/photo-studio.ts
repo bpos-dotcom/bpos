@@ -10,22 +10,34 @@
  */
 import { adminDb } from "@/lib/ai/settings";
 
+/** Qué hacer con el fondo: conservarlo difuminado (de fábrica) o quitarlo (transparente) */
+export type PhotoBackground = "conservar" | "quitar";
+
+const PROMPT_START = `Mejora esta fotografía de un platillo de restaurante para que luzca como una foto profesional de menú, pero conservando fielmente el producto original.
+
+Es muy importante mantener exactamente el mismo platillo y presentación original: mismos ingredientes, mismas cantidades, mismas porciones, mismo acomodo, mismo empaque o plato, mismo ángulo de cámara y misma composición general. No agregues, elimines, sustituyas ni reinterpretes ningún alimento, guarnición, salsa, empaque o elemento del platillo.
+
+Haz únicamente mejoras fotográficas: corrige la iluminación para que sea suave, cálida y tipo estudio, mejora el color para que se vea natural y apetitoso, y aumenta ligeramente la nitidez y el enfoque.`;
+
+const PROMPT_END = `El resultado debe verse como una fotografía real retocada profesionalmente, no como una imagen generada desde cero. No agregues texto, logotipos, marcas de agua ni elementos decorativos. Conserva intactos los logotipos, etiquetas y textos que ya estén impresos en los empaques originales.`;
+
 /**
- * La orden que recibe la IA. En inglés porque el modelo la sigue mejor; dice
- * lo mismo que se le explica al dueño: mejorar la foto a nivel profesional de
- * restaurante sin cambiar la estructura ni la composición del platillo.
+ * La orden que recibe la IA (la escribió y probó el dueño de B-POS): mejorar
+ * la foto a nivel profesional de restaurante sin cambiar la estructura ni la
+ * composición del platillo, conservando el fondo difuminado o quitándolo.
  */
-export const PHOTO_PROMPT = `Edit this photo of a restaurant dish so it looks like a professional food photograph for a restaurant menu.
+export const PHOTO_PROMPTS: Record<PhotoBackground, string> = {
+  conservar: `${PROMPT_START}
 
-Keep EXACTLY the same dish: the same ingredients, quantities, portion sizes, arrangement, plate or container, camera angle, framing and composition. Do not add, remove, move, resize or replace any ingredient, garnish, sauce, side, plate, utensil or prop. Do not change the shape or structure of the food.
+Limpia visualmente y difumina suavemente el fondo original, aplicando un desenfoque natural y discreto, similar al de una cámara profesional con profundidad de campo reducida. Mantén el entorno original reconocible, pero menos llamativo para que el platillo sea el protagonista. No sustituyas el fondo por otro escenario, no modifiques el ángulo de cámara y no desenfoques ninguna parte del producto, empaque, plato o acompañamientos.
 
-Only improve the photographic quality:
-- soft, warm, even studio lighting with gentle natural shadows;
-- natural, appetizing colors and correct white balance (no oversaturation);
-- sharp focus and fine texture on the food; remove noise, blur and grain;
-- clean up the background: remove clutter, stains and distracting objects, or softly blur it, keeping the same surface and setting.
+${PROMPT_END}`,
+  quitar: `${PROMPT_START}
 
-No text, logos, labels, watermarks or borders. The result must look like a real photograph of this exact dish, not an illustration, render or a different dish.`;
+Elimina completamente el fondo de la fotografía y sustitúyelo por transparencia real (canal alfa). Conserva únicamente el producto principal con todos sus elementos originales, incluyendo el plato o recipiente, empaques, papel, salsas y acompañamientos. Respeta cuidadosamente los bordes, las texturas, los reflejos y las sombras naturales del producto. No recortes ninguna parte del conjunto original ni agregues un fondo blanco, negro o de otro color.
+
+${PROMPT_END}`,
+};
 
 /** Día de hoy en México (los créditos se reinician a medianoche de aquí) */
 export function creditsDay(now = new Date()) {

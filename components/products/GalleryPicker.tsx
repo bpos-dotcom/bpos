@@ -1,5 +1,5 @@
 "use client";
-/** Productos → "Seleccionar foto": elegir una foto de la galería del negocio (Tu negocio → Estudio IA). */
+/** Productos → "Seleccionar foto": elegir una foto de la galería del negocio (Tu negocio → Estudio Fotográfico). */
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { GALLERY_EVENT, getGallery, type GalleryPhoto } from "@/lib/photo-gallery";
@@ -24,7 +24,7 @@ export function GalleryPicker({ current, onPick, onClose }: { current?: string; 
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-xl font-black text-white">🖼️ Seleccionar foto</p>
-            <p className="text-sm text-zinc-400">De tu galería en Tu negocio → Estudio IA.</p>
+            <p className="text-sm text-zinc-400">De tu galería en Tu negocio → Estudio Fotográfico.</p>
           </div>
           <button onClick={onClose} className="rounded-xl border border-zinc-800 px-3 py-1 font-black" aria-label="Cerrar">
             ✕
@@ -37,7 +37,7 @@ export function GalleryPicker({ current, onPick, onClose }: { current?: string; 
           <div className="mt-4 rounded-2xl border border-dashed border-zinc-700 p-6 text-center text-sm text-zinc-400">
             Todavía no hay fotos en tu galería.{" "}
             <Link href="/configuracion/estudio-ia" className="font-black text-violet-300 underline">
-              Sube y mejora fotos en Estudio IA
+              Sube y mejora fotos en Estudio Fotográfico
             </Link>
           </div>
         ) : (
@@ -50,10 +50,9 @@ export function GalleryPicker({ current, onPick, onClose }: { current?: string; 
               >
                 {/* eslint-disable-next-line @next/next/no-img-element -- fotos del negocio en Supabase Storage */}
                 <img src={p.url} alt={p.name} className="aspect-square w-full object-cover" loading="lazy" />
-                <span className="block truncate px-3 py-2 text-sm font-bold text-white">
-                  {p.enhanced ? "✨ " : ""}
-                  {p.name}
-                </span>
+                <span className="block truncate px-3 pt-2 text-sm font-bold text-white">{p.name}</span>
+                {/* Solo la ve el restaurante: no va en la foto ni en el menú */}
+                <span className="block px-3 pb-2 text-xs font-black text-violet-300">{p.enhanced ? "Mejorada por B-POS IA ✨" : " "}</span>
               </button>
             ))}
           </div>

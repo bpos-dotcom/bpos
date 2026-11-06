@@ -8,7 +8,8 @@
 import { hasPermission, permissionForPath } from "@/lib/permissions";
 import type { CurrentUser } from "@/lib/auth";
 
-export type NavTab = { label: string; href: string; icon: string };
+/** aiBadge: la pestaña agrega [AI🟢] si el plan incluye IA (Max o prueba) o [AI🔴] si no */
+export type NavTab = { label: string; href: string; icon: string; aiBadge?: boolean };
 export type NavGroup = { label: string; icon: string; tabs: NavTab[] };
 
 export const NAV: NavGroup[] = [
@@ -49,7 +50,7 @@ export const NAV: NavGroup[] = [
       { label: "Ingredientes", href: "/configuracion/ingredientes", icon: "🧂" },
       { label: "Packaging", href: "/configuracion/packaging", icon: "🥡" },
       { label: "Productos", href: "/configuracion/productos", icon: "🍔" },
-      { label: "Estudio IA", href: "/configuracion/estudio-ia", icon: "✨" },
+      { label: "Estudio Fotográfico", href: "/configuracion/estudio-ia", icon: "📸", aiBadge: true },
       { label: "Food cost", href: "/configuracion/food-cost", icon: "💲" },
     ],
   },

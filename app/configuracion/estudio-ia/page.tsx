@@ -1,6 +1,6 @@
 "use client";
 /**
- * Tu negocio → Estudio IA: la galería de fotos del negocio. Al subir una foto
+ * Tu negocio → Estudio Fotográfico: la galería de fotos del negocio. Al subir una foto
  * pregunta "¿Mejorar con IA?" (plan Max, BPOS Credits del día) y la guarda en
  * la galería; desde Productos → Seleccionar foto se usa en cualquier producto.
  */
@@ -12,6 +12,9 @@ import { PhotoStudio, usePhotoCredits } from "@/components/products/PhotoStudio"
 import { getAdminProducts } from "@/lib/admin";
 import { GALLERY_EVENT, getGallery, removeFromGallery, type GalleryPhoto } from "@/lib/photo-gallery";
 import type { Product } from "@/data/products";
+import { usePlanState } from "@/components/cloud/PlanGate";
+import { aiTabLabel } from "@/components/layout/SectionTabs";
+import { planIncludes } from "@/lib/plans";
 
 type Source = { file: File } | { photo: GalleryPhoto };
 
@@ -21,6 +24,7 @@ export default function EstudioIaPage() {
   const [source, setSource] = useState<Source | null>(null);
   const [query, setQuery] = useState("");
   const { status } = usePhotoCredits();
+  const plan = usePlanState();
 
   useEffect(() => {
     const load = () => setPhotos(getGallery());
@@ -51,7 +55,7 @@ export default function EstudioIaPage() {
 
   return (
     <RequireRole allow={["Admin"]}>
-      <AppShell title="Estudio IA" subtitle="Sube las fotos de tus platillos, mejóralas con IA y úsalas en tus productos.">
+      <AppShell title={aiTabLabel("Estudio Fotográfico", planIncludes(plan, "ai"))} subtitle="Sube las fotos de tus platillos, mejóralas con IA y úsalas en tus productos.">
         <div className="max-w-6xl space-y-5">
           <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-violet-500/40 bg-zinc-950 p-5">
             <div>
@@ -94,8 +98,9 @@ export default function EstudioIaPage() {
                       <img src={p.url} alt={p.name} className="aspect-square w-full object-cover" loading="lazy" />
                       <div className="p-3">
                         <p className="truncate font-black text-white">{p.name}</p>
+                        {/* Solo la ve el restaurante: no va en la foto ni en el menú */}
+                        {p.enhanced && <p className="text-xs font-black text-violet-300">Mejorada por B-POS IA ✨</p>}
                         <p className="mt-0.5 text-xs text-zinc-500">
-                          {p.enhanced ? <span className="font-bold text-violet-300">✨ Mejorada con IA · </span> : null}
                           {new Date(p.createdAt).toLocaleDateString("es-MX", { day: "numeric", month: "short" })}
                           {uses.length ? ` · en ${uses.length} producto(s)` : ""}
                         </p>

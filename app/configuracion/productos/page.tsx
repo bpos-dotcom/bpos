@@ -37,7 +37,7 @@ export default function ProductosAdminPage() {
   const [importing, setImporting] = useState(false);
   const [picking, setPicking] = useState(false);
 
-  // La foto subida aquí también queda en la galería (Tu negocio → Estudio IA)
+  // La foto subida aquí también queda en la galería (Tu negocio → Estudio Fotográfico)
   async function uploadPhoto(file: File | undefined) {
     if (!file || !draft) return;
     setUploading(true);
@@ -630,7 +630,7 @@ export default function ProductosAdminPage() {
                       )}
                     </div>
                     <p className="mt-1 text-xs text-zinc-500">
-                      Aparece en tu menú digital. Las fotos se guardan en tu galería; para mejorarlas con IA usa Tu negocio → Estudio IA. Guarda los cambios para que se vea.
+                      Aparece en tu menú digital. Las fotos se guardan en tu galería; para mejorarlas con IA usa Tu negocio → Estudio Fotográfico. Guarda los cambios para que se vea.
                     </p>
                     {picking && (
                       <GalleryPicker

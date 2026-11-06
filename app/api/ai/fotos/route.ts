@@ -2,12 +2,14 @@ import type { NextRequest } from "next/server";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 import { AiFailure, editImage } from "@/lib/ai/engine";
 import { getAiConfig, photoCredits, readAiRow } from "@/lib/ai/settings";
-import { PHOTO_PROMPT, creditsDay, creditsUsed, refundCredits, spendCredits } from "@/lib/ai/photo-studio";
+import { PHOTO_PROMPTS, creditsDay, creditsUsed, refundCredits, spendCredits, type PhotoBackground } from "@/lib/ai/photo-studio";
 
 /**
  * Estudio de fotos con IA (plan Max):
- *   GET                         → si está disponible y los BPOS Credits de hoy
- *   POST { image, mediaType }   → la foto mejorada (base64); gasta los créditos de una foto
+ *   GET                                     → si está disponible, los BPOS Credits de hoy y si puede quitar el fondo
+ *   POST { image, mediaType, background }   → la foto mejorada (base64); gasta los créditos de una foto
+ * background: "conservar" (de fábrica, fondo difuminado) o "quitar" (PNG
+ * transparente; solo OpenAI lo hace de verdad).
  * La foto no se guarda aquí: el dueño ve antes y después y, si la usa, se sube
  * como cualquier foto de producto (lib/media.ts).
  */
@@ -34,9 +36,10 @@ export async function GET(request: NextRequest) {
   const a = session.allowance;
   try {
     const credits = await creditsFor(session.businessId);
-    const ready = Boolean(await getAiConfig("fotos"));
+    const cfg = await getAiConfig("fotos");
+    const ready = Boolean(cfg);
     const reason = a.plan !== "max" ? "plan" : !a.active ? "inactive" : !ready ? "unavailable" : a.spent >= a.budget ? "limit" : null;
-    return aiReply(request, { success: true, available: !reason, reason, credits });
+    return aiReply(request, { success: true, available: !reason, reason, credits, transparent: cfg?.provider === "openai" });
   } catch (e) {
     return aiReply(request, { success: false, error: e instanceof Error ? e.message : "No se pudo revisar el Estudio de fotos." }, 503);
   }
@@ -45,7 +48,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const session = await aiSession(request, true, "fotos");
   if ("error" in session) return session.error;
-  const body = (await request.json().catch(() => ({}))) as { image?: unknown; mediaType?: unknown };
+  const body = (await request.json().catch(() => ({}))) as { image?: unknown; mediaType?: unknown; background?: unknown };
+  const background: PhotoBackground = body.background === "quitar" ? "quitar" : "conservar";
+  if (background === "quitar" && session.ai?.provider !== "openai") return aiReply(request, { success: false, error: "Quitar el fondo solo funciona con OpenAI. Usa Conservar fondo." }, 400);
   const data = typeof body.image === "string" ? body.image.replace(/^data:[^,]*,/, "") : "";
   const mediaType = typeof body.mediaType === "string" ? body.mediaType : "";
   if (!data || !/^image\/(jpeg|png|webp)$/.test(mediaType)) return aiReply(request, { success: false, error: "Sube una foto JPG, PNG o WEBP." }, 400);
@@ -62,7 +67,7 @@ export async function POST(request: NextRequest) {
     }
     charged = perUse;
 
-    const r = await editImage(session.ai!, { prompt: PHOTO_PROMPT, image: { mediaType, data } });
+    const r = await editImage(session.ai!, { prompt: PHOTO_PROMPTS[background], image: { mediaType, data }, transparent: background === "quitar" });
     await chargeAi(session, r.usage);
     if (!r.image) {
       await refundCredits(session.businessId, charged, day);

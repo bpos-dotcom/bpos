@@ -1,6 +1,6 @@
 "use client";
 /**
- * Galería de fotos del negocio (Tu negocio → Estudio IA): las fotos que se
+ * Galería de fotos del negocio (Tu negocio → Estudio Fotográfico): las fotos que se
  * suben, mejoradas con IA o tal cual. Desde Productos se elige una de aquí
  * para cada producto. Es del negocio (todas las sucursales la ven) y se
  * sincroniza como los productos; las fotos viven en bpos-media/<negocio>/galeria.

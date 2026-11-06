@@ -178,7 +178,7 @@ export async function checkOpenAiModel(cfg: AiConfig) {
  * Edita una foto con la API de imágenes de OpenAI (gpt-image-1): calidad
  * media y fidelidad alta a la foto que se manda (no cambia el platillo).
  */
-async function openAiEdit(cfg: AiConfig, opts: { prompt: string; image: { mediaType: string; data: string } }) {
+async function openAiEdit(cfg: AiConfig, opts: { prompt: string; image: { mediaType: string; data: string }; transparent?: boolean }) {
   const form = new FormData();
   form.append("model", cfg.model);
   form.append("prompt", opts.prompt);
@@ -188,6 +188,11 @@ async function openAiEdit(cfg: AiConfig, opts: { prompt: string; image: { mediaT
   form.append("quality", "medium");
   // gpt-image-1 respeta más los detalles de la foto original con fidelidad alta
   if (cfg.model === "gpt-image-1") form.append("input_fidelity", "high");
+  // Quitar fondo: PNG con transparencia real (el prompt solo no la garantiza)
+  if (opts.transparent) {
+    form.append("background", "transparent");
+    form.append("output_format", "png");
+  }
   const res = await fetch(`${OPENAI}/images/edits`, { method: "POST", headers: { Authorization: `Bearer ${cfg.key}` }, body: form });
   const json = (await res.json().catch(() => ({}))) as OpenAiError & {
     data?: { b64_json?: string }[];
@@ -217,7 +222,7 @@ async function openAiEdit(cfg: AiConfig, opts: { prompt: string; image: { mediaT
  */
 export async function editImage(
   cfg: AiConfig,
-  opts: { prompt: string; image: { mediaType: string; data: string } }
+  opts: { prompt: string; image: { mediaType: string; data: string }; transparent?: boolean }
 ): Promise<{ image: GeminiImage | null; refusal: boolean; text: string; usage: AiUsage }> {
   if (cfg.provider !== "gemini" && cfg.provider !== "openai") throw new AiFailure("El Estudio de fotos funciona con OpenAI o Gemini.", 400);
   try {
