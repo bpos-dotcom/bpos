@@ -2,7 +2,7 @@ import type { NextRequest } from "next/server";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 import { AiFailure, editImage } from "@/lib/ai/engine";
 import { getAiConfig, photoCredits, readAiRow } from "@/lib/ai/settings";
-import { PHOTO_PROMPTS, creditsDay, creditsUsed, refundCredits, spendCredits, type PhotoBackground } from "@/lib/ai/photo-studio";
+import { creditsDay, photoPrompt, creditsUsed, refundCredits, spendCredits, type PhotoBackground } from "@/lib/ai/photo-studio";
 
 /**
  * Estudio de fotos con IA (plan Max):
@@ -59,7 +59,8 @@ export async function POST(request: NextRequest) {
   const day = creditsDay();
   let charged = 0;
   try {
-    const { perDay, perUse } = photoCredits(await readAiRow("fotos"));
+    const row = await readAiRow("fotos");
+    const { perDay, perUse } = photoCredits(row);
     const used = await spendCredits(session.businessId, perUse, perDay, day);
     if (used === null) {
       const credits = await creditsFor(session.businessId);
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
     }
     charged = perUse;
 
-    const r = await editImage(session.ai!, { prompt: PHOTO_PROMPTS[background], image: { mediaType, data }, transparent: background === "quitar" });
+    const r = await editImage(session.ai!, { prompt: photoPrompt(row, background), image: { mediaType, data }, transparent: background === "quitar" });
     await chargeAi(session, r.usage);
     if (!r.image) {
       await refundCredits(session.businessId, charged, day);

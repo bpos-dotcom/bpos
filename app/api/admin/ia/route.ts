@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 import { AiFailure, checkOpenAiModel, generateText } from "@/lib/ai/engine";
+import { PHOTO_PROMPTS } from "@/lib/ai/photo-studio";
 import { FEATURES, MODELS, PHOTO_MODELS, adminDb, aiTable, getAiConfig, packKeys, photoCredits, readHints, readKeys, type AiFeature, type AiProvider, type AiSettingRow } from "@/lib/ai/settings";
 
 /**
@@ -11,6 +12,7 @@ import { FEATURES, MODELS, PHOTO_MODELS, adminDb, aiTable, getAiConfig, packKeys
  *   POST { action: "guardar", feature, provider, model, key?, priceIn, priceOut, creditsPerDay?, creditsPerUse? }
  *   POST { action: "probar", feature, provider?, model? } → una pregunta corta (lo elegido, aunque no esté guardado)
  *   POST { action: "quitar", feature, provider } → borra la clave de ese proveedor
+ *   POST { action: "prompts", feature: "fotos", promptKeep, promptRemove } → prompts del Estudio de fotos (vacío = el de fábrica)
  * Se guarda una clave por proveedor: cambiar de Gemini a Claude no borra la
  * de Gemini. La clave nunca regresa al navegador. El Estudio de fotos se
  * guarda en su tabla (bpos_ai_image_settings), con OpenAI o Gemini, junto con
@@ -36,7 +38,8 @@ async function list() {
   const db = adminDb();
   const [{ data }, photo] = await Promise.all([
     db.from("bpos_ai_settings").select("feature, provider, model, key_hint, price_in, price_out, updated_by, updated_at"),
-    db.from(aiTable("fotos")).select("feature, provider, model, key_hint, price_in, price_out, credits_per_day, credits_per_use, updated_by, updated_at"),
+    // Todo (también los prompts si ya está la migración 0031); la clave cifrada no sale de aquí
+    db.from(aiTable("fotos")).select("*"),
   ]);
   const rows = [...((data || []) as Omit<AiSettingRow, "key_cipher">[]), ...((photo.data || []) as Omit<AiSettingRow, "key_cipher">[])];
   const vercel = Boolean(process.env.ANTHROPIC_API_KEY);
@@ -65,7 +68,14 @@ async function list() {
         updatedBy: r?.updated_by || "",
         updatedAt: r?.updated_at || "",
         active: own ? "admin" : fallback ? "vercel" : "ninguna",
-        ...(photos ? { models: PHOTO_MODELS, credits: photoCredits(r || null), missingTable: Boolean(photo.error) } : {}),
+        ...(photos
+          ? {
+              models: PHOTO_MODELS,
+              credits: photoCredits(r || null),
+              missingTable: Boolean(photo.error),
+              prompts: { keep: r?.prompt_keep || "", remove: r?.prompt_remove || "", defaults: PHOTO_PROMPTS, editable: !photo.error && (!r || "prompt_keep" in r) },
+            }
+          : {}),
       };
     }),
   };
@@ -127,6 +137,14 @@ export async function POST(request: NextRequest) {
         updated_at: new Date().toISOString(),
       });
       if (error) throw new Error(error.message);
+      return reply(await list());
+    }
+
+    if (body.action === "prompts") {
+      if (feature !== "fotos") return reply({ error: "Solo el Estudio de fotos tiene prompts." }, 400);
+      const clean = (v: unknown) => String(v ?? "").trim().slice(0, 6000);
+      const { error } = await db.from(table).upsert({ feature, prompt_keep: clean(body.promptKeep), prompt_remove: clean(body.promptRemove), updated_by: who, updated_at: new Date().toISOString() });
+      if (error) throw new Error(/prompt_/.test(error.message) ? "Falta aplicar la migración 0031 en Supabase." : error.message);
       return reply(await list());
     }
 

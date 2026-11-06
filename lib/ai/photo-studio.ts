@@ -39,6 +39,12 @@ Elimina completamente el fondo de la fotografía y sustitúyelo por transparenci
 ${PROMPT_END}`,
 };
 
+/** El prompt que se usa: el que guardó el administrador o, si está vacío, el de fábrica */
+export function photoPrompt(row: { prompt_keep?: string; prompt_remove?: string } | null, background: PhotoBackground) {
+  const own = (background === "quitar" ? row?.prompt_remove : row?.prompt_keep)?.trim();
+  return own || PHOTO_PROMPTS[background];
+}
+
 /** Día de hoy en México (los créditos se reinician a medianoche de aquí) */
 export function creditsDay(now = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
