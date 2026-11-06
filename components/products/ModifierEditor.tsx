@@ -25,12 +25,14 @@ type Props = {
   /** Multidestino: estaciones extra del producto (cada grupo puede mostrarse también ahí) */
   extraStations?: KitchenStation[];
   onChange: (groups: ModifierGroup[]) => void;
+  /** Sin permiso de precios: no se cambian los precios de las opciones */
+  lockPrices?: boolean;
 };
 
 const newKey = () => `m${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
 const newOption = (): ModifierOption => ({ key: newKey(), name: "" });
 
-function NumberField({ label, value, onChange, prefix, hint }: { label: string; value: number; onChange: (n: number) => void; prefix?: string; hint?: string }) {
+function NumberField({ label, value, onChange, prefix, hint, disabled }: { label: string; value: number; onChange: (n: number) => void; prefix?: string; hint?: string; disabled?: boolean }) {
   return (
     <label>
       <span className="mb-1 block text-xs font-bold text-zinc-400">{label}</span>
@@ -41,8 +43,9 @@ function NumberField({ label, value, onChange, prefix, hint }: { label: string; 
           min={0}
           step={prefix ? "0.5" : "1"}
           value={value}
+          disabled={disabled}
           onChange={(e) => onChange(Math.max(0, Number(e.target.value) || 0))}
-          className="w-20 rounded-xl border border-zinc-800 bg-black px-3 py-2 text-right"
+          className="w-20 rounded-xl border border-zinc-800 bg-black px-3 py-2 text-right disabled:opacity-50"
         />
       </span>
       {hint && <span className="mt-1 block text-[11px] text-zinc-500">{hint}</span>}
@@ -50,7 +53,7 @@ function NumberField({ label, value, onChange, prefix, hint }: { label: string; 
   );
 }
 
-export function ModifierEditor({ groups, ingredients, products, productId, productName, extraStations = [], onChange }: Props) {
+export function ModifierEditor({ groups, ingredients, products, productId, productName, extraStations = [], onChange, lockPrices = false }: Props) {
   const ingredientById = new Map(ingredients.map((i) => [i.id, i]));
   const productById = new Map(products.map((p) => [p.id, p]));
   const [linking, setLinking] = useState<{ group: string; option: string } | null>(null);
@@ -116,7 +119,7 @@ export function ModifierEditor({ groups, ingredients, products, productId, produ
                 Obligatorio
               </label>
               <NumberField label="Incluidas gratis" value={group.included} onChange={(n) => updateGroup(group.key, { included: Math.round(n) })} />
-              <NumberField label="Precio por cada extra" prefix="$" value={group.extraPrice} onChange={(n) => updateGroup(group.key, { extraPrice: n })} hint="0 = no se cobran" />
+              <NumberField label="Precio por cada extra" prefix="$" value={group.extraPrice} onChange={(n) => updateGroup(group.key, { extraPrice: n })} hint="0 = no se cobran" disabled={lockPrices} />
               <NumberField label="Máximo" value={group.max} onChange={(n) => updateGroup(group.key, { max: Math.round(n) })} hint="0 = sin tope" />
               <button onClick={() => onChange(groups.filter((g) => g.key !== group.key))} className="mt-6 rounded-xl border border-red-500/40 px-3 py-2 text-sm font-black text-red-400">
                 Quitar grupo
@@ -212,6 +215,7 @@ export function ModifierEditor({ groups, ingredients, products, productId, produ
                         min={0}
                         step="0.5"
                         value={option.extraPrice || 0}
+                        disabled={lockPrices}
                         onChange={(e) => {
                           const n = Math.max(0, Number(e.target.value) || 0);
                           updateOption(group, option.key, { extraPrice: n || undefined });

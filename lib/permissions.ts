@@ -10,7 +10,7 @@ export type PermissionKey =
  | "kds.view" | "printing.view" | "printing.reprint"
  | "inventory.view" | "inventory.adjust" | "inventory.costs"
  | "purchases.view" | "purchases.create" | "purchases.cancel" | "purchases.aliases" | "purchases.suppliers" | "bridge.view" | "bridge.aliases"
- | "reports.view" | "settings.view" | "products.manage" | "ingredients.manage" | "recipes.manage" | "prices.manage"
+ | "reports.view" | "settings.view" | "products.manage" | "products.delete" | "photos.manage" | "ingredients.manage" | "recipes.manage" | "prices.manage"
  | "users.manage" | "audit.view" | "owner.view" | "reviews.view" | "customers.view" | "finance.view";
 
 export const PERMISSIONS:{key:PermissionKey;label:string;group:string}[]=[
@@ -18,14 +18,15 @@ export const PERMISSIONS:{key:PermissionKey;label:string;group:string}[]=[
  {key:"pos.discount",label:"Aplicar descuentos",group:"POS"},{key:"pos.cancel",label:"Cancelar o borrar ventas",group:"POS"},{key:"pos.correct",label:"Corregir pedidos",group:"POS"},{key:"pos.reprint",label:"Reimprimir tickets/comandas",group:"POS"},
  {key:"cash.open",label:"Abrir caja",group:"Caja"},{key:"cash.movement",label:"Registrar movimientos",group:"Caja"},{key:"cash.close",label:"Cerrar caja",group:"Caja"},{key:"cash.authorize_difference",label:"Autorizar diferencias",group:"Caja"},{key:"cash.history",label:"Ver historial de cortes",group:"Caja"},
  {key:"printing.reprint",label:"Reimprimir desde Impresiones",group:"Impresiones"},{key:"inventory.adjust",label:"Ajustar inventario",group:"Inventario"},{key:"inventory.costs",label:"Ver costos",group:"Inventario"},
- {key:"bridge.aliases",label:"Administrar equivalencias",group:"Administración"},{key:"products.manage",label:"Administrar productos",group:"Administración"},{key:"ingredients.manage",label:"Administrar ingredientes",group:"Administración"},{key:"recipes.manage",label:"Administrar recetas",group:"Administración"},{key:"prices.manage",label:"Modificar precios",group:"Administración"},{key:"users.manage",label:"Administrar usuarios y permisos",group:"Administración"},
+ {key:"bridge.aliases",label:"Administrar equivalencias",group:"Administración"},{key:"products.manage",label:"Dar de alta y editar productos",group:"Administración"},{key:"products.delete",label:"Eliminar productos",group:"Administración"},{key:"photos.manage",label:"Subir fotos al Estudio Fotográfico",group:"Administración"},{key:"ingredients.manage",label:"Administrar ingredientes",group:"Administración"},{key:"recipes.manage",label:"Administrar recetas",group:"Administración"},{key:"prices.manage",label:"Modificar precios",group:"Administración"},{key:"users.manage",label:"Administrar usuarios y permisos",group:"Administración"},
 ];
 const KEY="bpos_user_permissions";
 const all=PERMISSIONS.map(x=>x.key);
 const ROLE_DEFAULTS:Record<UserRole,PermissionKey[]>={
  Admin:all,
  Gerente:all.filter(x=>!["users.manage","prices.manage"].includes(x)),
- Cajero:["dashboard.view","pos.view","pos.reprint","cash.view","cash.history","kds.view"],
+ // El cajero da de alta productos y sube fotos (sin cambiar precios ni borrar)
+ Cajero:["dashboard.view","pos.view","pos.reprint","cash.view","cash.history","kds.view","products.manage","photos.manage"],
  Cocina:["kds.view","printing.view"],
  Inventario:["dashboard.view","inventory.view","inventory.adjust","purchases.view","purchases.create","purchases.aliases","purchases.suppliers"],
  Consulta:["dashboard.view","reports.view"],
@@ -55,7 +56,7 @@ export async function requirePermissionOrAdmin(user:CurrentUser|null|undefined,k
 export async function requirePermission(user:CurrentUser|null|undefined,key:PermissionKey,action:string):Promise<boolean>{if(hasPermission(user,key))return true;return authorizeWithAdminPin(action,user);}
 
 export const ROUTE_PERMISSIONS:{prefix:string;permission:PermissionKey}[]=[
- {prefix:"/pos",permission:"pos.view"},{prefix:"/historial",permission:"pos.view"},{prefix:"/pedidos-en-linea",permission:"pos.view"},{prefix:"/caja/historial",permission:"cash.history"},{prefix:"/caja",permission:"cash.view"},{prefix:"/cocina",permission:"kds.view"},{prefix:"/impresiones",permission:"printing.view"},{prefix:"/inventario",permission:"inventory.view"},{prefix:"/compras",permission:"purchases.view"},{prefix:"/bridge",permission:"bridge.view"},{prefix:"/reportes",permission:"reports.view"},{prefix:"/opiniones",permission:"reviews.view"},{prefix:"/clientes",permission:"customers.view"},{prefix:"/finanzas",permission:"finance.view"},{prefix:"/dueno",permission:"owner.view"},{prefix:"/configuracion/food-cost",permission:"finance.view"},{prefix:"/configuracion/auditoria",permission:"audit.view"},{prefix:"/configuracion/usuarios",permission:"users.manage"},{prefix:"/configuracion",permission:"settings.view"},{prefix:"/dashboard",permission:"dashboard.view"},
+ {prefix:"/pos",permission:"pos.view"},{prefix:"/historial",permission:"pos.view"},{prefix:"/pedidos-en-linea",permission:"pos.view"},{prefix:"/caja/historial",permission:"cash.history"},{prefix:"/caja",permission:"cash.view"},{prefix:"/cocina",permission:"kds.view"},{prefix:"/impresiones",permission:"printing.view"},{prefix:"/inventario",permission:"inventory.view"},{prefix:"/compras",permission:"purchases.view"},{prefix:"/bridge",permission:"bridge.view"},{prefix:"/reportes",permission:"reports.view"},{prefix:"/opiniones",permission:"reviews.view"},{prefix:"/clientes",permission:"customers.view"},{prefix:"/finanzas",permission:"finance.view"},{prefix:"/dueno",permission:"owner.view"},{prefix:"/configuracion/food-cost",permission:"finance.view"},{prefix:"/configuracion/productos",permission:"products.manage"},{prefix:"/configuracion/estudio-ia",permission:"photos.manage"},{prefix:"/configuracion/ingredientes",permission:"ingredients.manage"},{prefix:"/configuracion/packaging",permission:"ingredients.manage"},{prefix:"/configuracion/auditoria",permission:"audit.view"},{prefix:"/configuracion/usuarios",permission:"users.manage"},{prefix:"/configuracion",permission:"settings.view"},{prefix:"/dashboard",permission:"dashboard.view"},
 ];
 export function permissionForPath(pathname:string){return ROUTE_PERMISSIONS.find(x=>pathname.startsWith(x.prefix))?.permission;}
 

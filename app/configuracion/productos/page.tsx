@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import RequireRole from "@/components/auth/RequireRole";
+import RequirePermission from "@/components/auth/RequirePermission";
+import { getSessionUser } from "@/lib/auth";
+import { hasPermission } from "@/lib/permissions";
 import { AppShell } from "@/components/layout/AppShell";
 import { KitchenStation, Product } from "@/data/products";
 import { isPackaging, type Ingredient, type RecipeItem } from "@/data/inventory";
@@ -20,6 +22,22 @@ import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { ImportProductsModal } from "@/components/products/ImportProductsModal";
 import Link from "next/link";
 
+/** Precios que ya tenía el producto (el suyo y los de sus opciones); lo nuevo sin permiso de precios va en $0 */
+function keepPrices(next: Product, stored: Product) {
+  next.price = stored.price;
+  const oldGroups = new Map((stored.modifierGroups || []).map((g) => [g.key, g]));
+  next.modifierGroups?.forEach((g) => {
+    const old = oldGroups.get(g.key);
+    g.extraPrice = old ? old.extraPrice : 0;
+    const oldOptions = new Map((old?.options || []).map((o) => [o.key, o]));
+    g.options.forEach((o) => {
+      const price = oldOptions.get(o.key)?.extraPrice;
+      if (price) o.extraPrice = price;
+      else delete o.extraPrice;
+    });
+  });
+}
+
 type DraftProduct = Product;
 
 const stations: KitchenStation[] = ["Parrilla", "Freidora", "Barra", "Cocina"];
@@ -36,6 +54,11 @@ export default function ProductosAdminPage() {
   const [deleting, setDeleting] = useState(false);
   const [importing, setImporting] = useState(false);
   const [picking, setPicking] = useState(false);
+  // Sin "Modificar precios" se pone precio solo a un producto nuevo (en $0); sin "Eliminar productos" no se borra
+  const [canPrice] = useState(() => hasPermission(getSessionUser(), "prices.manage"));
+  const [canDelete] = useState(() => hasPermission(getSessionUser(), "products.delete"));
+  const storedPrice = products.find((p) => p.id === draft?.id)?.price ?? 0;
+  const priceLocked = !canPrice && storedPrice > 0;
 
   // La foto subida aquí también queda en la galería (Tu negocio → Estudio Fotográfico)
   async function uploadPhoto(file: File | undefined) {
@@ -122,6 +145,9 @@ export default function ProductosAdminPage() {
     }
 
     const saved: Product = { ...draft, name: draft.name.trim(), modifierGroups: cleanModifierGroups(draft.modifierGroups) };
+    // Sin permiso de precios se conservan los que ya tenía (producto y opciones)
+    const stored = products.find((p) => p.id === draft.id);
+    if (priceLocked && stored) keepPrices(saved, stored);
     delete saved.components;
     if (saved.modifierGroups === undefined) delete saved.modifierGroups;
     // Multidestino: sin la estación propia ni repetidas; sin texto se usa "<producto>"
@@ -308,7 +334,7 @@ export default function ProductosAdminPage() {
   }
 
   return (
-    <RequireRole allow={["Admin"]}>
+    <RequirePermission permission="products.manage">
       <AppShell
         title="Administración de Productos"
         subtitle="Edita productos, precios, categorías y estación de preparación."
@@ -333,9 +359,12 @@ export default function ProductosAdminPage() {
             </div>
 
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <button onClick={() => setImporting(true)} className="rounded-2xl border border-zinc-800 bg-black px-3 py-2 text-sm font-black text-zinc-300 hover:border-orange-500">
-                📥 Importar Excel
-              </button>
+              {/* Importar puede cambiar precios: solo con ese permiso */}
+              {canPrice && (
+                <button onClick={() => setImporting(true)} className="rounded-2xl border border-zinc-800 bg-black px-3 py-2 text-sm font-black text-zinc-300 hover:border-orange-500">
+                  📥 Importar Excel
+                </button>
+              )}
               <Link href="/configuracion/menu-digital#orden" className="rounded-2xl border border-zinc-800 bg-black px-3 py-2 text-center text-sm font-black text-zinc-300 hover:border-orange-500">
                 ↕️ Ordenar menú
               </Link>
@@ -487,12 +516,14 @@ export default function ProductosAdminPage() {
                       Duplicar
                     </button>
 
-                    <button
-                      onClick={() => setDeleting(true)}
-                      className="rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-3 font-black text-red-400 hover:bg-red-500/20"
-                    >
-                      Eliminar
-                    </button>
+                    {canDelete && (
+                      <button
+                        onClick={() => setDeleting(true)}
+                        className="rounded-2xl border border-red-500/40 bg-red-500/10 px-5 py-3 font-black text-red-400 hover:bg-red-500/20"
+                      >
+                        Eliminar
+                      </button>
+                    )}
 
                     <button
                       onClick={cancelChanges}
@@ -525,14 +556,17 @@ export default function ProductosAdminPage() {
                     <input
                       type="number"
                       value={draft.price}
+                      disabled={priceLocked}
+                      title={priceLocked ? "Para cambiar el precio se necesita el permiso Modificar precios" : undefined}
                       onChange={(event) =>
                         setDraft({
                           ...draft,
                           price: Number(event.target.value),
                         })
                       }
-                      className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
+                      className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white disabled:opacity-50"
                     />
+                    {priceLocked && <p className="mt-1 text-xs text-zinc-500">Solo quien tiene el permiso Modificar precios puede cambiarlo.</p>}
                   </Field>
 
                   <Field label="Categoría">
@@ -673,6 +707,7 @@ export default function ProductosAdminPage() {
                   productName={draft.name}
                   extraStations={(draft.extraStations || []).map((e) => e.station)}
                   onChange={(modifierGroups) => setDraft({ ...draft, modifierGroups })}
+                  lockPrices={priceLocked}
                 />
 
                 {compoundRouting(draft, products).length > 1 && (
@@ -735,7 +770,7 @@ export default function ProductosAdminPage() {
           </section>
         </div>
       </AppShell>
-    </RequireRole>
+    </RequirePermission>
   );
 }
 
