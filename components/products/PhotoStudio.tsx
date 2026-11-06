@@ -1,6 +1,6 @@
 "use client";
 /**
- * Estudio de fotos con IA (Tu negocio → Estudio IA). Al subir una foto
+ * Estudio de fotos con IA (Tu negocio → Estudio Fotográfico). Al subir una foto
  * pregunta "¿Mejorar con IA?": si sí, la manda a /api/ai/fotos (plan Max,
  * gasta BPOS Credits del día) y enseña el antes y el después; se guarda en la
  * galería la que el dueño elija. También mejora una foto que ya está en la
@@ -11,7 +11,8 @@ import { aiFetch } from "@/lib/ai/client";
 import { addToGallery, photoName, type GalleryPhoto } from "@/lib/photo-gallery";
 
 type Credits = { perDay: number; perUse: number; used: number; left: number };
-type Status = { available: boolean; reason: "plan" | "inactive" | "unavailable" | "limit" | null; credits: Credits };
+type Status = { available: boolean; reason: "plan" | "inactive" | "unavailable" | "limit" | null; credits: Credits; /** El modelo puede quitar el fondo (OpenAI) */ transparent?: boolean };
+type Background = "conservar" | "quitar";
 type Source = { file: File } | { photo: GalleryPhoto };
 
 const REASON: Record<string, string> = {
@@ -62,6 +63,8 @@ export function PhotoStudio({ source, onDone, onClose }: { source: Source; onDon
   const [preview, setPreview] = useState(() => ("file" in source ? "" : source.photo.url));
   const [name, setName] = useState(() => ("file" in source ? photoName(source.file.name) : source.photo.name));
   const [result, setResult] = useState<{ mediaType: string; data: string } | null>(null);
+  // De fábrica se conserva el fondo (difuminado); quitarlo da un PNG transparente
+  const [background, setBackground] = useState<Background>("conservar");
   const [busy, setBusy] = useState<"" | "mejorando" | "guardando">("");
   const [error, setError] = useState("");
 
@@ -79,7 +82,7 @@ export function PhotoStudio({ source, onDone, onClose }: { source: Source; onDon
     setError("");
     try {
       const blob = "file" in source ? source.file : await (await fetch(source.photo.url)).blob();
-      const r = await aiFetch("/api/ai/fotos", { method: "POST", body: JSON.stringify({ image: await toJpegBase64(blob), mediaType: "image/jpeg" }) });
+      const r = await aiFetch("/api/ai/fotos", { method: "POST", body: JSON.stringify({ image: await toJpegBase64(blob), mediaType: "image/jpeg", background }) });
       const b = await r.json().catch(() => ({}));
       if (b.credits) setStatus((s) => (s ? { ...s, credits: b.credits } : s));
       if (!r.ok || !b.success) throw new Error(b.error || "No se pudo mejorar la foto.");
@@ -143,7 +146,13 @@ export function PhotoStudio({ source, onDone, onClose }: { source: Source; onDon
               <figcaption className="mb-2 text-xs font-black uppercase text-violet-300">Después</figcaption>
               {result ? (
                 // eslint-disable-next-line @next/next/no-img-element -- imagen recién hecha por la IA (base64)
-                <img src={`data:${result.mediaType};base64,${result.data}`} alt="Foto mejorada" className="aspect-square w-full rounded-xl object-contain" />
+                <img
+                  src={`data:${result.mediaType};base64,${result.data}`}
+                  alt="Foto mejorada"
+                  // Sin fondo: cuadritos detrás para que se note la transparencia
+                  style={background === "quitar" ? { backgroundImage: "repeating-conic-gradient(#3f3f46 0% 25%, #18181b 0% 50%)", backgroundSize: "20px 20px" } : undefined}
+                  className="aspect-square w-full rounded-xl object-contain"
+                />
               ) : (
                 <div className="flex aspect-square items-center justify-center rounded-xl text-center text-sm text-zinc-400">Mejorando la foto… puede tardar unos 30 segundos</div>
               )}
@@ -155,6 +164,32 @@ export function PhotoStudio({ source, onDone, onClose }: { source: Source; onDon
           Nombre en la galería
           <input value={name} onChange={(e) => setName(e.target.value)} maxLength={60} className="mt-1 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white" placeholder="Ej. Hamburguesa clásica" />
         </label>
+        {!result && (
+          <div className="mt-3">
+            <p className="text-sm font-bold text-zinc-300">Fondo</p>
+            <div className="mt-1 grid grid-cols-2 gap-2">
+              {(
+                [
+                  ["conservar", "🖼️ Conservar fondo", "Lo limpia y lo difumina"],
+                  ["quitar", "✂️ Quitar fondo", "Queda transparente"],
+                ] as const
+              ).map(([value, label, hint]) => {
+                const off = value === "quitar" && status?.transparent === false;
+                return (
+                  <button
+                    key={value}
+                    onClick={() => setBackground(value)}
+                    disabled={Boolean(busy) || off}
+                    className={`rounded-2xl border px-3 py-2 text-left font-black disabled:opacity-40 ${background === value ? "border-violet-400 bg-violet-500/15 text-violet-200" : "border-zinc-800 text-zinc-300 hover:border-zinc-600"}`}
+                  >
+                    {label}
+                    <span className="block text-xs font-bold text-zinc-500">{off ? "Solo con OpenAI" : hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
         {error && <p className="mt-2 text-sm font-bold text-red-300">{error}</p>}
 
         <div className="mt-4 flex flex-wrap gap-2">
