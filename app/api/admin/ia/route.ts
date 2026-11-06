@@ -2,17 +2,19 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 import { AiFailure, generateText } from "@/lib/ai/engine";
-import { FEATURES, MODELS, adminDb, getAiConfig, packKeys, readHints, readKeys, type AiFeature, type AiProvider, type AiSettingRow } from "@/lib/ai/settings";
+import { FEATURES, MODELS, PHOTO_MODELS, adminDb, aiTable, getAiConfig, packKeys, photoCredits, readHints, readKeys, type AiFeature, type AiProvider, type AiSettingRow } from "@/lib/ai/settings";
 
 /**
  * Configuración → Administrador → Claves de IA (solo administradores de la
  * plataforma, is_platform_admin):
  *   GET                                   → funciones, proveedor, modelo, últimos 4 de cada clave
- *   POST { action: "guardar", feature, provider, model, key?, priceIn, priceOut }
+ *   POST { action: "guardar", feature, provider, model, key?, priceIn, priceOut, creditsPerDay?, creditsPerUse? }
  *   POST { action: "probar", feature, provider?, model? } → una pregunta corta (lo elegido, aunque no esté guardado)
  *   POST { action: "quitar", feature, provider } → borra la clave de ese proveedor
  * Se guarda una clave por proveedor: cambiar de Gemini a Claude no borra la
- * de Gemini. La clave nunca regresa al navegador.
+ * de Gemini. La clave nunca regresa al navegador. El Estudio de fotos se
+ * guarda en su tabla (bpos_ai_photo_settings), solo con Gemini, junto con
+ * sus BPOS Credits (al día por negocio y por foto).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,30 +31,38 @@ async function requireAdmin(request: NextRequest) {
 }
 
 async function list() {
-  const { data } = await adminDb().from("bpos_ai_settings").select("feature, provider, model, key_hint, price_in, price_out, updated_by, updated_at");
-  const rows = (data || []) as Omit<AiSettingRow, "key_cipher">[];
+  const db = adminDb();
+  const [{ data }, photo] = await Promise.all([
+    db.from("bpos_ai_settings").select("feature, provider, model, key_hint, price_in, price_out, updated_by, updated_at"),
+    db.from("bpos_ai_photo_settings").select("feature, provider, model, key_hint, price_in, price_out, credits_per_day, credits_per_use, updated_by, updated_at"),
+  ]);
+  const rows = [...((data || []) as Omit<AiSettingRow, "key_cipher">[]), ...((photo.data || []) as Omit<AiSettingRow, "key_cipher">[])];
   const vercel = Boolean(process.env.ANTHROPIC_API_KEY);
   return {
     models: MODELS,
     vercelFallback: vercel,
     features: FEATURES.map((f) => {
+      const photos = f.id === "fotos";
       const r = rows.find((x) => x.feature === f.id);
-      const provider = r?.provider || "anthropic";
-      const model = r?.model || "claude-opus-5-5";
+      const provider = r?.provider || (photos ? "gemini" : "anthropic");
+      const model = r?.model || (photos ? PHOTO_MODELS[0].id : "claude-opus-5-5");
       const hints = readHints(r || null);
       const own = Boolean(hints[provider]);
+      // El Estudio de fotos no usa la clave de Vercel (es de Claude, que no edita imágenes)
+      const fallback = vercel && !photos;
       return {
         ...f,
         provider,
         model,
         keyHints: hints,
         // Lo que de verdad se usa (Gemini sin clave regresa a Claude Opus de Vercel)
-        running: own ? { provider, model } : vercel ? { provider: "anthropic", model: provider === "anthropic" ? model : "claude-opus-5-5" } : null,
-        priceIn: r ? Number(r.price_in) : 4,
-        priceOut: r ? Number(r.price_out) : 20,
+        running: own ? { provider, model } : fallback ? { provider: "anthropic", model: provider === "anthropic" ? model : "claude-opus-5-5" } : null,
+        priceIn: r ? Number(r.price_in) : photos ? PHOTO_MODELS[0].priceIn : 4,
+        priceOut: r ? Number(r.price_out) : photos ? PHOTO_MODELS[0].priceOut : 20,
         updatedBy: r?.updated_by || "",
         updatedAt: r?.updated_at || "",
-        active: own ? "admin" : vercel ? "vercel" : "ninguna",
+        active: own ? "admin" : fallback ? "vercel" : "ninguna",
+        ...(photos ? { models: PHOTO_MODELS, credits: photoCredits(r || null), missingTable: Boolean(photo.error) } : {}),
       };
     }),
   };
@@ -77,31 +87,39 @@ export async function POST(request: NextRequest) {
     return reply({ error: "Petición inválida." }, 400);
   }
   const feature = body.feature as AiFeature;
-  if (!FEATURES.some((f) => f.id === feature)) return reply({ error: "Función desconocida." }, 400);
+  const info = FEATURES.find((f) => f.id === feature);
+  if (!info) return reply({ error: "Función desconocida." }, 400);
   const db = adminDb();
+  const table = aiTable(feature);
 
   try {
     if (body.action === "guardar") {
       const provider = body.provider as AiProvider;
-      if (provider !== "anthropic" && provider !== "gemini") return reply({ error: "Proveedor desconocido." }, 400);
+      if (!info.providers.includes(provider)) return reply({ error: feature === "fotos" ? "El Estudio de fotos solo funciona con Gemini." : "Proveedor desconocido." }, 400);
       const model = String(body.model || "").trim().slice(0, 80);
       if (!/^[a-z0-9.\-]+$/i.test(model)) return reply({ error: "Escribe el modelo (ej. gemini-2.5-flash-lite)." }, 400);
       const key = String(body.key || "").trim();
       const priceIn = Math.max(0, Number(body.priceIn) || 0);
       const priceOut = Math.max(0, Number(body.priceOut) || 0);
-      const { data: current } = await db.from("bpos_ai_settings").select("provider, key_cipher").eq("feature", feature).maybeSingle();
+      const { data: current } = await db.from(table).select("provider, key_cipher").eq("feature", feature).maybeSingle();
       const keys = readKeys(current as Pick<AiSettingRow, "provider" | "key_cipher"> | null);
       if (key && key.length < 20) return reply({ error: "La clave se ve incompleta." }, 400);
       if (key) keys[provider] = key;
       // Sin clave guardada de ese proveedor se pide (Claude puede usar la de Vercel)
       if (!keys[provider] && !(provider === "anthropic" && process.env.ANTHROPIC_API_KEY)) return reply({ error: `Pega la clave de ${provider === "gemini" ? "Google (Gemini)" : "Anthropic (Claude)"}.` }, 400);
-      const { error } = await db.from("bpos_ai_settings").upsert({
+      // BPOS Credits del Estudio de fotos: al día por negocio y por foto
+      const credits =
+        feature === "fotos"
+          ? { credits_per_day: Math.min(10000, Math.max(0, Math.round(Number(body.creditsPerDay) || 0))), credits_per_use: Math.min(10000, Math.max(1, Math.round(Number(body.creditsPerUse) || 0))) }
+          : {};
+      const { error } = await db.from(table).upsert({
         feature,
         provider,
         model,
         ...packKeys(keys),
         price_in: priceIn,
         price_out: priceOut,
+        ...credits,
         updated_by: who,
         updated_at: new Date().toISOString(),
       });
@@ -110,11 +128,11 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "quitar") {
-      const { data: current } = await db.from("bpos_ai_settings").select("provider, key_cipher").eq("feature", feature).maybeSingle();
+      const { data: current } = await db.from(table).select("provider, key_cipher").eq("feature", feature).maybeSingle();
       const keys = readKeys(current as Pick<AiSettingRow, "provider" | "key_cipher"> | null);
       const provider = (body.provider === "gemini" || body.provider === "anthropic" ? body.provider : current?.provider) as AiProvider | undefined;
       if (provider) delete keys[provider];
-      const { error } = await db.from("bpos_ai_settings").update({ ...packKeys(keys), updated_by: who, updated_at: new Date().toISOString() }).eq("feature", feature);
+      const { error } = await db.from(table).update({ ...packKeys(keys), updated_by: who, updated_at: new Date().toISOString() }).eq("feature", feature);
       if (error) throw new Error(error.message);
       return reply(await list());
     }

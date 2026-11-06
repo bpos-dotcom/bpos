@@ -17,8 +17,16 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL } from "@/lib/supabase/client";
 
-export type AiFeature = "interprete" | "asesor";
+export type AiFeature = "interprete" | "asesor" | "fotos";
 export type AiProvider = "anthropic" | "gemini";
+
+/**
+ * El Estudio de fotos vive en su propia tabla (bpos_ai_photo_settings, 0029)
+ * con las mismas columnas más sus BPOS Credits; solo funciona con Gemini
+ * (Claude no edita imágenes), así que no regresa a la clave de Vercel.
+ */
+export const aiTable = (feature: AiFeature) => (feature === "fotos" ? "bpos_ai_photo_settings" : "bpos_ai_settings");
+const providersFor = (feature: AiFeature): AiProvider[] => (feature === "fotos" ? ["gemini"] : ["anthropic", "gemini"]);
 
 export type AiConfig = {
   feature: AiFeature;
@@ -31,10 +39,19 @@ export type AiConfig = {
   source: "admin" | "vercel";
 };
 
-export const FEATURES: { id: AiFeature; title: string; text: string }[] = [
-  { id: "interprete", title: "Intérprete de fotos y tickets", text: "Compras con foto de ticket, menú con IA y sugerencias del Bridge." },
-  { id: "asesor", title: "Asesor con IA", text: "Resumen semanal, consejos con los números del restaurante y chat con el dueño." },
+export const FEATURES: { id: AiFeature; title: string; text: string; providers: AiProvider[] }[] = [
+  { id: "interprete", title: "Intérprete de fotos y tickets", text: "Compras con foto de ticket, menú con IA y sugerencias del Bridge.", providers: providersFor("interprete") },
+  { id: "asesor", title: "Asesor con IA", text: "Resumen semanal, consejos con los números del restaurante y chat con el dueño.", providers: providersFor("asesor") },
+  { id: "fotos", title: "Estudio de fotos", text: "Mejora la foto de un platillo a calidad de restaurante (plan Max). Solo Gemini: Claude no edita imágenes.", providers: providersFor("fotos") },
 ];
+
+/** Modelos de imagen para el Estudio de fotos (precio: la imagen de salida cuenta como ~1290 tokens) */
+export const PHOTO_MODELS: { id: string; label: string; priceIn?: number; priceOut?: number }[] = [
+  { id: "gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image (edita fotos)", priceIn: 0.3, priceOut: 30 },
+];
+
+/** BPOS Credits del Estudio de fotos si el administrador no ha cambiado nada */
+export const PHOTO_CREDITS = { perDay: 25, perUse: 5 };
 
 /** Modelos sugeridos (se puede escribir otro) y su precio por millón de tokens en dólares, como referencia */
 export const MODELS: Record<AiProvider, { id: string; label: string; priceIn?: number; priceOut?: number }[]> = {
@@ -85,7 +102,20 @@ function decryptKey(stored: string) {
 
 export const keyHint = (key: string) => (key ? `…${key.slice(-4)}` : "");
 
-export type AiSettingRow = { feature: AiFeature; provider: AiProvider; model: string; key_cipher: string; key_hint: string; price_in: number; price_out: number; updated_by: string; updated_at: string };
+export type AiSettingRow = {
+  feature: AiFeature;
+  provider: AiProvider;
+  model: string;
+  key_cipher: string;
+  key_hint: string;
+  price_in: number;
+  price_out: number;
+  updated_by: string;
+  updated_at: string;
+  /** Solo el Estudio de fotos */
+  credits_per_day?: number;
+  credits_per_use?: number;
+};
 
 export type ProviderKeys = Partial<Record<AiProvider, string>>;
 
@@ -130,9 +160,27 @@ export function packKeys(keys: ProviderKeys) {
 /** Precio de referencia de un modelo (el guardado si es el mismo de la fila) */
 function priceFor(row: AiSettingRow | null, provider: AiProvider, model: string) {
   if (row && row.provider === provider && row.model === model) return { priceIn: Number(row.price_in) || 0, priceOut: Number(row.price_out) || 0 };
-  const m = MODELS[provider].find((x) => x.id === model);
+  const m = [...MODELS[provider], ...PHOTO_MODELS].find((x) => x.id === model);
   if (m?.priceIn !== undefined) return { priceIn: m.priceIn, priceOut: m.priceOut || 0 };
   return model === DEFAULT.model ? { priceIn: DEFAULT.priceIn, priceOut: DEFAULT.priceOut } : { priceIn: 0, priceOut: 0 };
+}
+
+/** La fila guardada de una función (null si no hay o no se pudo leer) */
+export async function readAiRow(feature: AiFeature): Promise<AiSettingRow | null> {
+  try {
+    const { data } = await adminDb().from(aiTable(feature)).select("*").eq("feature", feature).maybeSingle();
+    return data as AiSettingRow | null;
+  } catch (e) {
+    console.error("[B-POS] No se pudieron leer las claves de IA:", e instanceof Error ? e.message : e);
+    return null;
+  }
+}
+
+/** BPOS Credits del Estudio de fotos: cuántos hay al día y cuántos gasta cada foto */
+export function photoCredits(row: Pick<AiSettingRow, "credits_per_day" | "credits_per_use"> | null) {
+  const perDay = Number(row?.credits_per_day);
+  const perUse = Number(row?.credits_per_use);
+  return { perDay: Number.isFinite(perDay) && perDay >= 0 ? perDay : PHOTO_CREDITS.perDay, perUse: Number.isFinite(perUse) && perUse > 0 ? perUse : PHOTO_CREDITS.perUse };
 }
 
 /**
@@ -140,17 +188,13 @@ function priceFor(row: AiSettingRow | null, provider: AiProvider, model: string)
  * disponible). `draft`: probar otro proveedor o modelo sin guardarlo.
  */
 export async function getAiConfig(feature: AiFeature, draft?: { provider: AiProvider; model: string }): Promise<AiConfig | null> {
-  let row: AiSettingRow | null = null;
-  try {
-    const { data } = await adminDb().from("bpos_ai_settings").select("*").eq("feature", feature).maybeSingle();
-    row = data as AiSettingRow | null;
-  } catch (e) {
-    console.error("[B-POS] No se pudieron leer las claves de IA:", e instanceof Error ? e.message : e);
-  }
-  const provider = draft?.provider || row?.provider || DEFAULT.provider;
-  const model = draft?.model || row?.model || DEFAULT.model;
+  const row = await readAiRow(feature);
+  const photos = feature === "fotos";
+  const provider = draft?.provider || row?.provider || (photos ? "gemini" : DEFAULT.provider);
+  const model = draft?.model || row?.model || (photos ? PHOTO_MODELS[0].id : DEFAULT.model);
   const key = readKeys(row)[provider];
   if (key) return { feature, provider, model, key, ...priceFor(row, provider, model), source: "admin" };
+  if (photos) return null;
   const envKey = process.env.ANTHROPIC_API_KEY?.trim();
   if (!envKey) return null;
   // Claude sin clave propia: la de Vercel con el modelo elegido. Gemini sin clave: Claude Opus, como antes

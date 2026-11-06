@@ -6,6 +6,7 @@ import { ask } from "@/components/layout/Dialogs";
  * proveedor (Claude y Gemini): se cambia de uno a otro sin volver a pegarla.
  * La clave se guarda cifrada en el servidor y no se vuelve a mostrar (solo
  * los últimos 4). "Probar" prueba lo que está elegido, aunque no se guarde.
+ * El Estudio de fotos solo usa Gemini y además lleva sus BPOS Credits.
  */
 import { useCallback, useEffect, useState } from "react";
 import { aiFetch } from "@/lib/ai/client";
@@ -13,9 +14,16 @@ import { aiFetch } from "@/lib/ai/client";
 type Provider = "anthropic" | "gemini";
 type Model = { id: string; label: string; priceIn?: number; priceOut?: number };
 type Feature = {
-  id: "interprete" | "asesor";
+  id: "interprete" | "asesor" | "fotos";
   title: string;
   text: string;
+  providers: Provider[];
+  /** Modelos propios (Estudio de fotos: modelos de imagen) */
+  models?: Model[];
+  /** BPOS Credits del Estudio de fotos */
+  credits?: { perDay: number; perUse: number };
+  /** Falta la migración 0029 */
+  missingTable?: boolean;
   provider: Provider;
   model: string;
   keyHints: Partial<Record<Provider, string>>;
@@ -40,14 +48,17 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
   const [key, setKey] = useState("");
   const [priceIn, setPriceIn] = useState(String(f.priceIn));
   const [priceOut, setPriceOut] = useState(String(f.priceOut));
+  const [perDay, setPerDay] = useState(String(f.credits?.perDay ?? ""));
+  const [perUse, setPerUse] = useState(String(f.credits?.perUse ?? ""));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const list = models[provider];
+  const modelsFor = (p: Provider) => f.models || models[p];
+  const list = modelsFor(provider);
   const known = list.find((m) => m.id === model);
 
   const hint = f.keyHints[provider];
   const changed = provider !== f.provider || model !== f.model;
-  const modelName = (p: Provider, id: string) => models[p].find((m) => m.id === id)?.label.replace(/ \(.*\)$/, "") || id;
+  const modelName = (p: Provider, id: string) => modelsFor(p).find((m) => m.id === id)?.label.replace(/ \(.*\)$/, "") || id;
 
   function pickProvider(p: Provider) {
     setProvider(p);
@@ -59,7 +70,7 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
       setPriceOut(String(f.priceOut));
       return;
     }
-    const first = models[p][0];
+    const first = modelsFor(p)[0];
     setModel(first.id);
     if (first.priceIn !== undefined) setPriceIn(String(first.priceIn));
     if (first.priceOut !== undefined) setPriceOut(String(first.priceOut));
@@ -89,7 +100,15 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
   }
 
   async function save() {
-    const b = await call({ action: "guardar", provider, model, key, priceIn: Number(priceIn), priceOut: Number(priceOut) });
+    const b = await call({
+      action: "guardar",
+      provider,
+      model,
+      key,
+      priceIn: Number(priceIn),
+      priceOut: Number(priceOut),
+      ...(f.credits ? { creditsPerDay: Number(perDay), creditsPerUse: Number(perUse) } : {}),
+    });
     if (b) {
       setKey("");
       onSaved(b as Data);
@@ -126,12 +145,14 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
         </span>
       </div>
 
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        {(["anthropic", "gemini"] as const).map((p) => (
+      {f.missingTable && <p className="mt-3 rounded-2xl border border-red-500/50 bg-red-500/10 p-3 text-sm font-bold text-red-200">Falta aplicar la migración 0029 en Supabase para guardar el Estudio de fotos.</p>}
+
+      <div className={`mt-4 grid gap-2 ${f.providers.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
+        {f.providers.map((p) => (
           <button key={p} onClick={() => pickProvider(p)} className={`rounded-2xl border px-3 py-3 font-black ${provider === p ? "border-orange-500 bg-orange-500/10 text-orange-200" : "border-zinc-800 text-zinc-400"}`}>
             {p === "anthropic" ? "Anthropic (Claude)" : "Google (Gemini)"}
             <span className="block text-[11px] font-bold text-zinc-500">
-              {f.keyHints[p] ? `Clave guardada ${f.keyHints[p]}` : p === "anthropic" && vercel ? "Usa la clave de Vercel" : "Sin clave"}
+              {f.keyHints[p] ? `Clave guardada ${f.keyHints[p]}` : p === "anthropic" && vercel && f.id !== "fotos" ? "Usa la clave de Vercel" : "Sin clave"}
               {f.provider === p && f.running?.provider === p ? " · en uso" : ""}
             </span>
           </button>
@@ -171,6 +192,21 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
           <input type="number" min={0} step={0.01} value={priceOut} onChange={(e) => setPriceOut(e.target.value)} className={`${input} mt-1`} />
         </label>
       </div>
+      {f.credits && (
+        <div className="mt-3 grid gap-3 rounded-2xl border border-violet-500/40 bg-violet-500/5 p-3 md:grid-cols-2">
+          <label className={label}>
+            BPOS Credits al día por negocio
+            <input type="number" min={0} step={1} value={perDay} onChange={(e) => setPerDay(e.target.value)} className={`${input} mt-1`} />
+          </label>
+          <label className={label}>
+            BPOS Credits por foto
+            <input type="number" min={1} step={1} value={perUse} onChange={(e) => setPerUse(e.target.value)} className={`${input} mt-1`} />
+          </label>
+          <p className="text-xs text-zinc-400 md:col-span-2">
+            Con estos números cada negocio Max puede mejorar {Math.floor((Number(perDay) || 0) / Math.max(1, Number(perUse) || 1))} foto(s) al día. Se reinician a medianoche (hora de México) y si la IA falla no se gastan.
+          </p>
+        </div>
+      )}
       <p className="mt-2 text-xs text-zinc-500">
         El precio sirve para llevar el presupuesto de IA de cada negocio. Revísalo en la página de precios del proveedor; si lo dejas en 0, no se cuenta el gasto.
       </p>
