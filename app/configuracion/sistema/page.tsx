@@ -2,7 +2,7 @@
 /**
  * Configuración → Sistema: tu negocio en el menú, apariencia, moneda e idioma, pantalla táctil,
  * respaldos, B-POS Agent (vincular la PC de las impresoras) y versión.
- * Tema y pantalla táctil son de ESTE dispositivo (no se sincronizan).
+ * Tema, pantalla táctil y cómo se abre WhatsApp son de ESTE dispositivo (no se sincronizan).
  */
 import Link from "next/link";
 import { useEffect, useState } from "react";
@@ -10,7 +10,7 @@ import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { AgentCard } from "@/components/agent/AgentCard";
 import { BrandCard } from "@/components/settings/BrandCard";
-import { setTouchKeypad, touchKeypadEnabled } from "@/lib/device-settings";
+import { setTouchKeypad, setWhatsappApp, touchKeypadEnabled, whatsappAppEnabled } from "@/lib/device-settings";
 import { getTheme, setTheme, THEME_EVENT, type Theme } from "@/lib/theme";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
@@ -19,6 +19,7 @@ const select = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 tex
 export default function SistemaPage() {
   const [theme, setThemeState] = useState<Theme>("dark");
   const [touch, setTouch] = useState(false);
+  const [waApp, setWaApp] = useState(false);
   const [version, setVersion] = useState("");
 
   useEffect(() => {
@@ -26,6 +27,7 @@ export default function SistemaPage() {
     sync();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ajustes del navegador: solo después de montar
     setTouch(touchKeypadEnabled());
+    setWaApp(whatsappAppEnabled());
     window.addEventListener(THEME_EVENT, sync);
     fetch("/api/version", { cache: "no-store" })
       .then((r) => r.json())
@@ -98,6 +100,34 @@ export default function SistemaPage() {
                 </span>
               </span>
             </label>
+          </section>
+
+          <section className={card}>
+            <h2 className="text-lg font-black">💬 Abrir WhatsApp en (este dispositivo)</h2>
+            <p className="mt-1 text-sm text-zinc-400">Para el corte, avisos a clientes, repartidores, proveedores y reservaciones.</p>
+            <div className="mt-4 grid grid-cols-2 gap-3">
+              {(
+                [
+                  [false, "🌐 Navegador"],
+                  [true, "💻 Aplicación"],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={label}
+                  onClick={() => {
+                    setWaApp(value);
+                    setWhatsappApp(value);
+                  }}
+                  className={`rounded-2xl border py-4 font-black ${waApp === value ? "border-orange-500 bg-orange-500/10 text-orange-400" : "border-zinc-800 bg-black hover:border-zinc-600"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-zinc-500">
+              Aplicación abre directo WhatsApp de escritorio con el mensaje escrito; necesita la app instalada en esta computadora. La primera vez el navegador pregunta si abrir WhatsApp: marca
+              &quot;Permitir siempre&quot;. En celular usa Navegador: ahí ya abre la app sola.
+            </p>
           </section>
 
           <section className={card}>

@@ -27,6 +27,7 @@ import {
 } from "@/lib/online-orders";
 
 import { ReservationsPanel } from "@/components/menu/ReservationsPanel";
+import { openWhatsapp, whatsappLink, whatsappTarget } from "@/lib/whatsapp";
 
 const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
 const ago = (iso: string) => {
@@ -69,9 +70,12 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
    */
   async function step(notice: CustomerNotice, action: () => Promise<unknown>, opts: { eta?: number; reason?: string } = {}, orderForNotice: OnlineOrder = order) {
     const link = menu.whatsappNotify ? customerWhatsappLink(orderForNotice, notice, opts) : "";
-    const w = link ? window.open("", "_blank") : null;
+    // Navegador: la pestaña se abre en el clic y recibe la liga al terminar; la app se abre al terminar
+    const app = Boolean(link) && !whatsappTarget(link);
+    const w = link && !app ? window.open("", "_blank") : null;
     const ok = await run(action);
-    if (ok && w) w.location.href = link;
+    if (ok && app) openWhatsapp(link);
+    else if (ok && w) w.location.href = link;
     else w?.close();
   }
 
@@ -125,8 +129,9 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   const phone = whatsappNumber(d.customer.phone);
   const confirmLink =
     later && phone
-      ? `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(`¡Hola ${d.customer.name.split(" ")[0]}! Recibimos tu pedido programado ${order.folio} para ${scheduledLabel(d.scheduledFor!)}. ¡Te esperamos! 🧡`)}`
+      ? whatsappLink(phone, `¡Hola ${d.customer.name.split(" ")[0]}! Recibimos tu pedido programado ${order.folio} para ${scheduledLabel(d.scheduledFor!)}. ¡Te esperamos! 🧡`)
       : "";
+  const chatLink = d.customer.phone ? whatsappLink(`52${d.customer.phone.slice(-10)}`) : "";
   return (
     <div className={`rounded-3xl border p-5 ${isNew ? "border-emerald-400 bg-emerald-500/5" : "border-zinc-800 bg-zinc-950"}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
@@ -154,7 +159,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
           {d.kiosk && order.account_id ? <span className="ml-2 text-xs font-bold text-amber-300">⭐ Socio del club</span> : null}
         </p>
         {d.customer.phone && (
-          <a href={`https://wa.me/52${d.customer.phone.slice(-10)}`} target="_blank" rel="noreferrer" className="text-emerald-400 underline">
+          <a href={chatLink} target={whatsappTarget(chatLink)} rel="noreferrer" className="text-emerald-400 underline">
             📱 {d.customer.phone}
           </a>
         )}
@@ -214,7 +219,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       )}
 
       {confirmLink && (
-        <a href={confirmLink} target="_blank" rel="noreferrer" className="mt-3 inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300">
+        <a href={confirmLink} target={whatsappTarget(confirmLink)} rel="noreferrer" className="mt-3 inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300">
           📲 Confirmar al cliente por WhatsApp
         </a>
       )}
@@ -257,7 +262,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       {order.status === "rechazado" && <p className="mt-3 text-sm text-red-300">Rechazado: {order.reason}</p>}
       {order.status === "entregado" && <p className="mt-3 text-sm text-zinc-500">Entregado ✅</p>}
       {resend && (
-        <a href={resend} target="_blank" rel="noreferrer" className="mt-3 inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300 hover:bg-emerald-500/10">
+        <a href={resend} target={whatsappTarget(resend)} rel="noreferrer" className="mt-3 inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300 hover:bg-emerald-500/10">
           📲 Avisar al cliente por WhatsApp
         </a>
       )}

@@ -13,6 +13,7 @@ import { formatOrderNumber } from "@/lib/order-sequence";
 import { authorizeWithAdminPin, requirePermissionOrAdmin } from "@/lib/permissions";
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import { revertInventoryForOrder, type InventoryOrderLike } from "@/lib/inventory";
+import { openWhatsapp, whatsappLink } from "@/lib/whatsapp";
 
 export function printSaleTicket(order: SavedOrder) {
   const ticketWindow = window.open("", "_blank", "width=380,height=700");
@@ -176,10 +177,7 @@ Pago: ${order.details.paymentMethod}
 
 Gracias por pedir en ${businessName} 🚀`;
 
-  window.open(
-    `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}`,
-    "_blank"
-  );
+  openWhatsapp(whatsappLink(phone, message));
 }
 
 

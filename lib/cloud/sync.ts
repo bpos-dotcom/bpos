@@ -43,6 +43,7 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_sidebar_collapsed",
   "bpos_sidebar_pinned",
   "bpos_touch_keypad",
+  "bpos_whatsapp_app",
   "bpos_theme",
   "bpos_pos_draft", // pedido en curso de ESTA caja (otra caja tiene el suyo)
   "bpos_tables_view", // plano o cuadrícula en la ventana de Mesas de esta caja

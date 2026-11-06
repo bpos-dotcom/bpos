@@ -6,6 +6,7 @@
  * Google Maps. Se manda gratis abriendo WhatsApp con el mensaje listo.
  */
 import { whatsappNumber } from "@/lib/digital-menu";
+import { whatsappLink } from "@/lib/whatsapp";
 
 export type Driver = { id: string; name: string; phone: string; active: boolean };
 
@@ -70,7 +71,7 @@ export function driverMessage(info: DispatchInfo) {
 /** Liga de WhatsApp al repartidor con el mensaje listo ("" si su número no es válido). */
 export function driverWhatsappLink(driver: Driver, info: DispatchInfo) {
   const number = whatsappNumber(driver.phone);
-  return number ? `https://api.whatsapp.com/send/?phone=${number}&text=${encodeURIComponent(driverMessage(info))}` : "";
+  return number ? whatsappLink(number, driverMessage(info)) : "";
 }
 
 /** Anota en la venta quién la llevó (para saber cuánto repartió cada uno). */

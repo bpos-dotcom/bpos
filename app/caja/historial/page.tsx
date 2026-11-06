@@ -11,6 +11,7 @@ import { getCashCloseHistory, voidCashClose, type CashCloseRecord } from "@/lib/
 import { authorizeAdmin } from "@/lib/permissions";
 import { upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
 import { exportCuts } from "@/lib/exports";
+import { openWhatsapp, whatsappLink } from "@/lib/whatsapp";
 
 export default function CashHistoryPage() {
   const [history, setHistory] = useState<CashCloseRecord[]>([]);
@@ -41,7 +42,7 @@ export default function CashHistoryPage() {
       return;
     }
     const message = record.cutMessage || buildFallbackMessage(record);
-    window.open(`https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}`, "_blank");
+    openWhatsapp(whatsappLink(phone, message));
     const user = getCurrentUser();
     addAuditEvent({
       category: "Caja",

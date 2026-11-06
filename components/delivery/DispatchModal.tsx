@@ -7,6 +7,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { DRIVERS_EVENT, assignDriverToSale, driverMessage, driverWhatsappLink, getDrivers, type DispatchInfo, type Driver } from "@/lib/drivers";
+import { openWhatsapp } from "@/lib/whatsapp";
 
 export function DispatchModal({ info, saleId, onClose }: { info: DispatchInfo; saleId?: number; onClose: () => void }) {
   const [drivers, setDrivers] = useState<Driver[]>([]);
@@ -35,7 +36,7 @@ export function DispatchModal({ info, saleId, onClose }: { info: DispatchInfo; s
   function send(driver: Driver) {
     const link = driverWhatsappLink(driver, current);
     if (!link) return;
-    window.open(link, "_blank");
+    openWhatsapp(link);
     if (saleId) assignDriverToSale(saleId, driver);
     setSentTo(driver.name);
   }

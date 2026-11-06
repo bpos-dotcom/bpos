@@ -8,6 +8,7 @@ import { useCallback, useEffect, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { DIGITAL_MENU_EVENT, getDigitalMenu, whatsappNumber } from "@/lib/digital-menu";
 import { listReservations, RESERVATIONS_EVENT, reservationWhatsappLink, reservationWhen, setReservationStatus, type Reservation } from "@/lib/reservations";
+import { openWhatsapp, whatsappLink, whatsappTarget } from "@/lib/whatsapp";
 
 const sameDay = (a: Date, b: Date) => a.toDateString() === b.toDateString();
 
@@ -15,6 +16,7 @@ function Card({ r, onChanged }: { r: Reservation; onChanged: () => void }) {
   const [busy, setBusy] = useState(false);
   const [reason, setReason] = useState("");
   const [asking, setAsking] = useState(false);
+  const chatLink = whatsappLink(whatsappNumber(r.customer_phone || ""));
   const [now] = useState(() => Date.now());
   const today = sameDay(new Date(r.reserved_at), new Date(now));
   const past = Date.parse(r.reserved_at) < now - 2 * 3600_000;
@@ -23,7 +25,9 @@ function Card({ r, onChanged }: { r: Reservation; onChanged: () => void }) {
     const by = getCurrentUser().name;
     // WhatsApp se abre en el mismo clic (si no, el navegador lo bloquea)
     const link = status === "confirmada" || status === "rechazada" ? reservationWhatsappLink(r, status, reason.trim()) : "";
-    const win = link && getDigitalMenu().whatsappNotify ? window.open(link, "_blank") : null;
+    const send = Boolean(link) && getDigitalMenu().whatsappNotify;
+    const win = send && whatsappTarget(link) ? window.open(link, "_blank") : null;
+    if (send && !whatsappTarget(link)) openWhatsapp(link);
     setBusy(true);
     try {
       await setReservationStatus(r.id, status, reason.trim(), by);
@@ -51,7 +55,7 @@ function Card({ r, onChanged }: { r: Reservation; onChanged: () => void }) {
           </p>
         </div>
         {r.customer_phone && whatsappNumber(r.customer_phone) && (
-          <a href={`https://wa.me/${whatsappNumber(r.customer_phone)}`} target="_blank" rel="noreferrer" className="rounded-xl border border-zinc-700 px-3 py-1.5 text-xs font-black text-emerald-300">
+          <a href={chatLink} target={whatsappTarget(chatLink)} rel="noreferrer" className="rounded-xl border border-zinc-700 px-3 py-1.5 text-xs font-black text-emerald-300">
             WhatsApp
           </a>
         )}

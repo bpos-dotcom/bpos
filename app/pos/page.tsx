@@ -50,6 +50,7 @@ import {
   formatOrderNumber,
   getNextShiftOrderNumberPreview,
 } from "@/lib/order-sequence";
+import { openWhatsapp } from "@/lib/whatsapp";
 
 const STORAGE_KEY = "bpos_orders";
 /** Pedido en curso (carrito y datos) para que no se pierda al cambiar de página */
@@ -830,7 +831,7 @@ function PosScreen() {
         // Repartidor elegido al cobrar: se le manda el pedido por WhatsApp de una vez
         assignDriverToSale(newOrder.id, data.driver);
         const link = driverWhatsappLink(data.driver, info);
-        if (link) window.open(link, "_blank");
+        if (link) openWhatsapp(link);
       } else {
         setDispatch({ saleId: newOrder.id, info });
       }
