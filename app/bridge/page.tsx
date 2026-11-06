@@ -182,6 +182,8 @@ function BridgeScreen() {
   );
   const saleCreationLocks = useRef(new Set<string>());
   const [showFinalized, setShowFinalized] = useState(false);
+  // Pedidos finalizados de una sola plataforma ("" = todas)
+  const [finalPlatform, setFinalPlatform] = useState("");
   /** Pedido finalizado abierto (ver y corregir sus equivalencias) */
   const [openFinal, setOpenFinal] = useState<AgentOrder | null>(null);
   const [correcting, setCorrecting] = useState(false);
@@ -271,6 +273,7 @@ function BridgeScreen() {
     () => orders.filter((order) => order.status === "Finalizado"),
     [orders]
   );
+  const shownFinalized = finalPlatform ? finalizedOrders.filter((order) => platformLabel(order.platform) === finalPlatform) : finalizedOrders;
 
   const interpretationInputSignature = useMemo(
     () =>
@@ -1353,11 +1356,27 @@ function BridgeScreen() {
               <p className="mt-1 text-sm text-zinc-400">
                 Ya generaron venta y no forman parte de la cola activa.
               </p>
+              {/* Por plataforma: para revisar que llegaron al Agent todos los de DiDi, Uber o Rappi */}
+              <div className="mt-4 flex flex-wrap gap-2">
+                {["", "DiDi Food", "Uber Eats", "Rappi"].map((label) => {
+                  const count = label ? finalizedOrders.filter((order) => platformLabel(order.platform) === label).length : finalizedOrders.length;
+                  return (
+                    <button
+                      key={label || "todas"}
+                      type="button"
+                      onClick={() => setFinalPlatform(label)}
+                      className={`rounded-xl border px-3 py-1.5 text-sm font-black ${finalPlatform === label ? "border-emerald-400 bg-emerald-500/15 text-emerald-300" : "border-zinc-800 text-zinc-300 hover:border-zinc-600"}`}
+                    >
+                      {label || "Todas"} ({count})
+                    </button>
+                  );
+                })}
+              </div>
               <div className="mt-4 space-y-3">
-                {finalizedOrders.length === 0 ? (
-                  <p className="text-sm text-zinc-500">Todavía no hay pedidos finalizados.</p>
+                {shownFinalized.length === 0 ? (
+                  <p className="text-sm text-zinc-500">{finalPlatform ? `No hay pedidos finalizados de ${finalPlatform}.` : "Todavía no hay pedidos finalizados."}</p>
                 ) : (
-                  finalizedOrders.map((order) => (
+                  shownFinalized.map((order) => (
                     <button
                       type="button"
                       key={`final-${normalize(order.platform)}-${order.orderId}-${order.id}`}
