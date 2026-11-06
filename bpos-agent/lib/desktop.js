@@ -28,19 +28,36 @@ async function refreshPrinter() {
   broadcast();
 }
 
-// Si falta la impresora al abrir, se repara sola una vez por versión (Windows
-// pide permiso de administrador; no se pregunta en cada arranque si sigue fallando)
+/** true solo la primera vez que se pide con este valor (lo guarda en userData) */
+function firstTime(file, value) {
+  const flag = path.join(app.getPath("userData"), file);
+  try {
+    if (fs.readFileSync(flag, "utf8").trim() === value) return false;
+  } catch {}
+  try {
+    fs.writeFileSync(flag, value);
+  } catch {}
+  return true;
+}
+
+// Al abrir, la impresora se repara sola (Windows pide permiso de administrador;
+// no se pregunta en cada arranque si sigue fallando):
+// - si falta o está mal: una vez por versión
+// - si quedó con PWG: una vez para reparar el controlador PDF de Windows (puede
+//   pedir reiniciar) y otra, ya con el controlador listo, para pasarla a PDF
 async function autoRepairPrinter() {
   await refreshPrinter();
-  if (printer.ok !== false || !app.isPackaged) return;
-  const flag = path.join(app.getPath("userData"), "auto-reparar-impresora.txt");
-  try {
-    if (fs.readFileSync(flag, "utf8").trim() === app.getVersion()) return;
-  } catch {}
-  try {
-    fs.writeFileSync(flag, app.getVersion());
-  } catch {}
-  console.log("Impresora virtual: falta, se repara sola");
+  if (!app.isPackaged) return;
+  if (printer.ok === false) {
+    if (!firstTime("auto-reparar-impresora.txt", app.getVersion())) return;
+    console.log("Impresora virtual: falta, se repara sola");
+    await runRepair();
+    return;
+  }
+  if (!printer.pwg) return;
+  const go = printer.pdfReady ? firstTime("auto-pasar-a-pdf.txt", app.getVersion()) : firstTime("auto-reparar-pdf.txt", "1");
+  if (!go) return;
+  console.log(printer.pdfReady ? "Impresora virtual: pasa de PWG a PDF" : "Impresora virtual: se repara el controlador PDF de Windows");
   await runRepair();
 }
 

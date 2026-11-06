@@ -100,22 +100,62 @@ $classDrivers = @("Microsoft Virtual Print Class Driver")
 $pdfPrinter = Get-Printer -Name "Microsoft Print to PDF" -ErrorAction SilentlyContinue
 if ($pdfPrinter -and $pdfPrinter.DriverName -notin ($pdfDrivers + $pwgDrivers + $xpsDrivers + $classDrivers)) { $classDrivers += $pdfPrinter.DriverName }
 
+# Windows 11 nuevo trae el controlador PDF guardado (prnms009.inf) pero sin instalar
+function Install-PdfDriver([string]$name) {
+  $infs = @(Get-ChildItem -Path "$env:windir\System32\DriverStore\FileRepository\prnms009.inf_*\prnms009.inf" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+  if (Test-Path "$env:windir\INF\prnms009.inf") { $infs += "$env:windir\INF\prnms009.inf" }
+  foreach ($inf in $infs) {
+    try {
+      $null = Add-PrinterDriver -Name $name -InfPath $inf -ErrorAction Stop
+      Log "Controlador PDF instalado desde $inf"
+      if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
+    } catch { Log ("No se pudo instalar el controlador PDF desde {0}: {1}" -f $inf, (Error-Text $_)) }
+  }
+  if (-not $infs.Count) { Log "Windows no trae el archivo del controlador PDF (prnms009.inf)." }
+  return $false
+}
+
+# Windows 11 puede tener "Imprimir en PDF de Microsoft" activado y sin el archivo
+# del controlador: se quita y se vuelve a poner para que Windows lo reinstale.
+# Una vez por arranque: si Windows pide reiniciar, el archivo aparece después y
+# la siguiente reparación del Agent ya crea la impresora con PDF
+function Repair-PdfFeature {
+  $feature = "Printing-PrintToPDFServices-Features"
+  $marker = Join-Path (Split-Path $LogPath) "pdf-reparado.txt"
+  $boot = ""
+  try { $boot = (Get-CimInstance Win32_OperatingSystem -ErrorAction Stop).LastBootUpTime.ToString("o") } catch {}
+  if ($boot -and (Test-Path $marker) -and ((Get-Content $marker -Raw).Trim() -eq $boot)) {
+    Log "La funcion 'Imprimir en PDF' ya se reparo: falta reiniciar la computadora."
+    return
+  }
+  try { $f = Get-WindowsOptionalFeature -Online -FeatureName $feature -ErrorAction Stop }
+  catch { Log ("No se pudo revisar la funcion 'Imprimir en PDF': {0}" -f (Error-Text $_)); return }
+  if ($boot) { try { Set-Content -Path $marker -Value $boot -Encoding UTF8 } catch {} }
+  try {
+    if ($f.State -eq "Enabled") {
+      Log "La funcion 'Imprimir en PDF' esta activada pero falta su controlador: se quita y se vuelve a poner..."
+      $null = Disable-WindowsOptionalFeature -Online -FeatureName $feature -NoRestart -ErrorAction Stop
+    } else {
+      Log "Encendiendo la funcion 'Imprimir en PDF'..."
+    }
+    $r = Enable-WindowsOptionalFeature -Online -FeatureName $feature -All -NoRestart -ErrorAction Stop
+    if ($r.RestartNeeded) { Log "Windows pide reiniciar para terminar de instalar el controlador PDF." }
+  } catch {
+    Log ("No se pudo reparar 'Imprimir en PDF' con PowerShell ({0}). Probando con DISM..." -f (Error-Text $_))
+    & dism.exe /online /enable-feature /featurename:$feature /all /norestart /quiet | Out-Null
+  }
+}
+
 function Ensure-Driver([string]$name, [string]$feature) {
   if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
   $null = Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
   if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
-  # Windows 11 nuevo trae el controlador PDF guardado (prnms009.inf) pero sin instalar
   if ($name -eq "Microsoft Print To PDF") {
-    $infs = @(Get-ChildItem -Path "$env:windir\System32\DriverStore\FileRepository\prnms009.inf_*\prnms009.inf" -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
-    if (Test-Path "$env:windir\INF\prnms009.inf") { $infs += "$env:windir\INF\prnms009.inf" }
-    foreach ($inf in $infs) {
-      try {
-        $null = Add-PrinterDriver -Name $name -InfPath $inf -ErrorAction Stop
-        Log "Controlador PDF instalado desde $inf"
-        return [bool](Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue)
-      } catch { Log ("No se pudo instalar el controlador PDF desde {0}: {1}" -f $inf, (Error-Text $_)) }
-    }
-    if (-not $infs.Count) { Log "Windows no trae el archivo del controlador PDF (prnms009.inf)." }
+    if ((Install-PdfDriver $name) -eq $true) { return $true }
+    Repair-PdfFeature
+    $null = Add-PrinterDriver -Name $name -ErrorAction SilentlyContinue
+    if (Get-PrinterDriver -Name $name -ErrorAction SilentlyContinue) { return $true }
+    return ((Install-PdfDriver $name) -eq $true)
   }
   if ($feature) {
     $null = Enable-Feature $feature
@@ -151,10 +191,18 @@ function Try-Printer([string]$driver) {
   return $false
 }
 
-# 4) Impresora. Si ya existe con PDF o PWG, solo se corrige el puerto (con XPS se vuelve a crear)
+# 4) Impresora. Si ya existe con PDF o PWG, solo se corrige el puerto (con XPS se vuelve a crear).
+# Con PWG primero se intenta tener el controlador PDF: si ya se puede, se cambia a PDF
 $usable = $pdfDrivers + $pwgDrivers
 $existing = Get-Printer -Name $printerName -ErrorAction SilentlyContinue
-if ($existing -and $existing.DriverName -in $usable) {
+$toPdf = $false
+if ($existing -and $existing.DriverName -in $pwgDrivers -and -not $TestDrivers.Count) {
+  if ((Ensure-Driver $pdfDrivers[0] $null) -eq $true) {
+    Log "Ya hay controlador PDF: la impresora pasa de PWG Raster a PDF."
+    $toPdf = $true
+  }
+}
+if ($existing -and $existing.DriverName -in $usable -and -not $toPdf) {
   if ($existing.PortName -ne $portName) {
     try { Set-Printer -Name $printerName -PortName $portName -ErrorAction Stop; Log "Puerto actualizado a: $portName" }
     catch { Log ("No se pudo cambiar el puerto: {0}" -f (Error-Text $_)) }

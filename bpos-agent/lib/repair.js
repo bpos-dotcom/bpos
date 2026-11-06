@@ -20,6 +20,7 @@ const PRINTER_LOG = path.join(process.env.ProgramData || "C:\\ProgramData", "B-P
 // Con XPS las letras llegan como dibujos y el OCR las lee mal: se marca para reparar
 // y así se cambia sola a PWG. Con "Generic / Text Only" los tickets llegan vacíos.
 const PRINTER_DRIVERS = ["Microsoft Print To PDF", "Microsoft Virtual Print Class Driver", "Microsoft PWG Raster Class Driver"];
+const PWG_DRIVER = "Microsoft PWG Raster Class Driver";
 
 /** El error que dejó el instalador de la impresora (si lo hubo). */
 function printerLogError() {
@@ -32,19 +33,31 @@ function printerLogError() {
   }
 }
 
-/** Estado de la impresora virtual: que exista, con un controlador que sirva y en el puerto 9100. */
+/**
+ * Estado de la impresora virtual: que exista, con un controlador que sirva y en el puerto 9100.
+ * Con PWG Raster dice además si Windows ya tiene el controlador PDF (pdfReady), para
+ * pasarla a PDF: con PDF los tickets con texto se leen exactos, sin OCR.
+ */
 async function printerStatus() {
   const list = PRINTER_DRIVERS.map((d) => `'${d}'`).join(",");
   const r = await run("powershell.exe", [
     "-NoProfile",
     "-Command",
-    `$p = Get-Printer -Name 'B-POS Agent Virtual Printer' -ErrorAction SilentlyContinue; if (-not $p) { 'falta' } elseif ($p.DriverName -notin @(${list})) { 'controlador|' + $p.DriverName } elseif ($p.PortName -ne '9100') { 'puerto|' + $p.PortName } else { 'si|' + $p.DriverName }`,
+    `$p = Get-Printer -Name 'B-POS Agent Virtual Printer' -ErrorAction SilentlyContinue; if (-not $p) { 'falta' } elseif ($p.DriverName -notin @(${list})) { 'controlador|' + $p.DriverName } elseif ($p.PortName -ne '9100') { 'puerto|' + $p.PortName } else { $pdf = if ((Get-PrinterDriver -Name 'Microsoft Print To PDF' -ErrorAction SilentlyContinue) -or (Test-Path ($env:windir + '\\System32\\DriverStore\\FileRepository\\prnms009.inf_*\\prnms009.inf'))) { 'pdf' } else { 'no' }; 'si|' + $p.DriverName + '|' + $pdf }`,
   ]);
-  const [state, detail] = r.out.trim().split("|");
-  if (state === "si") return { ok: true, driver: detail, message: "Instalada" };
+  const [state, detail, pdf] = r.out.trim().split("|");
+  if (state === "si") return { ok: true, driver: detail, pwg: detail === PWG_DRIVER, pdfReady: pdf === "pdf", message: "Instalada" };
   if (state === "controlador") return { ok: false, message: `Usa el controlador "${detail}": usa Reparar instalación` };
   if (state === "puerto") return { ok: false, message: `Usa el puerto "${detail}": usa Reparar instalación` };
   return { ok: false, message: "No está instalada: usa Reparar instalación" };
+}
+
+function printerLogHas(text) {
+  try {
+    return fs.readFileSync(PRINTER_LOG, "utf8").includes(text);
+  } catch {
+    return false;
+  }
 }
 
 /** Impresora virtual (necesita permisos de administrador: Windows lo pregunta). */
@@ -60,7 +73,10 @@ async function reinstallVirtualPrinter(resourcesDir) {
   if (!result.ok) return { ok: false, text: "No se pudo instalar la impresora virtual (¿se canceló el permiso de administrador?)." };
   // Que PowerShell haya terminado no quiere decir que quedó: se revisa
   const status = await printerStatus();
-  if (status.ok) return { ok: true, text: `Impresora virtual instalada (${status.driver}).` };
+  if (status.ok) {
+    const restart = status.pwg && printerLogHas("pide reiniciar");
+    return { ok: true, text: `Impresora virtual instalada (${status.driver}).${restart ? " Reinicia la computadora para que pase a PDF." : ""}` };
+  }
   const reason = printerLogError();
   return {
     ok: false,
@@ -81,7 +97,8 @@ async function repairInstallation(ctx) {
   };
 
   const printer = await printerStatus();
-  if (printer.ok) add(true, `Impresora virtual instalada (${printer.driver}).`);
+  // Con PWG se vuelve a correr el instalador: intenta tener el controlador PDF y pasarla a PDF
+  if (printer.ok && !printer.pwg) add(true, `Impresora virtual instalada (${printer.driver}).`);
   else {
     const r = await reinstallVirtualPrinter(ctx.resourcesDir);
     add(r.ok, r.text);
