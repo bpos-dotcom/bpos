@@ -5,7 +5,7 @@
  * Cada foto gasta BPOS Credits del día del negocio (hora de México). Cuántos
  * hay al día y cuántos gasta cada foto los pone el administrador de B-POS en
  * Configuración → Administrador → Claves de IA → Estudio de fotos
- * (bpos_ai_photo_settings, 0029). Los créditos usados viven en
+ * (bpos_ai_image_settings, 0030). Los créditos usados viven en
  * bpos_ai_credits; si la foto falla se regresan.
  */
 import { adminDb } from "@/lib/ai/settings";

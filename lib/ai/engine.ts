@@ -24,7 +24,7 @@ const effortFor = (model: string) => /claude-(opus|sonnet)-5/.test(model);
 
 function friendly(cfg: AiConfig, error: unknown): AiFailure {
   if (error instanceof AiFailure) return error;
-  const who = cfg.provider === "gemini" ? "Gemini" : "Claude";
+  const who = cfg.provider === "gemini" ? "Gemini" : cfg.provider === "openai" ? "OpenAI" : "Claude";
   if (error instanceof Anthropic.AuthenticationError) return new AiFailure("La clave de Claude no es válida.");
   if (error instanceof Anthropic.RateLimitError) return new AiFailure("Demasiadas solicitudes seguidas. Espera un minuto y vuelve a intentar.", 429);
   if (error instanceof Anthropic.BadRequestError && /credit|balance|billing/i.test(error.message)) return new AiFailure("La cuenta de Anthropic no tiene saldo.");
@@ -155,16 +155,73 @@ export async function generateText(cfg: AiConfig, opts: { system: string; turns:
 
 // ------------------------------------------------------------ imagen (Estudio de fotos)
 
+const OPENAI = "https://api.openai.com/v1";
+
+type OpenAiError = { error?: { message?: string; code?: string | null; type?: string } };
+
+function openAiFailure(status: number, json: OpenAiError) {
+  const msg = json.error?.message || `HTTP ${status}`;
+  if (status === 401) return new AiFailure("La clave de OpenAI no es válida.");
+  if (status === 429) return new AiFailure(/quota|billing/i.test(msg) ? "La cuenta de OpenAI no tiene saldo." : "OpenAI: demasiadas solicitudes. Espera un minuto.", 429);
+  if (status === 403 && /verif/i.test(msg)) return new AiFailure("OpenAI pide verificar la organización para usar este modelo (platform.openai.com → Settings → Organization).", 403);
+  if (status === 404) return new AiFailure("Ese modelo de OpenAI no existe o tu cuenta no lo tiene.", 404);
+  return new AiFailure(`Error de OpenAI (${status}): ${msg}`);
+}
+
+/** Revisa que la clave de OpenAI abra el modelo (sin generar nada ni gastar). */
+export async function checkOpenAiModel(cfg: AiConfig) {
+  const res = await fetch(`${OPENAI}/models/${encodeURIComponent(cfg.model)}`, { headers: { Authorization: `Bearer ${cfg.key}` } });
+  if (!res.ok) throw openAiFailure(res.status, (await res.json().catch(() => ({}))) as OpenAiError);
+}
+
 /**
- * Edita una foto con un modelo de imagen de Gemini (ej. gemini-2.5-flash-image):
- * regresa la imagen nueva en base64. `refusal`: el modelo no quiso editarla.
+ * Edita una foto con la API de imágenes de OpenAI (gpt-image-1): calidad
+ * media y fidelidad alta a la foto que se manda (no cambia el platillo).
+ */
+async function openAiEdit(cfg: AiConfig, opts: { prompt: string; image: { mediaType: string; data: string } }) {
+  const form = new FormData();
+  form.append("model", cfg.model);
+  form.append("prompt", opts.prompt);
+  const ext = opts.image.mediaType.split("/")[1] || "jpeg";
+  form.append("image", new Blob([Buffer.from(opts.image.data, "base64")], { type: opts.image.mediaType }), `foto.${ext}`);
+  form.append("size", "auto");
+  form.append("quality", "medium");
+  // gpt-image-1 respeta más los detalles de la foto original con fidelidad alta
+  if (cfg.model === "gpt-image-1") form.append("input_fidelity", "high");
+  const res = await fetch(`${OPENAI}/images/edits`, { method: "POST", headers: { Authorization: `Bearer ${cfg.key}` }, body: form });
+  const json = (await res.json().catch(() => ({}))) as OpenAiError & {
+    data?: { b64_json?: string }[];
+    output_format?: string;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  if (!res.ok) {
+    // La revisión de contenido de OpenAI rechazó la foto
+    if (res.status === 400 && /moderation|safety/i.test(`${json.error?.code} ${json.error?.message}`)) {
+      return { image: null, refusal: true, text: json.error?.message || "", usage: { input: 0, output: 0 } };
+    }
+    throw openAiFailure(res.status, json);
+  }
+  const data = json.data?.[0]?.b64_json || "";
+  return {
+    image: data ? { mimeType: `image/${json.output_format || "png"}`, data } : null,
+    refusal: false,
+    text: "",
+    usage: { input: json.usage?.input_tokens || 0, output: json.usage?.output_tokens || 0 },
+  };
+}
+
+/**
+ * Edita una foto con un modelo de imagen (OpenAI gpt-image-1 o Gemini
+ * gemini-2.5-flash-image): regresa la imagen nueva en base64. `refusal`: el
+ * modelo no quiso editarla.
  */
 export async function editImage(
   cfg: AiConfig,
   opts: { prompt: string; image: { mediaType: string; data: string } }
 ): Promise<{ image: GeminiImage | null; refusal: boolean; text: string; usage: AiUsage }> {
-  if (cfg.provider !== "gemini") throw new AiFailure("El Estudio de fotos solo funciona con Gemini.", 400);
+  if (cfg.provider !== "gemini" && cfg.provider !== "openai") throw new AiFailure("El Estudio de fotos funciona con OpenAI o Gemini.", 400);
   try {
+    if (cfg.provider === "openai") return await openAiEdit(cfg, opts);
     const r = await gemini(cfg, {
       contents: [{ role: "user", parts: [{ inline_data: { mime_type: opts.image.mediaType, data: opts.image.data } }, { text: opts.prompt }] }],
       generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
