@@ -6,9 +6,31 @@ const ROLES: UserRole[] = ["Cajero", "Gerente", "Admin", "Cocina", "Inventario",
 /** Usuario sin sesión: id 0, sin ningún permiso (ver hasPermission). */
 export const GUEST_USER: CurrentUser = { id: 0, name: "Sin sesión", role: "Consulta" };
 
+// La sesión se cierra sola si B-POS estuvo cerrado (ni una pestaña abierta) más de
+// 10 minutos: al prender la computadora pide el PIN y luego abre su pantalla. Mientras
+// haya una pestaña abierta se marca cada 30 s que sigue viva (cuenta para todas)
+const ALIVE_KEY = "bpos_session_alive"; // solo de este dispositivo (ver DEVICE_LOCAL_KEYS)
+const CLOSED_LIMIT_MS = 10 * 60 * 1000;
+let alive = false;
+function keepSessionAlive() {
+  if (alive) return;
+  alive = true;
+  try {
+    const last = Number(localStorage.getItem(ALIVE_KEY) || 0);
+    // Sin evento: puede pasar mientras React dibuja
+    if (last && Date.now() - last > CLOSED_LIMIT_MS) localStorage.removeItem(USER_KEY);
+  } catch {}
+  const beat = () => {
+    try { localStorage.setItem(ALIVE_KEY, String(Date.now())); } catch {}
+  };
+  beat();
+  window.setInterval(beat, 30_000);
+}
+
 /** Usuario que inició sesión con PIN en este dispositivo, o null si no hay nadie. */
 export function getSessionUser(): CurrentUser | null {
   if (typeof window === "undefined") return null;
+  keepSessionAlive();
   try {
     const saved = JSON.parse(localStorage.getItem(USER_KEY) || "null");
     if (!saved || typeof saved.id !== "number" || saved.id <= 0 || typeof saved.name !== "string" || !ROLES.includes(saved.role)) return null;
