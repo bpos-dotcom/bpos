@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
-import { AiFailure, generateText } from "@/lib/ai/engine";
+import { AiFailure, checkOpenAiModel, generateText } from "@/lib/ai/engine";
 import { FEATURES, MODELS, PHOTO_MODELS, adminDb, aiTable, getAiConfig, packKeys, photoCredits, readHints, readKeys, type AiFeature, type AiProvider, type AiSettingRow } from "@/lib/ai/settings";
 
 /**
@@ -13,13 +13,15 @@ import { FEATURES, MODELS, PHOTO_MODELS, adminDb, aiTable, getAiConfig, packKeys
  *   POST { action: "quitar", feature, provider } → borra la clave de ese proveedor
  * Se guarda una clave por proveedor: cambiar de Gemini a Claude no borra la
  * de Gemini. La clave nunca regresa al navegador. El Estudio de fotos se
- * guarda en su tabla (bpos_ai_photo_settings), solo con Gemini, junto con
+ * guarda en su tabla (bpos_ai_image_settings), con OpenAI o Gemini, junto con
  * sus BPOS Credits (al día por negocio y por foto).
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const reply = (body: object, status = 200) => NextResponse.json(body, { status });
+
+const PROVIDER_NAME: Record<AiProvider, string> = { anthropic: "Anthropic (Claude)", gemini: "Google (Gemini)", openai: "OpenAI" };
 
 async function requireAdmin(request: NextRequest) {
   const auth = request.headers.get("authorization") || "";
@@ -34,7 +36,7 @@ async function list() {
   const db = adminDb();
   const [{ data }, photo] = await Promise.all([
     db.from("bpos_ai_settings").select("feature, provider, model, key_hint, price_in, price_out, updated_by, updated_at"),
-    db.from("bpos_ai_photo_settings").select("feature, provider, model, key_hint, price_in, price_out, credits_per_day, credits_per_use, updated_by, updated_at"),
+    db.from(aiTable("fotos")).select("feature, provider, model, key_hint, price_in, price_out, credits_per_day, credits_per_use, updated_by, updated_at"),
   ]);
   const rows = [...((data || []) as Omit<AiSettingRow, "key_cipher">[]), ...((photo.data || []) as Omit<AiSettingRow, "key_cipher">[])];
   const vercel = Boolean(process.env.ANTHROPIC_API_KEY);
@@ -44,8 +46,9 @@ async function list() {
     features: FEATURES.map((f) => {
       const photos = f.id === "fotos";
       const r = rows.find((x) => x.feature === f.id);
-      const provider = r?.provider || (photos ? "gemini" : "anthropic");
-      const model = r?.model || (photos ? PHOTO_MODELS[0].id : "claude-opus-5-5");
+      const provider = r?.provider || (photos ? "openai" : "anthropic");
+      const firstPhoto = PHOTO_MODELS.openai![0];
+      const model = r?.model || (photos ? firstPhoto.id : "claude-opus-5-5");
       const hints = readHints(r || null);
       const own = Boolean(hints[provider]);
       // El Estudio de fotos no usa la clave de Vercel (es de Claude, que no edita imágenes)
@@ -57,8 +60,8 @@ async function list() {
         keyHints: hints,
         // Lo que de verdad se usa (Gemini sin clave regresa a Claude Opus de Vercel)
         running: own ? { provider, model } : fallback ? { provider: "anthropic", model: provider === "anthropic" ? model : "claude-opus-5-5" } : null,
-        priceIn: r ? Number(r.price_in) : photos ? PHOTO_MODELS[0].priceIn : 4,
-        priceOut: r ? Number(r.price_out) : photos ? PHOTO_MODELS[0].priceOut : 20,
+        priceIn: r ? Number(r.price_in) : photos ? firstPhoto.priceIn : 4,
+        priceOut: r ? Number(r.price_out) : photos ? firstPhoto.priceOut : 20,
         updatedBy: r?.updated_by || "",
         updatedAt: r?.updated_at || "",
         active: own ? "admin" : fallback ? "vercel" : "ninguna",
@@ -95,7 +98,7 @@ export async function POST(request: NextRequest) {
   try {
     if (body.action === "guardar") {
       const provider = body.provider as AiProvider;
-      if (!info.providers.includes(provider)) return reply({ error: feature === "fotos" ? "El Estudio de fotos solo funciona con Gemini." : "Proveedor desconocido." }, 400);
+      if (!info.providers.includes(provider)) return reply({ error: feature === "fotos" ? "El Estudio de fotos funciona con OpenAI o Gemini." : "Proveedor desconocido." }, 400);
       const model = String(body.model || "").trim().slice(0, 80);
       if (!/^[a-z0-9.\-]+$/i.test(model)) return reply({ error: "Escribe el modelo (ej. gemini-2.5-flash-lite)." }, 400);
       const key = String(body.key || "").trim();
@@ -106,7 +109,7 @@ export async function POST(request: NextRequest) {
       if (key && key.length < 20) return reply({ error: "La clave se ve incompleta." }, 400);
       if (key) keys[provider] = key;
       // Sin clave guardada de ese proveedor se pide (Claude puede usar la de Vercel)
-      if (!keys[provider] && !(provider === "anthropic" && process.env.ANTHROPIC_API_KEY)) return reply({ error: `Pega la clave de ${provider === "gemini" ? "Google (Gemini)" : "Anthropic (Claude)"}.` }, 400);
+      if (!keys[provider] && !(provider === "anthropic" && process.env.ANTHROPIC_API_KEY)) return reply({ error: `Pega la clave de ${PROVIDER_NAME[provider]}.` }, 400);
       // BPOS Credits del Estudio de fotos: al día por negocio y por foto
       const credits =
         feature === "fotos"
@@ -130,7 +133,7 @@ export async function POST(request: NextRequest) {
     if (body.action === "quitar") {
       const { data: current } = await db.from(table).select("provider, key_cipher").eq("feature", feature).maybeSingle();
       const keys = readKeys(current as Pick<AiSettingRow, "provider" | "key_cipher"> | null);
-      const provider = (body.provider === "gemini" || body.provider === "anthropic" ? body.provider : current?.provider) as AiProvider | undefined;
+      const provider = (info.providers.includes(body.provider as AiProvider) ? body.provider : current?.provider) as AiProvider | undefined;
       if (provider) delete keys[provider];
       const { error } = await db.from(table).update({ ...packKeys(keys), updated_by: who, updated_at: new Date().toISOString() }).eq("feature", feature);
       if (error) throw new Error(error.message);
@@ -138,12 +141,17 @@ export async function POST(request: NextRequest) {
     }
 
     if (body.action === "probar") {
-      const provider = body.provider === "gemini" || body.provider === "anthropic" ? (body.provider as AiProvider) : undefined;
+      const provider = info.providers.includes(body.provider as AiProvider) ? (body.provider as AiProvider) : undefined;
       const model = String(body.model || "").trim().slice(0, 80);
       const cfg = await getAiConfig(feature, provider && /^[a-z0-9.\-]+$/i.test(model) ? { provider, model } : undefined);
       if (!cfg) return reply({ error: "No hay ninguna clave para esta función." }, 400);
-      if (provider && cfg.provider !== provider) return reply({ error: `No hay clave de ${provider === "gemini" ? "Gemini" : "Claude"} guardada. Pégala y toca Guardar.` }, 400);
+      if (provider && cfg.provider !== provider) return reply({ error: `No hay clave de ${PROVIDER_NAME[provider]} guardada. Pégala y toca Guardar.` }, 400);
       const started = Date.now();
+      // OpenAI solo edita imágenes: se revisa que la clave abra el modelo, sin gastar
+      if (cfg.provider === "openai") {
+        await checkOpenAiModel(cfg);
+        return reply({ ok: true, provider: cfg.provider, model: cfg.model, source: cfg.source, answer: "clave y modelo correctos", ms: Date.now() - started });
+      }
       const r = await generateText(cfg, { system: "Responde en español con una sola palabra.", turns: [{ role: "user", text: "Di: listo" }], maxTokens: 50 });
       return reply({ ok: true, provider: cfg.provider, model: cfg.model, source: cfg.source, answer: r.text.slice(0, 60), ms: Date.now() - started });
     }

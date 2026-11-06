@@ -11,7 +11,7 @@ import { ask } from "@/components/layout/Dialogs";
 import { useCallback, useEffect, useState } from "react";
 import { aiFetch } from "@/lib/ai/client";
 
-type Provider = "anthropic" | "gemini";
+type Provider = "anthropic" | "gemini" | "openai";
 type Model = { id: string; label: string; priceIn?: number; priceOut?: number };
 type Feature = {
   id: "interprete" | "asesor" | "fotos";
@@ -19,7 +19,7 @@ type Feature = {
   text: string;
   providers: Provider[];
   /** Modelos propios (Estudio de fotos: modelos de imagen) */
-  models?: Model[];
+  models?: Partial<Record<Provider, Model[]>>;
   /** BPOS Credits del Estudio de fotos */
   credits?: { perDay: number; perUse: number };
   /** Falta la migración 0029 */
@@ -37,7 +37,10 @@ type Feature = {
 };
 type Data = { models: Record<Provider, Model[]>; vercelFallback: boolean; features: Feature[] };
 
-const NAME: Record<Provider, string> = { anthropic: "Claude", gemini: "Gemini" };
+const NAME: Record<Provider, string> = { anthropic: "Claude", gemini: "Gemini", openai: "OpenAI" };
+const COMPANY: Record<Provider, string> = { anthropic: "Anthropic (Claude)", gemini: "Google (Gemini)", openai: "OpenAI" };
+const KEY_FROM: Record<Provider, string> = { anthropic: "Anthropic", gemini: "Google AI Studio", openai: "OpenAI" };
+const KEY_HINT: Record<Provider, string> = { anthropic: "sk-ant-...", gemini: "AIza...", openai: "sk-..." };
 
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
 const label = "block text-sm font-bold text-zinc-300";
@@ -52,7 +55,7 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
   const [perUse, setPerUse] = useState(String(f.credits?.perUse ?? ""));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
-  const modelsFor = (p: Provider) => f.models || models[p];
+  const modelsFor = (p: Provider) => f.models?.[p] || models[p];
   const list = modelsFor(provider);
   const known = list.find((m) => m.id === model);
 
@@ -150,7 +153,7 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
       <div className={`mt-4 grid gap-2 ${f.providers.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
         {f.providers.map((p) => (
           <button key={p} onClick={() => pickProvider(p)} className={`rounded-2xl border px-3 py-3 font-black ${provider === p ? "border-orange-500 bg-orange-500/10 text-orange-200" : "border-zinc-800 text-zinc-400"}`}>
-            {p === "anthropic" ? "Anthropic (Claude)" : "Google (Gemini)"}
+            {COMPANY[p]}
             <span className="block text-[11px] font-bold text-zinc-500">
               {f.keyHints[p] ? `Clave guardada ${f.keyHints[p]}` : p === "anthropic" && vercel && f.id !== "fotos" ? "Usa la clave de Vercel" : "Sin clave"}
               {f.provider === p && f.running?.provider === p ? " · en uso" : ""}
@@ -173,13 +176,13 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
           {!known && <input value={model} onChange={(e) => setModel(e.target.value.trim())} placeholder="nombre exacto del modelo" className={`${input} mt-2 font-mono text-sm`} />}
         </label>
         <label className={label}>
-          Clave de {provider === "gemini" ? "Google AI Studio" : "Anthropic"} {hint ? `(vacío = dejar la guardada ${hint})` : provider === "anthropic" && vercel ? "(vacío = usar la de Vercel)" : ""}
+          Clave de {KEY_FROM[provider]} {hint ? `(vacío = dejar la guardada ${hint})` : provider === "anthropic" && vercel ? "(vacío = usar la de Vercel)" : ""}
           <input
             type="password"
             value={key}
             onChange={(e) => setKey(e.target.value)}
             autoComplete="off"
-            placeholder={provider === "gemini" ? "AIza..." : "sk-ant-..."}
+            placeholder={KEY_HINT[provider]}
             className={`${input} mt-1 font-mono text-sm`}
           />
         </label>

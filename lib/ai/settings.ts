@@ -18,15 +18,17 @@ import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL } from "@/lib/supabase/client";
 
 export type AiFeature = "interprete" | "asesor" | "fotos";
-export type AiProvider = "anthropic" | "gemini";
+export type AiProvider = "anthropic" | "gemini" | "openai";
+const PROVIDERS: AiProvider[] = ["anthropic", "gemini", "openai"];
 
 /**
- * El Estudio de fotos vive en su propia tabla (bpos_ai_photo_settings, 0029)
- * con las mismas columnas más sus BPOS Credits; solo funciona con Gemini
+ * El Estudio de fotos vive en su propia tabla (bpos_ai_image_settings, 0030)
+ * con las mismas columnas más sus BPOS Credits; funciona con OpenAI o Gemini
  * (Claude no edita imágenes), así que no regresa a la clave de Vercel.
+ * OpenAI solo se usa para fotos.
  */
-export const aiTable = (feature: AiFeature) => (feature === "fotos" ? "bpos_ai_photo_settings" : "bpos_ai_settings");
-const providersFor = (feature: AiFeature): AiProvider[] => (feature === "fotos" ? ["gemini"] : ["anthropic", "gemini"]);
+export const aiTable = (feature: AiFeature) => (feature === "fotos" ? "bpos_ai_image_settings" : "bpos_ai_settings");
+const providersFor = (feature: AiFeature): AiProvider[] => (feature === "fotos" ? ["openai", "gemini"] : ["anthropic", "gemini"]);
 
 export type AiConfig = {
   feature: AiFeature;
@@ -42,19 +44,31 @@ export type AiConfig = {
 export const FEATURES: { id: AiFeature; title: string; text: string; providers: AiProvider[] }[] = [
   { id: "interprete", title: "Intérprete de fotos y tickets", text: "Compras con foto de ticket, menú con IA y sugerencias del Bridge.", providers: providersFor("interprete") },
   { id: "asesor", title: "Asesor con IA", text: "Resumen semanal, consejos con los números del restaurante y chat con el dueño.", providers: providersFor("asesor") },
-  { id: "fotos", title: "Estudio de fotos", text: "Mejora la foto de un platillo a calidad de restaurante (plan Max). Solo Gemini: Claude no edita imágenes.", providers: providersFor("fotos") },
+  { id: "fotos", title: "Estudio de fotos", text: "Mejora la foto de un platillo a calidad de restaurante (plan Max). Con OpenAI o Gemini: Claude no edita imágenes.", providers: providersFor("fotos") },
 ];
 
-/** Modelos de imagen para el Estudio de fotos (precio: la imagen de salida cuenta como ~1290 tokens) */
-export const PHOTO_MODELS: { id: string; label: string; priceIn?: number; priceOut?: number }[] = [
-  { id: "gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image (edita fotos)", priceIn: 0.3, priceOut: 30 },
-];
+type ModelInfo = { id: string; label: string; priceIn?: number; priceOut?: number };
+
+/**
+ * Modelos de imagen para el Estudio de fotos, con precio de referencia por
+ * millón de tokens (entrada = la foto que se manda, salida = la foto nueva).
+ */
+export const PHOTO_MODELS: Partial<Record<AiProvider, ModelInfo[]>> = {
+  openai: [
+    { id: "gpt-image-1", label: "GPT Image 1 (el más fiel a la foto)", priceIn: 10, priceOut: 40 },
+    { id: "gpt-image-1-mini", label: "GPT Image 1 mini (más económico)", priceIn: 2.5, priceOut: 8 },
+  ],
+  gemini: [{ id: "gemini-2.5-flash-image", label: "Gemini 2.5 Flash Image", priceIn: 0.3, priceOut: 30 }],
+};
+const FIRST_PHOTO_MODEL = PHOTO_MODELS.openai![0];
 
 /** BPOS Credits del Estudio de fotos si el administrador no ha cambiado nada */
 export const PHOTO_CREDITS = { perDay: 25, perUse: 5 };
 
 /** Modelos sugeridos (se puede escribir otro) y su precio por millón de tokens en dólares, como referencia */
-export const MODELS: Record<AiProvider, { id: string; label: string; priceIn?: number; priceOut?: number }[]> = {
+export const MODELS: Record<AiProvider, ModelInfo[]> = {
+  // OpenAI solo está en el Estudio de fotos (PHOTO_MODELS)
+  openai: [],
   anthropic: [
     { id: "claude-haiku-5-5", label: "Claude Haiku 5.5 (rápido y económico)" },
     { id: "claude-sonnet-5-5", label: "Claude Sonnet 5.5 (equilibrado)" },
@@ -126,7 +140,7 @@ export function readKeys(row: Pick<AiSettingRow, "provider" | "key_cipher"> | nu
   if (plain.startsWith("{")) {
     try {
       const o = JSON.parse(plain) as Record<string, unknown>;
-      return Object.fromEntries((["anthropic", "gemini"] as const).filter((p) => typeof o[p] === "string" && o[p]).map((p) => [p, o[p] as string]));
+      return Object.fromEntries(PROVIDERS.filter((p) => typeof o[p] === "string" && o[p]).map((p) => [p, o[p] as string]));
     } catch {
       return {};
     }
@@ -160,7 +174,7 @@ export function packKeys(keys: ProviderKeys) {
 /** Precio de referencia de un modelo (el guardado si es el mismo de la fila) */
 function priceFor(row: AiSettingRow | null, provider: AiProvider, model: string) {
   if (row && row.provider === provider && row.model === model) return { priceIn: Number(row.price_in) || 0, priceOut: Number(row.price_out) || 0 };
-  const m = [...MODELS[provider], ...PHOTO_MODELS].find((x) => x.id === model);
+  const m = [...MODELS[provider], ...(PHOTO_MODELS[provider] || [])].find((x) => x.id === model);
   if (m?.priceIn !== undefined) return { priceIn: m.priceIn, priceOut: m.priceOut || 0 };
   return model === DEFAULT.model ? { priceIn: DEFAULT.priceIn, priceOut: DEFAULT.priceOut } : { priceIn: 0, priceOut: 0 };
 }
@@ -190,8 +204,8 @@ export function photoCredits(row: Pick<AiSettingRow, "credits_per_day" | "credit
 export async function getAiConfig(feature: AiFeature, draft?: { provider: AiProvider; model: string }): Promise<AiConfig | null> {
   const row = await readAiRow(feature);
   const photos = feature === "fotos";
-  const provider = draft?.provider || row?.provider || (photos ? "gemini" : DEFAULT.provider);
-  const model = draft?.model || row?.model || (photos ? PHOTO_MODELS[0].id : DEFAULT.model);
+  const provider = draft?.provider || row?.provider || (photos ? "openai" : DEFAULT.provider);
+  const model = draft?.model || row?.model || (photos ? FIRST_PHOTO_MODEL.id : DEFAULT.model);
   const key = readKeys(row)[provider];
   if (key) return { feature, provider, model, key, ...priceFor(row, provider, model), source: "admin" };
   if (photos) return null;
