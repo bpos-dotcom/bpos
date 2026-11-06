@@ -10,6 +10,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { getCurrentUser } from "@/lib/auth";
 import { DIGITAL_MENU_EVENT, getDigitalMenu, saveDigitalMenu } from "@/lib/digital-menu";
 import { REVIEWS_EVENT, attendReview, listReviews, needsAttention, reopenReview, reviewWhatsappLink, type Review } from "@/lib/reviews";
+import { whatsappTarget } from "@/lib/whatsapp";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-5";
 type Filter = "atender" | "todas" | "buenas" | "malas";
@@ -80,7 +81,7 @@ function ReviewCard({ review, onChanged }: { review: Review; onChanged: () => vo
       {review.stars <= 3 && (
         <div className="mt-3 flex flex-wrap gap-2">
           {wa && (
-            <a href={wa} target="_blank" rel="noreferrer" className="rounded-2xl bg-[#25d366] px-4 py-2 text-sm font-black text-white">
+            <a href={wa} target={whatsappTarget(wa)} rel="noreferrer" className="rounded-2xl bg-[#25d366] px-4 py-2 text-sm font-black text-white">
               📲 Escribirle por WhatsApp
             </a>
           )}

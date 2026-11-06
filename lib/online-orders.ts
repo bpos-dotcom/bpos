@@ -24,6 +24,7 @@ import { agentScope } from "@/lib/agent/client";
 import { getSupabase } from "@/lib/supabase/client";
 import type { CartItem } from "@/components/CartPanel";
 import type { SavedOrder } from "@/components/OrderHistoryPanel";
+import { whatsappLink } from "@/lib/whatsapp";
 
 export type OnlineOrderStatus = "nuevo" | "aceptando" | "aceptado" | "rechazado" | "listo" | "entregado";
 
@@ -320,7 +321,7 @@ export function customerWhatsappLink(order: OnlineOrder, notice: CustomerNotice,
     rechazado:
       `😔 ${hi}lo sentimos: no pudimos tomar tu pedido *${order.folio}* en ${business}.` + (opts.reason || order.reason ? `\nMotivo: ${opts.reason || order.reason}` : ""),
   };
-  return `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(texts[notice])}`;
+  return whatsappLink(phone, texts[notice]);
 }
 
 /** Datos para el repartidor de un pedido del menú digital. */

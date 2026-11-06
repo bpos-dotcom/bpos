@@ -32,6 +32,7 @@ import { balanceLabel, clubName, getLoyalty, howItWorks, welcomeLabel } from "@/
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { exportCustomers } from "@/lib/exports";
 import { loadReportSources } from "@/lib/reports";
+import { openWhatsapp, whatsappTarget } from "@/lib/whatsapp";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-5";
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -145,7 +146,7 @@ function CustomerDetail({ customer, coupons, member, onClose }: { customer: Cust
             <textarea value={message} onChange={(e) => setMessage(e.target.value)} rows={7} className={`${input} mt-2 text-sm`} aria-label="Mensaje" />
             <p className="mt-1 text-[11px] text-zinc-500">Puedes cambiar el mensaje antes de abrir WhatsApp.</p>
             {wa && (
-              <a href={wa} target="_blank" rel="noreferrer" className="mt-2 block rounded-2xl bg-[#25d366] py-3 text-center font-black text-white">
+              <a href={wa} target={whatsappTarget(wa)} rel="noreferrer" className="mt-2 block rounded-2xl bg-[#25d366] py-3 text-center font-black text-white">
                 Abrir WhatsApp
               </a>
             )}
@@ -219,7 +220,7 @@ function CampaignPanel({ kind, customers, coupons, accountPhones, onClose }: { k
   function write(c: Customer) {
     const url = customerWhatsapp(c, fillCampaign(text, c));
     if (!url) return;
-    window.open(url, "_blank");
+    openWhatsapp(url);
     markContacted(c.key);
   }
 

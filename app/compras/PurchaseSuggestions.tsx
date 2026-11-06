@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { buildSupplierOrderMessage, getPurchaseSuggestions, getSuppliers, PURCHASES_EVENT, whatsappUrl, type PurchaseSuggestion } from "@/lib/purchases";
+import { openWhatsapp } from "@/lib/whatsapp";
 
 type Props = { onUse: (items: PurchaseSuggestion[]) => void };
 
@@ -46,7 +47,7 @@ export default function PurchaseSuggestions({ onUse }: Props) {
       alert(`${name} no tiene WhatsApp registrado en Proveedores. Copié el pedido para que lo pegues donde quieras:\n\n${message}`);
       return;
     }
-    window.open(whatsappUrl(phone, message), "_blank");
+    openWhatsapp(whatsappUrl(phone, message));
   }
 
   return (

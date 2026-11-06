@@ -15,6 +15,7 @@ import { formatHours, shiftStaffHours } from "@/lib/timeclock";
 import { isCancelled } from "@/lib/sale-cancel";
 import { paidWith, tipOf, tipPaidWith } from "@/lib/sale-payments";
 import { deliveryApp, estimatedDeposit, getAppCommissions } from "@/lib/app-commissions";
+import { openWhatsapp, whatsappLink, whatsappTarget } from "@/lib/whatsapp";
 
 type CashMovement = {
   id: number;
@@ -170,7 +171,7 @@ export default function CajaPage() {
 
     const message = buildShoppingListMessage();
     const currentUser = getCurrentUser();
-    window.open(`https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}`, "_blank");
+    openWhatsapp(whatsappLink(phone, message));
     markShoppingListSent(shift.openedAt, {
       sentBy: currentUser?.name || "Usuario del sistema",
       phone,
@@ -449,7 +450,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
     window.location.href = "/configuracion/empresa";
     return;
   }
-  const whatsappUrl = phone ? `https://api.whatsapp.com/send/?phone=${phone}&text=${encodeURIComponent(message)}` : null;
+  const whatsappUrl = phone ? whatsappLink(phone, message) : null;
 
   // Correo: lo manda el servidor sin que nadie toque nada; el resultado se muestra en la pantalla de caja cerrada
   setLastCut({ folio: cutFolio, message, url: whatsappUrl, email: cutEmail, emailStatus: cutEmail ? "enviando" : "apagado" });
@@ -457,8 +458,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
   // WhatsApp: después de la confirmación el navegador puede tomar la ventana como emergente y bloquearla;
   // el corte queda con su botón para abrir WhatsApp con un clic (y en Historial de cortes para reenviar)
   if (whatsappUrl) {
-    const popup = window.open(whatsappUrl, "_blank");
-    if (!popup) alert("El navegador bloqueó la ventana de WhatsApp. Usa el botón \"Enviar corte por WhatsApp\" que aparece en pantalla.");
+    if (!openWhatsapp(whatsappUrl)) alert("El navegador bloqueó la ventana de WhatsApp. Usa el botón \"Enviar corte por WhatsApp\" que aparece en pantalla.");
   }
 
   const closedAt = new Date().toISOString();
@@ -541,7 +541,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
               {lastCut.url && (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
                   <p className="text-sm text-zinc-300">¿Ya llegó al WhatsApp del dueño?</p>
-                  <a href={lastCut.url} target="_blank" rel="noreferrer" className="rounded-xl bg-green-500 px-4 py-2 text-sm font-black text-black">
+                  <a href={lastCut.url} target={whatsappTarget(lastCut.url)} rel="noreferrer" className="rounded-xl bg-green-500 px-4 py-2 text-sm font-black text-black">
                     📲 Enviar corte por WhatsApp
                   </a>
                 </div>
