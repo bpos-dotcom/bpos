@@ -35,6 +35,8 @@ export type DeliveryTicket = {
   customer: string | null;
   receivedAt: string;
   items: TicketItem[];
+  /** Notas del pedido completo ("bbq aparte, sin aderezos"): salen en todas las comandas */
+  orderNotes?: string[];
   charges: { label: string; amount: number }[];
   total: number | null;
   payment?: string; // método de pago (ventas del POS)
@@ -50,6 +52,23 @@ const TRAILING_MONEY = /\s*(-?)\s*\(?\s*(?:(?:MX\$|\$)\s*(\d[\d,]*(?:\.\d{1,2})?
 // Cargos con signo ("Total MX$367.00") o, como Uber, sin signo ("Total pagado por el usuario 367,00 MXN")
 const CHARGE = /^(sub\s*total|total(?:\s+a\s+pagar|\s+pagado(?:\s+por\s+el\s+usuario)?)?|dto\.?\s+de\s+producto|descuento[^$]*|promoci[oó]n[^$]*|tarifa\s+de\s+(?:entrega|servicio)|costo\s+de\s+env[ií]o|env[ií]o|propina|cargo[^$]*|oferta[^$]*|importe\s+pagado|monto\s+pagado)\s*[:\-]?\s*-?\s*\(?\s*(?:MX\$|\$|\d[\d,]*[.,]\d{2}\s*MXN\s*\)?\s*$)/i;
 const NOTE = /^(sin|con|extra|poco|mucho|bien|t[eé]rmino|nota|notas|por favor|aparte)\b/i;
+// Encabezado de las notas del pedido ("66 Notas del pedido": el 66 es la comilla que lee el OCR)
+// Con "del pedido" vale en cualquier parte; "Notas:" a secas solo antes del primer producto (después es nota del producto)
+const ORDER_NOTES = /^[^a-z0-9áéíóúñ]*(?:\d{1,3}[^a-z0-9áéíóúñ]*)?(?:notas?|notes?|comentarios?|instrucciones)\s+del?\s+(?:pedido|cliente|orden)\s*[:\-]?\s*(.*)$/i;
+const HEADER_NOTES = /^[^a-z0-9áéíóúñ]*(?:\d{1,3}[^a-z0-9áéíóúñ]*)?(?:notas?|notes?|comentarios?|instrucciones(?:\s+especiales)?)\s*(?:[:\-]\s*(.*))?$/i;
+// Texto fijo de la plataforma (qué hacer si algo se agota): no es indicación para la cocina
+const PLATFORM_BOILERPLATE = /[.\s]*\b(?:cancelar\s+s[oó]lo\s+los\s+productos\s+agotados|cancelar\s+(?:todo\s+)?el\s+pedido\s+si\s+[^.]*agotad[^.]*|reembolsar\s+[^.]*agotad[^.]*)[.\s]*/gi;
+
+/** "Notes: \"bbq aparte . Cancelar sólo los productos agotados\"" → "bbq aparte" */
+function cleanOrderNote(text: string) {
+  return text
+    .replace(PLATFORM_BOILERPLATE, " ")
+    .replace(/^\s*notes?\s*:\s*/i, "")
+    .replace(/^[\s"“”'«»]+|[\s"“”'«»]+$/g, "")
+    .replace(/\s+/g, " ")
+    .replace(/^[.,;\s]+|[,;\s]+$/g, "")
+    .trim();
+}
 const END_OF_ITEMS = /^(pago\s+(?:de|en|con)\b|hora\s+de|m[eé]todo\s+de\s+pago|forma\s+de\s+pago|importe\s+pagado|fecha\s+de\s+la\s+transacci[oó]n|previsto\s+a\s+las|gracias\s+por)/i;
 
 function splitPrice(text: string): { text: string; price: number | null } {
@@ -89,11 +108,31 @@ export function buildDeliveryTicket(
   let question: string | null = null; // texto suelto pendiente: encabezado de grupo o nota
   let lastQuestion: string | null = null; // último encabezado (para opciones seguidas)
   let inCharges = false;
+  const orderNotes: string[] = [];
+  let inOrderNotes = false; // renglones después de "Notas del pedido"
 
   const lines = String(order.rawText || "").replace(/\r/g, "").split("\n");
   lines.forEach((raw, index) => {
     const line = raw.trim();
     if (!line) return;
+
+    // Notas del pedido completo: van en todas las comandas, no en un producto
+    const notesHeader = inCharges ? null : line.match(ORDER_NOTES) || (items.length ? null : line.match(HEADER_NOTES));
+    if (notesHeader) {
+      inOrderNotes = true;
+      const rest = cleanOrderNote(notesHeader[1] || "");
+      if (rest) orderNotes.push(rest);
+      return;
+    }
+    if (inOrderNotes) {
+      const ends = QUANTIFIED.test(fixOcrQuantity(line)) || CHARGE.test(line) || END_OF_ITEMS.test(line);
+      if (!ends) {
+        const note = cleanOrderNote(line);
+        if (/[a-záéíóúñ]/i.test(note)) orderNotes.push(note);
+        return;
+      }
+      inOrderNotes = false;
+    }
 
     // Cargos y cierre solo cuentan después del primer producto: DiDi a veces pone
     // "Hora de Aceptación de Pedido" arriba y cortaba la lectura antes de los productos
@@ -175,6 +214,7 @@ export function buildDeliveryTicket(
     customer: realCustomerName(order.customer?.name),
     receivedAt: order.bridgeReceivedAt || order.receivedAt || new Date().toISOString(),
     items,
+    ...(orderNotes.length ? { orderNotes } : {}),
     charges: charges.filter((c) => c !== totalCharge),
     total: totalCharge ? totalCharge.amount : typeof order.total === "number" && order.total > 0 ? order.total : null,
   };
