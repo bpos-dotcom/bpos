@@ -1,3 +1,5 @@
+import { fixOcrQuantity } from "./ocr-quantity";
+
 export type KdsTicketLineKind = "selection" | "prompt" | "context";
 
 export type KdsTicketLine = {
@@ -38,6 +40,8 @@ export function extractKdsTicketLines(rawText: string): KdsTicketLine[] {
     .replace(/\r/g, "")
     .split("\n")
     .map(cleanLine)
+    // "x Boneless Dobles MX$245" (el OCR se comió el 1) también es producto
+    .map(fixOcrQuantity)
     .filter(Boolean);
 
   const firstSelection = lines.findIndex((line) => QUANTITY_LINE.test(line));

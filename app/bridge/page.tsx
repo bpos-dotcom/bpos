@@ -7,6 +7,7 @@ import { PlanGate } from "@/components/cloud/PlanGate";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes } from "@/lib/admin";
 import { buildOrderTickets } from "@/lib/bridge/order-tickets";
 import { buildDeliveryTicket } from "@/lib/bridge/delivery-ticket";
+import { fixOcrQuantity } from "@/lib/bridge/ocr-quantity";
 import { stationsByLine, stationsForOrder } from "@/lib/bridge/station-routing";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
@@ -115,7 +116,7 @@ function extractQuantifiedItems(rawText: string): QuantifiedItem[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line, index) => {
-      const match = line.match(/^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/);
+      const match = fixOcrQuantity(line).match(/^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/);
       if (!match) return null;
       const qty = Number(match[1]);
       const externalName = cleanExternalName(match[2]);
