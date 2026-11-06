@@ -84,6 +84,12 @@ export type Product = {
    * hamburguesa que lleva dentro.
    */
   packaging?: { ingredientId: number; quantity: number }[];
+  /**
+   * Creado desde una equivalencia del Bridge (el producto llegó de DiDi/Uber/Rappi
+   * y no existía): queda "Por revisar" hasta cargarle precio, receta, packaging
+   * y, si el ticket traía opciones, sus grupos de opciones.
+   */
+  fromBridge?: { platform: string; at: string; withOptions?: boolean };
 };
 
 export const products: Product[] = [

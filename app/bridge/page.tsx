@@ -8,6 +8,7 @@ import { getAdminIngredients, getAdminProducts, getAdminRecipes } from "@/lib/ad
 import { buildOrderTickets } from "@/lib/bridge/order-tickets";
 import { buildDeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { fixOcrQuantity } from "@/lib/bridge/ocr-quantity";
+import { ticketLineParents } from "@/lib/bridge/ticket-lines";
 import { stationsByLine, stationsForOrder } from "@/lib/bridge/station-routing";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
@@ -883,6 +884,22 @@ function BridgeScreen() {
     }
   }
 
+  /** ¿En algún pedido ese renglón trae opciones debajo? (el producto que se cree pedirá grupos de opciones) */
+  function lineHasOptions(externalName: string) {
+    const wanted = normalize(externalName);
+    return orders.some((order) => {
+      const raw = String(order.rawText || "");
+      const parents = new Set(ticketLineParents(raw).values());
+      return raw
+        .replace(/\r/g, "")
+        .split("\n")
+        .some((line, index) => {
+          const match = fixOcrQuantity(line.trim()).match(/^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/);
+          return Boolean(match) && normalize(cleanExternalName(match![2])) === wanted && parents.has(index);
+        });
+    });
+  }
+
   function configureItem(externalName: string, platform: string) {
     setSelection({ externalName, platform, token: Date.now() });
     window.setTimeout(() => {
@@ -943,6 +960,7 @@ function BridgeScreen() {
 
           <div id="bridge-aliases" className="scroll-mt-6">
             <BridgeAliases
+              lineHasOptions={lineHasOptions}
               selectedExternalName={selection?.externalName}
               selectedPlatform={selection?.platform}
               selectionToken={selection?.token}

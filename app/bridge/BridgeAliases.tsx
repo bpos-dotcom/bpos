@@ -6,7 +6,11 @@ import { aiFetch } from "@/lib/ai/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@/data/products";
 import type { Ingredient } from "@/data/inventory";
-import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
+import { getAdminIngredients, getAdminProducts, saveAdminProducts } from "@/lib/admin";
+import { addAuditEvent } from "@/lib/audit";
+import { getCurrentUser } from "@/lib/auth";
+import { getBusinessSettings } from "@/lib/business-settings";
+import { missingText, productMissing } from "@/lib/product-completeness";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 
 /** Respuesta de la API; si el servidor contestó con una página (error de Vercel, tiempo agotado), un mensaje claro en vez de "Unexpected token <". */
@@ -89,7 +93,11 @@ type BridgeAliasesProps = {
   selectionToken?: number;
   onSaved?: () => void;
   showSavedAliases?: boolean;
+  /** ¿El renglón trae opciones debajo en el ticket? (el producto creado pide grupos de opciones) */
+  lineHasOptions?: (externalName: string) => boolean;
 };
+
+const PLATFORM_NAME: Record<string, string> = { didi: "DiDi", uber: "Uber Eats", rappi: "Rappi" };
 
 export default function BridgeAliases({
   selectedExternalName,
@@ -97,6 +105,7 @@ export default function BridgeAliases({
   selectionToken,
   onSaved,
   showSavedAliases = false,
+  lineHasOptions,
 }: BridgeAliasesProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -386,6 +395,44 @@ export default function BridgeAliases({
     formRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
+  /**
+   * El producto que llegó no existe en B-POS: se crea "Por revisar" (no se vende
+   * solo, así no sale en el POS ni en el menú) para poder equivaler el pedido, y
+   * se le avisa al dueño qué le falta cargar.
+   */
+  function createFromBridge(name: string) {
+    const current = getAdminProducts();
+    const platformName = Object.entries(PLATFORM_NAME).find(([key]) => platform.toLowerCase().includes(key))?.[1] || "delivery";
+    const product: Product = {
+      id: Date.now(),
+      name,
+      category: "Por revisar",
+      price: 0,
+      emoji: "🆕",
+      station: getBusinessSettings().fallbackStation,
+      notSoldAlone: true,
+      fromBridge: { platform: platformName, at: new Date().toISOString(), withOptions: Boolean(lineHasOptions?.(externalName.trim() || name)) },
+    };
+    const next = [...current, product];
+    saveAdminProducts(next);
+    setProducts(next);
+    setProductId(String(product.id));
+    setCompound(false);
+    setPickingProduct(false);
+    const missing = missingText(productMissing(product, []));
+    const user = getCurrentUser();
+    addAuditEvent({
+      category: "Productos",
+      action: "product.created_from_bridge",
+      description: `${name} (${platformName}) · Falta: ${missing}.`,
+      entityId: String(product.id),
+      userId: String(user.id),
+      userName: user.name,
+      metadata: { productId: product.id, platform: platformName, missing },
+    });
+    setMessage(`Producto "${name}" creado en "Por revisar". Toca Guardar equivalencia para terminar; al dueño le llega el aviso de lo que falta.`);
+  }
+
   async function saveAlias() {
     setMessage("");
     setError("");
@@ -581,6 +628,9 @@ export default function BridgeAliases({
                   setProductId(String(p.id));
                   setPickingProduct(false);
                 }}
+                // Abre buscando lo que leyó el Bridge; si no existe, se puede crear
+                initialQuery={productId ? "" : externalName.trim()}
+                onCreate={compound ? undefined : createFromBridge}
               />
             )}
 
