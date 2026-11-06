@@ -129,6 +129,9 @@ export type AiSettingRow = {
   /** Solo el Estudio de fotos */
   credits_per_day?: number;
   credits_per_use?: number;
+  /** Prompts propios del Estudio de fotos (vacío = el de fábrica) */
+  prompt_keep?: string;
+  prompt_remove?: string;
 };
 
 export type ProviderKeys = Partial<Record<AiProvider, string>>;

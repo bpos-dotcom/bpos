@@ -24,6 +24,8 @@ type Feature = {
   credits?: { perDay: number; perUse: number };
   /** Falta la migración 0029 */
   missingTable?: boolean;
+  /** Prompts del Estudio de fotos (vacío = el de fábrica) */
+  prompts?: { keep: string; remove: string; defaults: Record<PromptKind, string>; editable: boolean };
   provider: Provider;
   model: string;
   keyHints: Partial<Record<Provider, string>>;
@@ -36,6 +38,42 @@ type Feature = {
   active: "admin" | "vercel" | "ninguna";
 };
 type Data = { models: Record<Provider, Model[]>; vercelFallback: boolean; features: Feature[] };
+
+type PromptKind = "conservar" | "quitar";
+const PROMPT_TITLE: Record<PromptKind, string> = { conservar: "Prompt con fondo (difuminar)", quitar: "Prompt sin fondo" };
+
+/** Ventana para cambiar un prompt del Estudio de fotos */
+function PromptDialog({ kind, value, fallback, onSave, onClose }: { kind: PromptKind; value: string; fallback: string; onSave: (text: string) => Promise<boolean>; onClose: () => void }) {
+  const [text, setText] = useState(value || fallback);
+  const [busy, setBusy] = useState(false);
+  async function save(next: string) {
+    setBusy(true);
+    if (await onSave(next)) onClose();
+    setBusy(false);
+  }
+  return (
+    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/75 p-3 sm:items-center" onClick={() => !busy && onClose()}>
+      <div className="w-full max-w-2xl rounded-3xl border border-violet-500/40 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()} role="dialog" aria-label={PROMPT_TITLE[kind]}>
+        <p className="text-lg font-black">✏️ {PROMPT_TITLE[kind]}</p>
+        <p className="mt-1 text-xs text-zinc-400">Es la orden que recibe la IA al mejorar una foto {kind === "quitar" ? "quitando el fondo" : "conservando el fondo"}. {value ? "Estás usando tu prompt." : "Estás usando el de fábrica."}</p>
+        <textarea value={text} onChange={(e) => setText(e.target.value)} rows={14} maxLength={6000} className="mt-3 w-full rounded-2xl border border-zinc-800 bg-black p-3 text-sm text-white" />
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button disabled={busy || !text.trim()} onClick={() => void save(text.trim() === fallback.trim() ? "" : text)} className="rounded-2xl bg-orange-500 px-5 py-3 font-black text-black disabled:opacity-40">
+            {busy ? "Guardando…" : "Guardar"}
+          </button>
+          {value && (
+            <button disabled={busy} onClick={() => void save("")} className="rounded-2xl border border-zinc-700 px-5 py-3 font-black text-zinc-300 disabled:opacity-40">
+              Regresar al de fábrica
+            </button>
+          )}
+          <button disabled={busy} onClick={onClose} className="rounded-2xl border border-zinc-800 px-5 py-3 font-black text-zinc-400 disabled:opacity-40">
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const NAME: Record<Provider, string> = { anthropic: "Claude", gemini: "Gemini", openai: "OpenAI" };
 const COMPANY: Record<Provider, string> = { anthropic: "Anthropic (Claude)", gemini: "Google (Gemini)", openai: "OpenAI" };
@@ -129,6 +167,17 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
       });
   }
 
+  const [editing, setEditing] = useState<PromptKind | null>(null);
+
+  async function savePrompt(kind: PromptKind, text: string) {
+    const p = f.prompts!;
+    const b = await call({ action: "prompts", promptKeep: kind === "conservar" ? text : p.keep, promptRemove: kind === "quitar" ? text : p.remove });
+    if (!b) return false;
+    onSaved(b as Data);
+    setMsg({ ok: true, text: "✅ Prompt guardado. Se usa desde la próxima foto." });
+    return true;
+  }
+
   async function remove() {
     const back = provider === "anthropic" ? (vercel ? "la clave de Vercel" : "nada (se queda sin IA)") : vercel ? "Claude Opus con la clave de Vercel" : "nada (se queda sin IA)";
     if (!(await ask(`¿Quitar la clave de ${NAME[provider]}?${provider === f.provider ? ` Esta función usará ${back}.` : ""}`, { ok: "Quitar" }))) return;
@@ -195,6 +244,35 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
           <input type="number" min={0} step={0.01} value={priceOut} onChange={(e) => setPriceOut(e.target.value)} className={`${input} mt-1`} />
         </label>
       </div>
+      {f.prompts && (
+        <div className="mt-3 rounded-2xl border border-violet-500/40 bg-violet-500/5 p-3">
+          <p className="text-sm font-bold text-zinc-300">Prompts (la orden que recibe la IA)</p>
+          {f.prompts.editable ? (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(["conservar", "quitar"] as const).map((kind) => {
+                const own = Boolean(kind === "quitar" ? f.prompts!.remove : f.prompts!.keep);
+                return (
+                  <button key={kind} onClick={() => setEditing(kind)} className="rounded-2xl border border-violet-500 px-4 py-2 text-sm font-black text-violet-200 hover:bg-violet-500/10">
+                    ✏️ {PROMPT_TITLE[kind]}
+                    <span className="block text-[11px] font-bold text-zinc-500">{own ? "Tu prompt" : "El de fábrica"}</span>
+                  </button>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="mt-1 text-xs font-bold text-yellow-300">Falta aplicar la migración 0031 en Supabase para editar los prompts.</p>
+          )}
+        </div>
+      )}
+      {editing && f.prompts && (
+        <PromptDialog
+          kind={editing}
+          value={editing === "quitar" ? f.prompts.remove : f.prompts.keep}
+          fallback={f.prompts.defaults[editing]}
+          onSave={(text) => savePrompt(editing, text)}
+          onClose={() => setEditing(null)}
+        />
+      )}
       {f.credits && (
         <div className="mt-3 grid gap-3 rounded-2xl border border-violet-500/40 bg-violet-500/5 p-3 md:grid-cols-2">
           <label className={label}>
