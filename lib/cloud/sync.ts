@@ -72,6 +72,7 @@ const BUSINESS_KEYS = new Set([
   "bpos_coupons",
   "bpos_customers",
   "bpos_loyalty",
+  "bpos_photo_gallery",
 ]);
 
 /** Eventos que ya escuchan las pantallas de B-POS */
@@ -88,6 +89,7 @@ const APP_EVENTS = [
   "bpos:orders-updated",
   "bpos:payment-methods-updated",
   "bpos:permissions-updated",
+  "bpos:photo-gallery-updated",
   "bpos:purchase-ticket-templates-updated",
   "bpos:purchases-updated",
   "bpos:shift-updated",
