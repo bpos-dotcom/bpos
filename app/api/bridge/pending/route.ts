@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { bridgeAuth } from "@/lib/bridge/api-guard";
 import { bridgeStore } from "@/lib/bridge/store";
+import { fixOcrQuantity } from "@/lib/bridge/ocr-quantity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -52,7 +53,7 @@ function extractQuantifiedItems(rawText: string) {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
-      const match = line.match(/^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/);
+      const match = fixOcrQuantity(line).match(/^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/);
       if (!match) return null;
       const qty = Number(match[1]);
       const externalName = cleanExternalName(match[2]);
