@@ -5,7 +5,7 @@
  * la galería; desde Productos → Seleccionar foto se usa en cualquier producto.
  */
 import { useEffect, useMemo, useState } from "react";
-import RequireRole from "@/components/auth/RequireRole";
+import RequirePermission from "@/components/auth/RequirePermission";
 import { AppShell } from "@/components/layout/AppShell";
 import { ask } from "@/components/layout/Dialogs";
 import { PhotoStudio, usePhotoCredits } from "@/components/products/PhotoStudio";
@@ -54,7 +54,7 @@ export default function EstudioIaPage() {
   const credits = status?.credits;
 
   return (
-    <RequireRole allow={["Admin"]}>
+    <RequirePermission permission="photos.manage">
       <AppShell title={aiTabLabel("Estudio Fotográfico", planIncludes(plan, "ai"))} subtitle="Sube las fotos de tus platillos, mejóralas con IA y úsalas en tus productos.">
         <div className="max-w-6xl space-y-5">
           <section className="flex flex-wrap items-center justify-between gap-3 rounded-3xl border border-violet-500/40 bg-zinc-950 p-5">
@@ -124,6 +124,6 @@ export default function EstudioIaPage() {
         </div>
         {source && <PhotoStudio source={source} onClose={() => setSource(null)} onDone={() => setSource(null)} />}
       </AppShell>
-    </RequireRole>
+    </RequirePermission>
   );
 }
