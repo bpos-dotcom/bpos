@@ -41,6 +41,7 @@ export const PUSH_ACTIONS = new Set([
   "user.created",
   "permissions.updated",
   "drawer.unjustified",
+  "product.created_from_bridge",
 ]);
 
 export type PushEvent = {
@@ -89,6 +90,9 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
     case "drawer.unjustified":
       if (!prefs.seguridad) return null;
       return { title: "⚠️ Cajón abierto sin venta en efectivo", body: event.description, tag, url: "/configuracion/auditoria" };
+    // Siempre: un empleado creó un producto que llegó del Bridge y no existía
+    case "product.created_from_bridge":
+      return { title: "🆕 Producto nuevo desde el Bridge", body: event.description, tag, url: "/configuracion/productos" };
     case "backup.restored":
     case "user.created":
     case "permissions.updated":

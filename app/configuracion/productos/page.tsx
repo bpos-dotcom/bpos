@@ -17,6 +17,8 @@ import { SaleScheduleEditor, saveSchedule } from "@/components/products/SaleSche
 import { scheduleLabel } from "@/lib/sale-schedule";
 import { addToGallery, photoName } from "@/lib/photo-gallery";
 import { GalleryPicker } from "@/components/products/GalleryPicker";
+import { MenuProgress } from "@/components/products/MenuProgress";
+import { missingText, productMissing } from "@/lib/product-completeness";
 import { DeleteProductModal, type DeliveryAlias } from "@/components/products/DeleteProductModal";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { ImportProductsModal } from "@/components/products/ImportProductsModal";
@@ -339,6 +341,8 @@ export default function ProductosAdminPage() {
         title="Administración de Productos"
         subtitle="Edita productos, precios, categorías y estación de preparación."
       >
+        {/* Avance del menú: productos con precio, receta y packaging */}
+        <MenuProgress products={products} recipes={recipes} className="mb-6 max-w-xl" />
         <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[380px_1fr]">
           {/* La lista tiene su propio deslizador: la página no crece con cada producto */}
           <section className="flex max-h-[70vh] flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-6 xl:sticky xl:top-36 xl:max-h-[calc(100vh-10rem)]">
@@ -461,7 +465,13 @@ export default function ProductosAdminPage() {
                     </div>
 
                     <div className="min-w-0">
-                      <p className="truncate font-black">{product.name}</p>
+                      <p className="truncate font-black">
+                        {(() => {
+                          const missing = productMissing(product, recipes);
+                          return <span title={missing.length ? `Falta: ${missingText(missing)}` : "Completo: precio, receta y packaging"}>{missing.length ? "⚠️" : "✅"} </span>;
+                        })()}
+                        {product.name}
+                      </p>
                       <p className="text-sm text-zinc-400">
                         {product.category} · ${product.price.toFixed(2)}
                       </p>
@@ -541,6 +551,19 @@ export default function ProductosAdminPage() {
                   </div>
                 </div>
 
+                {/* Lo que le falta (según lo guardado) para estar completo */}
+                {(() => {
+                  const saved = products.find((p) => p.id === draft.id);
+                  const missing = saved ? productMissing(saved, recipes) : [];
+                  if (!saved) return null;
+                  return missing.length ? (
+                    <p className="mt-4 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-2 text-sm font-bold text-yellow-200">
+                      ⚠️ Falta: {missingText(missing)}.{saved.fromBridge ? ` Se creó desde el Bridge (${saved.fromBridge.platform}).` : ""}
+                    </p>
+                  ) : (
+                    <p className="mt-4 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm font-bold text-emerald-200">✅ Completo: precio, receta y packaging.</p>
+                  );
+                })()}
                 <div className="mt-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
                   <Field label="Nombre">
                     <input

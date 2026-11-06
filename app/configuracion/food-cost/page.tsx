@@ -22,6 +22,7 @@ import {
   type FoodCostSettings,
 } from "@/lib/food-cost";
 import { getIngredientCostHistory } from "@/lib/purchases";
+import { MenuProgress } from "@/components/products/MenuProgress";
 import { buildReport, loadReportSources, makeCostLookup } from "@/lib/reports";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-5";
@@ -61,6 +62,8 @@ export default function FoodCostPage() {
     };
   }, []);
 
+  // Avance del menú (mismo anillo que Productos); se recalcula cuando cambian los datos
+  const progressRecipes = useMemo(() => (data ? getAdminRecipes() : []), [data]);
   const range = useMemo(() => financeRanges(period, custom).main, [period, custom]);
   // La utilidad neta se calcula solo con el periodo terminado (ya se sabe cuántas piezas salieron)
   const today = new Date();
@@ -121,6 +124,7 @@ export default function FoodCostPage() {
   return (
     <AppShell title="Food cost" subtitle="Cuánto te cuesta hacer cada producto y cuánto te deja, antes y después de los gastos fijos.">
       <div className="space-y-6">
+        {data && <MenuProgress products={data.products} recipes={progressRecipes} className="max-w-xl" />}
         <div className="flex flex-wrap items-center gap-2">
           {FINANCE_PERIODS.map(([key, text]) => (
             <button
