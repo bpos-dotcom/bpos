@@ -3,6 +3,7 @@
 import { type Ingredient } from "@/data/inventory";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes, saveAdminIngredients } from "@/lib/admin";
 import { itemConsumption, type SoldModifier, type SoldPart } from "@/lib/compound";
+import { getCurrentUser } from "@/lib/auth";
 
 const KARDEX_KEY = "bpos_inventory_kardex";
 const APPLIED_KEY = "bpos_inventory_applied_sales";
@@ -27,6 +28,8 @@ export type InventoryMovement = {
   cost?: number;
   /** Devolución de lo que se descontó por esa venta (cancelación o corrección de equivalencia) */
   revertOf?: string;
+  /** Quién hizo el ajuste a mano (o la compra) */
+  userName?: string;
   createdAt: string;
 };
 
@@ -505,10 +508,42 @@ export function adjustInventory(input: { ingredientId: number; quantity: number;
     finalStock: ingredient.stock,
     reason: input.reason,
     ...(input.adjustmentType === "Merma" && input.cost !== undefined ? { cost: Math.round(input.cost * 100) / 100 } : {}),
+    ...userStamp(),
     createdAt: new Date().toISOString(),
   };
   writeJson(KARDEX_KEY, [...getKardex(), movement]);
   updateLowStockPending(inventory);
+  window.dispatchEvent(new Event("bpos:inventory-updated"));
+  return movement;
+}
+
+function userStamp() {
+  const user = getCurrentUser();
+  return user.id ? { userName: user.name } : {};
+}
+
+/**
+ * La existencia se cambió escribiéndola en la ficha del insumo (ya guardada):
+ * queda en el Kardex como ajuste por la diferencia, con quién y por qué.
+ */
+export function recordStockEdit(ingredient: Pick<Ingredient, "id" | "name" | "unit" | "stock">, previousStock: number, reason: string) {
+  const diff = Math.round((ingredient.stock - previousStock) * 1e6) / 1e6;
+  if (!diff) return null;
+  const movement: InventoryMovement = {
+    id: `manual-${Date.now()}`,
+    ingredientId: ingredient.id,
+    ingredientName: ingredient.name,
+    unit: ingredient.unit,
+    type: diff > 0 ? "Ajuste positivo" : "Ajuste negativo",
+    quantity: Math.abs(diff),
+    previousStock,
+    finalStock: ingredient.stock,
+    reason: `Cambio en la ficha: ${reason}`,
+    ...userStamp(),
+    createdAt: new Date().toISOString(),
+  };
+  writeJson(KARDEX_KEY, [...getKardex(), movement]);
+  updateLowStockPending(getInventory());
   window.dispatchEvent(new Event("bpos:inventory-updated"));
   return movement;
 }

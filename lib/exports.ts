@@ -98,15 +98,22 @@ export function exportCustomers(customers: Customer[]) {
   ]);
 }
 
+const kardexSheet = (kardex: InventoryMovement[]) => ({
+  name: "Kardex",
+  rows: [
+    ["Fecha", "Insumo", "Tipo", "Cantidad", "Unidad", "Antes", "Después", "Motivo", "Pedido", "Quién"],
+    ...[...kardex].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map((m) => [when(m.createdAt), m.ingredientName, m.type, m.quantity, m.unit, m.previousStock, m.finalStock, m.reason || "", m.orderId ?? m.externalOrderKey ?? "", m.userName || ""]),
+  ],
+});
+
 export function exportInventory(ingredients: Ingredient[], kardex: InventoryMovement[]) {
   downloadXlsx(`inventario-${stamp()}.xlsx`, [
     { name: "Existencias", rows: [["Insumo", "Existencia", "Unidad", "Mínimo", "Por reponer"], ...ingredients.map((i) => [i.name, i.stock, i.unit, i.minimum, i.stock <= i.minimum ? "Sí" : ""])] },
-    {
-      name: "Kardex",
-      rows: [
-        ["Fecha", "Insumo", "Tipo", "Cantidad", "Unidad", "Antes", "Después", "Motivo", "Pedido"],
-        ...[...kardex].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map((m) => [when(m.createdAt), m.ingredientName, m.type, m.quantity, m.unit, m.previousStock, m.finalStock, m.reason || "", m.orderId ?? m.externalOrderKey ?? ""]),
-      ],
-    },
+    kardexSheet(kardex),
   ]);
+}
+
+/** Solo los movimientos (los que se ven en el Kardex, con la búsqueda aplicada) */
+export function exportKardex(kardex: InventoryMovement[]) {
+  downloadXlsx(`kardex-${stamp()}.xlsx`, [kardexSheet(kardex)]);
 }

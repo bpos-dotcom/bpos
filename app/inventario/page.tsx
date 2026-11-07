@@ -20,7 +20,7 @@ import { getLatestIngredientCost } from "@/lib/purchases";
 import { canViewCosts } from "@/lib/auth";
 import { addAuditEvent } from "@/lib/audit";
 import { downloadXlsx } from "@/lib/xlsx";
-import { exportInventory } from "@/lib/exports";
+import { exportInventory, exportKardex } from "@/lib/exports";
 
 export default function InventarioPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -67,6 +67,10 @@ export default function InventarioPage() {
       });
       if (adjustmentType === "Merma") {
         addAuditEvent({ category: "Inventario", action: "inventory.waste", description: `${user?.name || "Usuario"} registró merma: ${movement.quantity} ${movement.unit} de ${movement.ingredientName} (${reason})${movement.cost !== undefined ? `, costo $${movement.cost.toFixed(2)}` : ""}`, userId: user?.id ? String(user.id) : undefined, userName: user?.name, entityId: movement.id, metadata: { ingredientId: movement.ingredientId, quantity: movement.quantity, cost: movement.cost, reason } });
+      } else {
+        // Ajuste a mano: queda quién fue y le llega al dueño
+        const sign = adjustmentType === "Ajuste positivo" ? "+" : "-";
+        addAuditEvent({ category: "Inventario", action: "inventory.manual_edit", description: `${user?.name || "Usuario"} hizo un ${adjustmentType.toLowerCase()} a ${movement.ingredientName}: ${movement.previousStock} → ${movement.finalStock} ${movement.unit} (${sign}${movement.quantity}). Motivo: ${reason}`, userId: user?.id ? String(user.id) : undefined, userName: user?.name, entityId: movement.id, metadata: { ingredientId: movement.ingredientId, previousStock: movement.previousStock, stock: movement.finalStock, reason, from: "ajuste" } });
       }
 
       setIngredientId("");
@@ -166,104 +170,79 @@ export default function InventarioPage() {
 
       <WasteSection kardex={kardex} />
 
-      <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-xl font-black text-orange-500">Inventario real</h2>
-          {ingredients.length > 0 && (
-            <button onClick={() => exportInventory(ingredients, kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
+      <ListPanel
+        title="Inventario real"
+        items={ingredients}
+        searchText={(ingredient) => `${ingredient.name} ${ingredient.category || ""}`}
+        searchPlaceholder="Buscar insumo"
+        empty="Todavía no hay insumos."
+        actions={(found) =>
+          ingredients.length > 0 && (
+            <button onClick={() => exportInventory(found, kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
               📥 Excel (existencias y kardex)
             </button>
-          )}
-        </div>
-
-        <div className="mt-6 space-y-3">
-          {ingredients.map((ingredient) => {
-            const isLow = ingredient.stock <= ingredient.minimum;
-
-            return (
-              <div
-                key={ingredient.id}
-                className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-black p-4"
-              >
-                <div>
-                  <p className="font-black">{ingredient.name}</p>
-                  <p className="text-sm text-zinc-400">
-                    Mínimo: {ingredient.minimum} {ingredient.unit}
-                  </p>
-                </div>
-
-                <div className="text-right">
-                  <p className="text-xl font-black text-orange-500">
-                    {ingredient.stock} {ingredient.unit}
-                  </p>
-                  {isLow && (
-                    <p className="text-sm font-bold text-red-400">
-                      Stock bajo
-                    </p>
-                  )}
-                </div>
+          )
+        }
+        render={(ingredient) => {
+          const isLow = ingredient.stock <= ingredient.minimum;
+          return (
+            <div key={ingredient.id} className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-black p-4">
+              <div>
+                <p className="font-black">{ingredient.name}</p>
+                <p className="text-sm text-zinc-400">
+                  Mínimo: {ingredient.minimum} {ingredient.unit}
+                </p>
               </div>
-            );
-          })}
-        </div>
-      </section>
-
-      <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
-        <h2 className="text-xl font-black text-orange-500">
-          Kardex de inventario
-        </h2>
-
-        <div className="mt-6 space-y-3">
-          {kardex.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">
-              Todavía no hay movimientos de inventario.
+              <div className="text-right">
+                <p className="text-xl font-black text-orange-500">
+                  {ingredient.stock} {ingredient.unit}
+                </p>
+                {isLow && <p className="text-sm font-bold text-red-400">Stock bajo</p>}
+              </div>
             </div>
-          ) : (
-            [...kardex].reverse().map((movement) => {
-              const isPositive = movement.type === "Ajuste positivo";
-              const isNegative =
-                movement.type === "Ajuste negativo" ||
-                movement.type === "Venta POS";
+          );
+        }}
+      />
 
-              return (
-                <div
-                  key={movement.id}
-                  className="flex flex-col justify-between gap-3 rounded-2xl border border-zinc-800 bg-black p-4 md:flex-row md:items-center"
-                >
-                  <div>
-                    <p className="font-black">{movement.ingredientName}</p>
-                    <p className="text-sm text-zinc-400">
-                      {movement.orderId
-                        ? `Pedido #${movement.orderId
-                            .toString()
-                            .padStart(6, "0")} · `
-                        : ""}
-                      {movement.type}
-                    </p>
-                    {movement.reason && (
-                      <p className="text-sm text-zinc-500">
-                        Motivo: {movement.reason}
-                      </p>
-                    )}
-                    <p className="text-xs text-zinc-600">
-                      {new Date(movement.createdAt).toLocaleString()}
-                    </p>
-                  </div>
-
-                  <p
-                    className={`text-xl font-black ${
-                      isPositive ? "text-green-400" : "text-red-400"
-                    }`}
-                  >
-                    {isPositive ? "+" : isNegative ? "-" : ""}
-                    {movement.quantity} {movement.unit}
-                  </p>
-                </div>
-              );
-            })
-          )}
-        </div>
-      </section>
+      <ListPanel
+        title="Kardex de inventario"
+        items={[...kardex].reverse()}
+        searchText={(m) => `${m.ingredientName} ${m.type} ${m.reason || ""} ${m.userName || ""} ${m.orderId ?? ""} ${m.externalOrderKey || ""} ${new Date(m.createdAt).toLocaleDateString("es-MX")}`}
+        searchPlaceholder="Buscar insumo, pedido, motivo o persona"
+        empty="Todavía no hay movimientos de inventario."
+        actions={(found) =>
+          kardex.length > 0 && (
+            <button onClick={() => exportKardex(found)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
+              📥 Excel
+            </button>
+          )
+        }
+        render={(movement) => {
+          const isPositive = movement.type === "Ajuste positivo";
+          const isNegative = movement.type !== "Ajuste positivo" && movement.finalStock < movement.previousStock;
+          return (
+            <div key={movement.id} className="flex flex-col justify-between gap-3 rounded-2xl border border-zinc-800 bg-black p-4 md:flex-row md:items-center">
+              <div>
+                <p className="font-black">{movement.ingredientName}</p>
+                <p className="text-sm text-zinc-400">
+                  {movement.orderId ? `Pedido #${movement.orderId.toString().padStart(6, "0")} · ` : ""}
+                  {movement.type}
+                  {movement.userName ? ` · por ${movement.userName}` : ""}
+                </p>
+                {movement.reason && <p className="text-sm text-zinc-500">Motivo: {movement.reason}</p>}
+                <p className="text-xs text-zinc-600">
+                  {new Date(movement.createdAt).toLocaleString()}
+                  {typeof movement.previousStock === "number" && typeof movement.finalStock === "number" ? ` · ${movement.previousStock} → ${movement.finalStock} ${movement.unit}` : ""}
+                </p>
+              </div>
+              <p className={`text-xl font-black ${isPositive ? "text-green-400" : "text-red-400"}`}>
+                {isPositive ? "+" : isNegative ? "-" : ""}
+                {movement.quantity} {movement.unit}
+              </p>
+            </div>
+          );
+        }}
+      />
 
       <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
         <h2 className="text-xl font-black text-orange-500">
@@ -322,6 +301,72 @@ export default function InventarioPage() {
         </div>
       </section>
     </AppShell></RequirePermission>
+  );
+}
+
+const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+
+/**
+ * Lista contraída: muestra 2; al tocar "Ver más" se abre con scroll (caben
+ * unos 5 o 6). Con la lupa busca en toda la lista y muestra lo encontrado.
+ */
+function ListPanel<T>({
+  title,
+  items,
+  render,
+  searchText,
+  searchPlaceholder,
+  empty,
+  actions,
+}: {
+  title: string;
+  items: T[];
+  render: (item: T) => React.ReactNode;
+  searchText: (item: T) => string;
+  searchPlaceholder: string;
+  empty: string;
+  actions?: (found: T[]) => React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const q = plain(query.trim());
+  const found = q ? items.filter((item) => plain(searchText(item)).includes(q)) : items;
+  const expanded = open || Boolean(q);
+  const shown = expanded ? found : found.slice(0, 2);
+
+  return (
+    <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button type="button" onClick={() => setOpen(!open)} className="text-left text-xl font-black text-orange-500">
+          {title} <span className="text-sm font-bold text-zinc-500">({items.length})</span>
+        </button>
+        {actions?.(found)}
+      </div>
+      <label className="mt-4 flex items-center gap-2 rounded-2xl border border-zinc-800 bg-black px-4 py-2.5">
+        <span aria-hidden>🔍</span>
+        <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={searchPlaceholder} className="w-full bg-transparent text-white outline-none" />
+        {query && (
+          <button type="button" onClick={() => setQuery("")} className="text-sm font-black text-zinc-500" aria-label="Borrar búsqueda">
+            ✕
+          </button>
+        )}
+      </label>
+
+      {items.length === 0 ? (
+        <div className="mt-4 rounded-2xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">{empty}</div>
+      ) : found.length === 0 ? (
+        <p className="mt-4 text-sm text-zinc-500">Nada coincide con &quot;{query}&quot;.</p>
+      ) : (
+        <div className={`mt-4 space-y-3 ${expanded ? "max-h-[34rem] overflow-y-auto pr-1" : ""}`}>{shown.map(render)}</div>
+      )}
+
+      {!q && found.length > 2 && (
+        <button type="button" onClick={() => setOpen(!open)} className="mt-3 w-full rounded-2xl border border-zinc-800 py-2.5 text-sm font-black text-zinc-300 hover:border-orange-500">
+          {open ? "Ver menos ▴" : `Ver más (${found.length - 2}) ▾`}
+        </button>
+      )}
+      {q && found.length > 0 && <p className="mt-2 text-xs text-zinc-500">{found.length} encontrado{found.length === 1 ? "" : "s"}</p>}
+    </section>
   );
 }
 
