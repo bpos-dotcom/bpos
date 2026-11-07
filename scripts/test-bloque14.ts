@@ -57,6 +57,14 @@ check("reimpresión de venta guardada sin 'Usuario'", venta.customer === null);
   check("combo DiDi: extra con costo que no es opción sí sale aparte", conExtra.products.map((p) => p.productName).join(",") === "Combo Clasico BP,Papas extra", conExtra.products);
   const sola = interpretOrder({ platform: "didi", rawText: "1x Polaca MX$79.00\nTotal MX$79.00", aliases, products: catalog, ingredients: [] });
   check("hamburguesa sola sigue siendo producto", sola.products.length === 1 && sola.products[0].productName === "Hamburguesa Polaca" && !sola.products[0].compound, sola.products);
+  // Uber con precio "MXN 160.00" (moneda adelante): 3 boneless son 3 productos, no opciones del primero
+  const boneless = [{ id: 20, name: "Boneless Orden Individual", modifierGroups: [{ options: [{ name: "Salsa BBQ" }, { name: "Salsa Buffalo" }] }] }];
+  const uberAliases = [{ id: "u1", externalName: "Boneless individuales MXN 160.00", normalizedExternalName: "boneless individuales mxn 160.00", platform: "uber", actionType: "product" as const, targets: [{ id: "20", name: "" }], compound: false }];
+  const uberRaw = "1 x Boneless individuales MXN 160.00\nElige tu aderezo\n1 x Salsa BBQ MXN 0.00\nDeseas Ranch aparte?\n1 x Si MXN 0.00\n1 x Boneless individuales MXN 160.00\nElige tu aderezo\n1 x Salsa BBQ MXN 0.00\n1 x Boneless individuales MXN 160.00\nElige tu aderezo\n1 x Salsa Buffalo MXN 0.00\nDeseas Ranch aparte?\n1 x Si MXN 0.00";
+  const uber = interpretOrder({ platform: "uber", rawText: uberRaw, aliases: uberAliases, products: boneless, ingredients: [] });
+  check("Uber 'MXN 160.00': 3 boneless", uber.products.length === 3 && uber.resolved, uber.products.map((p) => p.externalName));
+  const uberTicket = buildDeliveryTicket({ platform: "uber", orderId: "B318C", rawText: uberRaw }, new Map());
+  check("Uber 'MXN 160.00': comanda con 3 boneless", uberTicket.items.length === 3 && uberTicket.items[0].choices.length === 2, uberTicket.items.map((i) => `${i.name}:${i.choices.length}`));
   check("'Si' no elige la hamburguesa 'Si Racha'", !optionNameMatches("Si", "Hamburguesa Si Racha"));
   check("'Polaca' elige 'Hamburguesa Polaca'", optionNameMatches("Polaca", "Hamburguesa Polaca"));
   check("'Kansas city' elige 'Hamburguesa Kansas City'", optionNameMatches("Kansas city", "Hamburguesa Kansas City"));

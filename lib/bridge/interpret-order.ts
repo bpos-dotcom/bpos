@@ -1,4 +1,4 @@
-import { ticketLineParents } from "./ticket-lines";
+import { ticketLineParents, trailingPrice } from "./ticket-lines";
 import { fixOcrQuantity } from "./ocr-quantity";
 
 export type AliasActionType = "product" | "ingredient" | "bundle" | "ignore";
@@ -215,8 +215,7 @@ function findAlias(
 
 /** Precio al final del renglón ("MX$0.00", "$25"); null si no trae */
 function linePrice(rawLine: string): number | null {
-  const match = String(rawLine || "").match(/(?:MX\$|\$)\s*(-?\d[\d,]*(?:\.\d{1,2})?)\s*(?:MXN)?\s*$/i);
-  return match ? Number(match[1].replace(/,/g, "")) : null;
+  return trailingPrice(rawLine);
 }
 
 /** Producto del POS cuyo nombre es igual al renglón (sin acentos ni mayúsculas) */
@@ -311,7 +310,12 @@ export function interpretOrder(input: {
     if (parent && !comboOption) {
       const catalogParent = findCatalogEntry(input.products, parent.productId);
       const price = linePrice(line.rawLine);
+      // El mismo producto otra vez ("1x Boneless" debajo de "1x Boneless") nunca es su opción
+      const sameProduct =
+        normalize(line.externalName) === normalize(parent.externalName) ||
+        (alias?.actionType === "product" && String(alias.targets?.[0]?.id) === parent.productId);
       comboOption =
+        !sameProduct &&
         Boolean(catalogParent?.modifierGroups?.length) &&
         alias?.actionType !== "ingredient" &&
         alias?.actionType !== "bundle" &&
