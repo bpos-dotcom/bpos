@@ -8,6 +8,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/layout/TopCorner";
 import { PLANS, TRIAL_DAYS, type PlanId } from "@/lib/plans";
+import { SERVICES } from "@/lib/services";
 
 export const metadata: Metadata = {
   title: "B-POS · Punto de venta para restaurantes",
@@ -54,6 +55,9 @@ export default function BposLanding() {
           <ThemeToggle />
           <Link href="/demo" className="rounded-xl px-3 py-2 text-sm font-black text-orange-300 hover:text-orange-200">
             Demo
+          </Link>
+          <Link href="/servicios" className="hidden rounded-xl px-3 py-2 text-sm font-black text-orange-300 hover:text-orange-200 sm:inline-flex">
+            Servicios
           </Link>
           <Link href="/pos" className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black hover:border-orange-500">
             Entrar
@@ -127,6 +131,26 @@ export default function BposLanding() {
                 </div>
               );
             })}
+          </div>
+
+          <div id="servicios" className="mt-8 grid items-center gap-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6 sm:p-8 lg:grid-cols-[1.2fr_1fr]">
+            <div>
+              <p className="font-black text-orange-500">Servicios por separado</p>
+              <h3 className="mt-2 text-2xl font-black sm:text-3xl">¿Solo necesitas una parte? Contrata solo ese módulo.</h3>
+              <p className="mt-3 text-zinc-400">
+                También puedes usar algunos módulos de B-POS sin pagar el POS completo y sin cambiar el punto de venta que ya tienes: tarjetas de lealtad, menú digital con kiosco, food cost guiado, asesor con IA para tus reportes y reloj checador. Cada uno se paga por mes y se cancela cuando quieras.
+              </p>
+              <Link href="/servicios" className={`${button} mt-5 bg-orange-500 text-black hover:bg-orange-400`}>
+                Ver funciones
+              </Link>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              {SERVICES.map((s) => (
+                <Link key={s.id} href={`/servicios#${s.id}`} className="rounded-2xl border border-zinc-800 bg-black p-3 font-bold text-zinc-300 hover:border-orange-500">
+                  <span className="text-xl">{s.emoji}</span> {s.name}
+                </Link>
+              ))}
+            </div>
           </div>
         </div>
       </section>

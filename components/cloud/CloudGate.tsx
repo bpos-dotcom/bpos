@@ -34,6 +34,7 @@ import { PIN_RE, startNewBusinessHere } from "@/lib/cloud/new-business";
 import { SignupForm } from "@/components/cloud/SignupForm";
 import { LicenseLock } from "@/components/cloud/LicenseLock";
 import { ServicesLock } from "@/components/cloud/ServicesLock";
+import { ServicesLanding } from "@/components/services/ServicesLanding";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
 /** Más que esto sin respuesta de la nube al abrir: se entra con la cuenta guardada en este equipo */
@@ -164,6 +165,9 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
   }, [refresh, isPublic]);
 
   if (!isCloudConfigured || isPublic) return <>{children}</>;
+
+  // bpos.com.mx/servicios sin cuenta: la página de venta de los servicios por separado
+  if (state.step === "account" && pathname === "/servicios") return <ServicesLanding />;
 
   if (state.step === "ready") {
     return (

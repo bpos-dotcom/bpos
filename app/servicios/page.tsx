@@ -12,6 +12,7 @@ import { ask } from "@/components/layout/Dialogs";
 import { SERVICES, money, serviceAccess, serviceInfo, type ServiceId } from "@/lib/services";
 import { refreshServices, servicesCall, useServicesState } from "@/lib/services-client";
 import { getBusinessSettings } from "@/lib/business-settings";
+import { ServicesShowcase } from "@/components/services/ServicesShowcase";
 
 export default function ServicesPanelPage() {
   const state = useServicesState();
@@ -75,6 +76,21 @@ export default function ServicesPanelPage() {
               </Link>
             </section>
           )}
+          {state && !isServices && (
+            <div className="space-y-4">
+              <ServicesShowcase
+                variant="panel"
+                hidePrice
+                services={SERVICES}
+                catalog={state.catalog}
+                action={(s) => (
+                  <Link href={s.home} className="rounded-2xl border border-orange-500 px-5 py-3 font-black text-orange-300">
+                    Abrir en B-POS
+                  </Link>
+                )}
+              />
+            </div>
+          )}
           {message && <p className={`rounded-2xl border p-3 text-sm ${message.ok ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-red-500/40 bg-red-500/10 text-red-200"}`}>{message.text}</p>}
 
           {isServices && (
@@ -125,42 +141,36 @@ export default function ServicesPanelPage() {
 
               {others.length > 0 && (
                 <section>
-                  <h2 className="mb-3 text-lg font-black">Agrega más servicios</h2>
-                  <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                    {others.map((s) => {
-                      const e = entry(s.id);
-                      const needs = s.addonOf && !serviceAccess(rows.find((r) => r.service === s.addonOf)).open;
-                      return (
-                        <article key={s.id} className="flex flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
-                          <p className="text-lg font-black">
-                            {s.emoji} {s.name}
-                          </p>
-                          <p className="mt-1 text-sm text-zinc-400">{s.short}</p>
-                          <ul className="mt-3 flex-1 space-y-1 text-xs text-zinc-400">
-                            {s.features.map((f) => (
-                              <li key={f}>✓ {f}</li>
-                            ))}
-                          </ul>
-                          <p className="mt-3 text-sm font-black text-orange-300">
-                            {money(e?.price ?? s.price)}/mes{s.addonOf ? ` · extra de ${serviceInfo(s.addonOf)!.name}` : ""}
-                          </p>
-                          {needs ? (
-                            <p className="mt-2 text-xs text-zinc-500">Primero activa {serviceInfo(s.addonOf!)!.name}.</p>
-                          ) : (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                              {(e?.trial_days ?? 14) > 0 && (
-                                <button disabled={busy === s.id} onClick={() => void run(s.id, "probar")} className="rounded-2xl bg-orange-500 px-4 py-2.5 text-sm font-black text-black disabled:opacity-50">
-                                  Probar {e?.trial_days ?? 14} días gratis
-                                </button>
-                              )}
-                              <button disabled={busy === s.id} onClick={() => void run(s.id, "contratar")} className="rounded-2xl border border-zinc-700 px-4 py-2.5 text-sm font-black text-zinc-300 disabled:opacity-50">
-                                Contratar
+                  <h2 className="text-lg font-black">Agrega más servicios</h2>
+                  <p className="mb-3 text-sm text-zinc-400">
+                    {others.map((s) => (
+                      <a key={s.id} href={`#${s.id}`} className="mr-3 inline-block font-bold text-zinc-300 hover:text-orange-400">
+                        {s.emoji} {s.name}
+                      </a>
+                    ))}
+                  </p>
+                  <div className="space-y-4">
+                    <ServicesShowcase
+                      variant="panel"
+                      services={others}
+                      catalog={state.catalog}
+                      action={(s, e) =>
+                        s.addonOf && !serviceAccess(rows.find((r) => r.service === s.addonOf)).open ? (
+                          <p className="text-sm text-zinc-500">Primero activa {serviceInfo(s.addonOf)!.name}.</p>
+                        ) : (
+                          <>
+                            {(e?.trial_days ?? 14) > 0 && (
+                              <button disabled={busy === s.id} onClick={() => void run(s.id, "probar")} className="rounded-2xl bg-orange-500 px-5 py-3 font-black text-black disabled:opacity-50">
+                                Probar {e?.trial_days ?? 14} días gratis
                               </button>
-                            </div>
-                          )}
-                        </article>
-                      );
-                    })}
+                            )}
+                            <button disabled={busy === s.id} onClick={() => void run(s.id, "contratar")} className="rounded-2xl border border-zinc-700 px-5 py-3 font-black text-zinc-300 disabled:opacity-50">
+                              {busy === s.id ? "Abriendo pago..." : "Contratar"}
+                            </button>
+                          </>
+                        )
+                      }
+                    />
                   </div>
                 </section>
               )}
