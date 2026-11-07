@@ -19,7 +19,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { FinanceChart } from "@/components/finance/FinanceChart";
+import { FinanceChart, type ChartSeries } from "@/components/finance/FinanceChart";
 import { AppsPanel } from "@/components/finance/AppsPanel";
 import {
   EXPENSE_CATEGORIES,
@@ -68,6 +68,8 @@ const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text
 const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("es-MX", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 const pct = (n: number) => `${(Number.isFinite(n) ? n : 0).toFixed(1)}%`;
 const DAY = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
+const DAY_FULL = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+const WEEKDAY_PLURAL = ["domingos", "lunes", "martes", "miércoles", "jueves", "viernes", "sábados"];
 const parseYmdLocal = (s: string) => {
   const [y, m, d] = s.split("-").map(Number);
   return new Date(y, m - 1, d);
@@ -138,7 +140,7 @@ function appBreakdown(platform: ReportSources["orders"], deposits: OtherIncome[]
 }
 
 /** Todo lo de un periodo: ingresos (local + depósitos), costo, gastos y su avance día por día */
-function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], incomeDays: Map<string, number>, fixedMonthly: number, expenses: Expense[], commissions: Record<string, AppCommission>) {
+function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], incomeDays: Map<string, number>, appIncomeDays: Map<string, number>, fixedMonthly: number, expenses: Expense[], commissions: Record<string, AppCommission>) {
   const local = buildReport({ ...src, orders: src.orders.filter((o) => !isPlatformOrder(o)) }, range);
   const all = buildReport(src, range);
   const from = ymd(range.from);
@@ -198,13 +200,17 @@ function periodNumbers(src: ReportSources, range: Range, income: OtherIncome[], 
       (cashSpentByDay.get(key) || 0) -
       (cashDiffByDay.get(key) || 0);
     const pays = payByDay.get(key) || {};
-    const deposit = incomeDays.get(key) || 0;
-    const breakdown = [
+    const deposit = appIncomeDays.get(key) || 0;
+    const estimate = estimateByDay.get(key) || 0;
+    // Locales: lo vendido en el local y otros ingresos que no son de apps; apps: depósitos y estimados
+    const apps = deposit + estimate;
+    const other = (incomeDays.get(key) || 0) - deposit;
+    const localBreakdown = [
       ...Object.entries(pays).sort((a, b) => (PAY_ORDER.indexOf(a[0]) + 1 || 99) - (PAY_ORDER.indexOf(b[0]) + 1 || 99)).map(([label, amount]) => ({ label, amount })),
-      ...(deposit > 0.5 ? [{ label: "Depósitos de apps", amount: deposit }] : []),
-      ...((estimateByDay.get(key) || 0) > 0.5 ? [{ label: "Apps (estimado)", amount: estimateByDay.get(key) || 0 }] : []),
+      ...(other > 0.5 ? [{ label: "Otros ingresos", amount: other }] : []),
     ];
-    return { date: d, key, income: inc, profit: inc - spent, breakdown };
+    const appsBreakdown = [...(deposit > 0.5 ? [{ label: "Depósitos", amount: deposit }] : []), ...(estimate > 0.5 ? [{ label: "Estimado", amount: estimate }] : [])];
+    return { date: d, key, income: inc, local: inc - apps, apps, profit: inc - spent, localBreakdown, appsBreakdown };
   });
   const platform = all.orders.filter((o) => isPlatformOrder(o));
   // Compras: cuentan en la semana de ingresos con que se pagaron (si no se eligió, el día de la compra)
@@ -290,8 +296,13 @@ export default function FinanzasPage() {
   const data = useMemo(
     () => {
       if (!src) return null;
-      const days = incomeByDay(income, src.orders as Parameters<typeof incomeByDay>[1]);
-      return { cur: periodNumbers(src, ranges.main, income, days, fixedTotal, expenses, commissions), prev: periodNumbers(src, ranges.previous, income, days, fixedTotal, expenses, commissions) };
+      const orders = src.orders as Parameters<typeof incomeByDay>[1];
+      const days = incomeByDay(income, orders);
+      const appDays = incomeByDay(income.filter((i) => i.source !== "Otro"), orders);
+      return {
+        cur: periodNumbers(src, ranges.main, income, days, appDays, fixedTotal, expenses, commissions),
+        prev: periodNumbers(src, ranges.previous, income, days, appDays, fixedTotal, expenses, commissions),
+      };
     },
     [src, ranges, income, fixedTotal, expenses, commissions]
   );
@@ -333,30 +344,64 @@ export default function FinanzasPage() {
   const coverage = cur?.all.kpis.costCoverage ?? 100;
 
   // Gráfica: acumulado día por día; el periodo anterior en los mismos días
+  // Ingresos: locales (verde) y de apps (naranja); utilidad: una sola línea
   const chart = useMemo(() => {
     if (!data) return null;
-    const pick = (d: { income: number; profit: number }) => (chartMetric === "ingresos" ? d.income : d.profit);
-    const acc = (list: { income: number; profit: number }[], upTo: number) => {
-      let sum = 0;
-      return list.map((d, i) => (i < upTo ? (sum += pick(d)) : null));
-    };
+    type Day = (typeof data.cur.days)[number];
     const n = Math.max(data.cur.days.length, data.prev.days.length);
     const labels = Array.from({ length: n }, (_, i) => {
       const d = data.cur.days[i]?.date;
       if (!d) return `Día ${i + 1}`;
       return period === "semana" || period === "semana-pasada" ? `${DAY[d.getDay()]} ${d.getDate()}` : shortDay(d);
     });
-    const daily = (list: { income: number; profit: number }[], upTo: number) => Array.from({ length: n }, (_, i) => (i < upTo && list[i] ? pick(list[i]) : null));
     const upTo = elapsed || data.cur.days.length;
-    return {
-      labels,
-      current: acc(data.cur.days, upTo),
-      previous: acc(data.prev.days, data.prev.days.length),
-      currentDay: daily(data.cur.days, upTo),
-      currentBreakdown: Array.from({ length: n }, (_, i) => (i < upTo && data.cur.days[i] ? data.cur.days[i].breakdown : null)),
-      previousDay: daily(data.prev.days, data.prev.days.length),
+    const prevUpTo = data.prev.days.length;
+    const daily = (list: Day[], until: number, pick: (d: Day) => number) => Array.from({ length: n }, (_, i) => (i < until && list[i] ? pick(list[i]) : null));
+    const acc = (list: Day[], until: number, pick: (d: Day) => number) => {
+      let sum = 0;
+      return daily(list, until, pick).map((v) => (v === null ? null : (sum += v)));
     };
+    const line = (name: string, color: string, pick: (d: Day) => number, breakdown?: (d: Day) => { label: string; amount: number }[]): ChartSeries => ({
+      name,
+      color,
+      current: acc(data.cur.days, upTo, pick),
+      previous: acc(data.prev.days, prevUpTo, pick),
+      currentDay: daily(data.cur.days, upTo, pick),
+      previousDay: daily(data.prev.days, prevUpTo, pick),
+      breakdown: breakdown && Array.from({ length: n }, (_, i) => (i < upTo && data.cur.days[i] ? breakdown(data.cur.days[i]) : null)),
+    });
+    const series =
+      chartMetric === "ingresos"
+        ? [line("Locales", "var(--color-emerald-500)", (d) => d.local, (d) => d.localBreakdown), line("Apps", "var(--color-orange-500)", (d) => d.apps, (d) => d.appsBreakdown)]
+        : [line("Utilidad", "var(--color-sky-400)", (d) => d.profit)];
+    return { labels, series };
   }, [data, chartMetric, elapsed, period]);
+
+  // El mejor día: en semana, el día; en mes (o periodos largos), el día de la semana con mejor promedio
+  const bestDay = useMemo(() => {
+    if (!data) return null;
+    const days = data.cur.days.slice(0, elapsed || data.cur.days.length);
+    const value = (d: (typeof days)[number]) => (chartMetric === "ingresos" ? d.income : d.profit);
+    if (!days.length || days.every((d) => Math.abs(value(d)) < 0.5)) return null;
+    if (word === "semana" || (word === "periodo" && data.cur.days.length <= 7)) {
+      const best = days.reduce((a, b) => (value(b) > value(a) ? b : a));
+      const when = `${DAY_FULL[best.date.getDay()]} ${best.date.getDate()} de ${best.date.toLocaleDateString("es-MX", { month: "short" }).replace(".", "")}`;
+      return { when, amount: value(best), detail: chartMetric === "ingresos" ? `locales ${money(best.local)} · apps ${money(best.apps)}` : "", average: false, count: 1 };
+    }
+    const byWeekday = new Map<number, { total: number; local: number; apps: number; count: number }>();
+    days.forEach((d) => {
+      const w = byWeekday.get(d.date.getDay()) || { total: 0, local: 0, apps: 0, count: 0 };
+      byWeekday.set(d.date.getDay(), { total: w.total + value(d), local: w.local + d.local, apps: w.apps + d.apps, count: w.count + 1 });
+    });
+    const [weekday, best] = [...byWeekday.entries()].reduce((a, b) => (b[1].total / b[1].count > a[1].total / a[1].count ? b : a));
+    return {
+      when: `Los ${WEEKDAY_PLURAL[weekday]}`,
+      amount: best.total / best.count,
+      detail: chartMetric === "ingresos" ? `locales ${money(best.local / best.count)} · apps ${money(best.apps / best.count)}` : "",
+      average: true,
+      count: best.count,
+    };
+  }, [data, chartMetric, elapsed, word]);
 
   const prevSameDays = useMemo(() => {
     if (!data) return null;
@@ -552,15 +597,20 @@ export default function FinanzasPage() {
             <div className="mt-3">
               <FinanceChart
                 labels={chart.labels}
-                current={chart.current}
-                previous={chart.previous}
-                currentDay={chart.currentDay}
-                previousDay={chart.previousDay}
+                series={chart.series}
                 dayName={chartMetric === "ingresos" ? "Ventas e ingresos del día" : "Utilidad del día"}
-                currentBreakdown={chartMetric === "ingresos" ? chart.currentBreakdown : undefined}
                 currentName={currentName}
                 previousName={previousName}
                 format={money}
+                footer={
+                  bestDay && (
+                    <p className="mt-3 rounded-2xl border border-zinc-800 bg-black px-3 py-2 text-sm text-zinc-300">
+                      🏆 ¿Cuál fue el mejor día?: <b className="text-white">{bestDay.when}</b>, con <b className="text-emerald-400">{money(bestDay.amount)}</b>
+                      {bestDay.average ? ` de ${chartMetric === "ingresos" ? "ingresos" : "utilidad"} en promedio (${bestDay.count} ${bestDay.count === 1 ? "día" : "días"})` : ` de ${chartMetric === "ingresos" ? "ingresos" : "utilidad"}`}
+                      {bestDay.detail && <span className="text-zinc-500"> · {bestDay.detail}</span>}
+                    </p>
+                  )
+                }
               />
             </div>
           )}
