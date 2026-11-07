@@ -12,7 +12,10 @@ import { getAdminIngredients, saveAdminIngredients } from "@/lib/admin";
 import { stationLabel } from "@/lib/kds-config";
 import { TicketEquivalences } from "@/components/inventory/TicketEquivalences";
 import { ManualCost } from "@/components/inventory/ManualCost";
-import { ask } from "@/components/layout/Dialogs";
+import { ask, askText, notify } from "@/components/layout/Dialogs";
+import { recordStockEdit } from "@/lib/inventory";
+import { addAuditEvent } from "@/lib/audit";
+import { getCurrentUser } from "@/lib/auth";
 import { UNITS, changeIngredientUnit, unitChangeImpact, unitFactor } from "@/lib/units";
 
 const NO_CATEGORY = "Sin categoría";
@@ -97,7 +100,7 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
     setDraft({ ...ingredient });
   }
 
-  function saveDraft() {
+  async function saveDraft() {
     if (!draft) return;
 
     if (!draft.name.trim()) {
@@ -110,6 +113,18 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
       return;
     }
 
+    // Cambiar la existencia a mano queda en el Kardex y en la bitácora (y le llega al dueño): pide el motivo
+    const previousStock = all.find((i) => i.id === draft.id)?.stock ?? 0;
+    let stockReason = "";
+    if (Number(draft.stock) !== Number(previousStock)) {
+      const why = await askText(`Cambias la existencia de ${draft.name.trim()} de ${previousStock} a ${draft.stock} ${draft.unit}. ¿Por qué? (le llega al dueño)`, { placeholder: "Ej. conteo físico, llegó mercancía sin compra..." });
+      if (!why?.trim()) {
+        notify("No se guardó: escribe el motivo del cambio de existencia.", "error");
+        return;
+      }
+      stockReason = why.trim();
+    }
+
     const saved: Ingredient = { ...draft, name: draft.name.trim() };
     if (saved.category?.trim()) saved.category = saved.category.trim().replace(/s+/g, " ").slice(0, 40);
     else delete saved.category;
@@ -120,6 +135,22 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
 
     setIngredients(nextIngredients);
     saveAdminIngredients(nextIngredients);
+    if (stockReason) {
+      const movement = recordStockEdit(saved, previousStock, stockReason);
+      if (movement) {
+        const user = getCurrentUser();
+        const sign = movement.type === "Ajuste positivo" ? "+" : "-";
+        addAuditEvent({
+          category: "Inventario",
+          action: "inventory.manual_edit",
+          description: `${user.name} cambió a mano ${saved.name} de ${previousStock} a ${saved.stock} ${saved.unit} (${sign}${movement.quantity}) en la ficha. Motivo: ${stockReason}`,
+          userId: user.id ? String(user.id) : undefined,
+          userName: user.name,
+          entityId: movement.id,
+          metadata: { ingredientId: saved.id, previousStock, stock: saved.stock, reason: stockReason, from: "ficha" },
+        });
+      }
+    }
     alert(mine(saved) ? `${t.one[0].toUpperCase()}${t.one.slice(1)} guardado correctamente.` : `Guardado. Ahora está en ${isPackaging(saved) ? "Packaging" : "Ingredientes"}.`);
     if (!mine(saved)) {
       const first = nextIngredients.find(mine);

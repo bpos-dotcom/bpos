@@ -43,6 +43,7 @@ export const PUSH_ACTIONS = new Set([
   "drawer.unjustified",
   "product.created_from_bridge",
   "sale.combo_incomplete",
+  "inventory.manual_edit",
 ]);
 
 export type PushEvent = {
@@ -98,6 +99,10 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
     case "sale.combo_incomplete":
       if (!prefs.delivery) return null;
       return { title: "⚠️ Combo sin opción en un pedido", body: event.description, tag, url: "/bridge" };
+    // Alguien cambió una existencia a mano (ficha del insumo o ajuste en Inventario)
+    case "inventory.manual_edit":
+      if (!prefs.seguridad) return null;
+      return { title: "📦 Cambio de inventario a mano", body: event.description, tag, url: "/inventario" };
     case "backup.restored":
     case "user.created":
     case "permissions.updated":
