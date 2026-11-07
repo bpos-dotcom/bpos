@@ -349,7 +349,13 @@ export default function ProductosAdminPage() {
         subtitle="Edita productos, precios, categorías y estación de preparación."
       >
         {/* Avance del menú: productos con precio, receta y packaging */}
-        <MenuProgress products={products} recipes={recipes} className="mb-6 max-w-xl" />
+        <div className="mb-6 flex flex-wrap items-start gap-4">
+          <MenuProgress products={products} recipes={recipes} className="max-w-xl flex-1" />
+          <Link href="/servicios/menu/importar" className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5 hover:border-orange-500">
+            <p className="font-black">📥 Importar desde Excel</p>
+            <p className="mt-1 max-w-xs text-sm text-zinc-400">Sube tu catálogo de Soft Restaurant u otro punto de venta y da de alta todo de un jalón.</p>
+          </Link>
+        </div>
         <div className="grid grid-cols-1 items-start gap-6 xl:grid-cols-[380px_1fr]">
           {/* La lista tiene su propio deslizador: la página no crece con cada producto */}
           <section className="flex max-h-[70vh] flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-6 xl:sticky xl:top-36 xl:max-h-[calc(100vh-10rem)]">
