@@ -36,6 +36,8 @@ const priorityMeta: Record<OperationsAlertPriority, { label: string; icon: strin
   info: { label: "Información", icon: "🔵", classes: "border-sky-400/50 bg-sky-400/10 text-sky-100" },
 };
 
+const statusLabel: Record<OperationsAlertStatus, string> = { pending: "Pendiente", viewed: "Vista", resolved: "Resuelta" };
+
 export default function OperationsCenterPage() {
   const [alerts, setAlerts] = useState<OperationsAlert[]>([]);
   const [tab, setTab] = useState<OperationsAlertStatus | "all">("pending");
@@ -101,9 +103,11 @@ export default function OperationsCenterPage() {
 
   /** Las de inventario se resuelven solas con su flujo; las del cajón las resuelve un admin (con nota) */
   function canResolveManually(alert: OperationsAlert) {
-    return alert.priority === "critical" || alert.priority === "info" || isDrawerAlert(alert);
+    return alert.priority === "critical" || alert.priority === "info" || isDrawerAlert(alert) || isComboAlert(alert);
   }
   const isDrawerAlert = (alert: OperationsAlert) => alert.id.startsWith("drawer:");
+  /** Combo de delivery sin opción obligatoria: se resuelve sola al corregir la venta, o a mano si ya se revisó */
+  const isComboAlert = (alert: OperationsAlert) => alert.id.startsWith("bridge-combo:");
 
   async function resolveAlert(alert: OperationsAlert) {
     const note = resolutionNotes[alert.id]?.trim() || "";
@@ -156,7 +160,7 @@ export default function OperationsCenterPage() {
                     <span className="text-xl">{meta.icon}</span>
                     <h2 className="text-xl font-black text-white">{alert.title}</h2>
                     <span className="rounded-full border border-current/30 px-2 py-1 text-[11px] font-black uppercase">{meta.label}</span>
-                    <span className="rounded-full bg-black/30 px-2 py-1 text-[11px] font-bold uppercase">{alert.status}</span>
+                    <span className="rounded-full bg-black/30 px-2 py-1 text-[11px] font-bold uppercase">{statusLabel[alert.status] || alert.status}</span>
                   </div>
                   <p className="mt-3 text-sm leading-6 text-zinc-200">{alert.message}</p>
                   <div className="mt-3 flex flex-wrap gap-x-5 gap-y-1 text-xs text-zinc-400">
@@ -181,7 +185,8 @@ export default function OperationsCenterPage() {
                 {alert.status === "resolved" && <button onClick={() => { reopenOperationsAlert(alert.id); setAlerts(getOperationsAlerts()); }} className="rounded-xl border border-orange-500 px-4 py-2 text-sm font-black text-orange-300">Reabrir</button>}
               </div>
 
-              {alert.priority === "warning" && alert.status !== "resolved" && !isDrawerAlert(alert) && <p className="mt-4 text-xs font-bold text-yellow-200">Esta alerta se resuelve desde Inventario al completar el flujo de lista de compras y cierre de turno.</p>}
+              {isComboAlert(alert) && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-yellow-200">Se resuelve sola al corregir la venta en el Bridge. Si ya la revisaste y está bien, resuélvela aquí.</p>}
+              {alert.priority === "warning" && alert.status !== "resolved" && !isDrawerAlert(alert) && !isComboAlert(alert) && <p className="mt-4 text-xs font-bold text-yellow-200">Esta alerta se resuelve desde Inventario al completar el flujo de lista de compras y cierre de turno.</p>}
               {isDrawerAlert(alert) && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-yellow-200">Si la cuenta se mandó a espera o se cobró después, escribe qué pasó y resuélvela (un administrador). Si se cobra la cuenta, se resuelve sola.</p>}
               {alert.priority === "delivery" && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-emerald-200">Esta alerta se resuelve al completar las equivalencias pendientes en Bridge.</p>}
             </article>
