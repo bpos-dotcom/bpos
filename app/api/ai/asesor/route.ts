@@ -2,7 +2,8 @@ import type { NextRequest } from "next/server";
 import { ANALYZE, AnalysisSchema, SYSTEM } from "@/lib/ai/advisor";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 import { AiFailure, generateJson, generateText, type AiTurn } from "@/lib/ai/engine";
-import { adminDb } from "@/lib/ai/settings";
+import { adminDb, readAiRow } from "@/lib/ai/settings";
+import { asRefreshDays, dayLabel, nextAnalysisDay, REFRESH_OPTIONS } from "@/lib/ai/advisor-refresh";
 
 /**
  * App del dueño → Asesor con IA (solo plan Max, con la clave y el modelo que
@@ -21,6 +22,17 @@ export const maxDuration = 120;
 
 export function OPTIONS(request: NextRequest) {
   return aiPreflight(request);
+}
+
+/**
+ * Cada cuánto puede pedir el negocio un análisis nuevo (lo elige el dueño de B-POS) y desde
+ * qué día puede pedir el siguiente. Sin la migración 0033 queda "diario" y no se guarda la hora.
+ */
+async function refreshState(businessId: string) {
+  const days = asRefreshDays((await readAiRow("asesor"))?.refresh_days);
+  const { data, error } = await adminDb().from("bpos_advisor_weekly").select("last_analysis_at").eq("business_id", businessId).maybeSingle();
+  const lastAt = error ? null : ((data?.last_analysis_at as string | null) ?? null);
+  return { days, lastAt, nextDay: nextAnalysisDay(lastAt, days), tracked: !error };
 }
 
 export async function POST(request: NextRequest) {
@@ -61,7 +73,8 @@ export async function POST(request: NextRequest) {
         if (row?.enabled) await db.from("bpos_advisor_weekly").update({ metrics: JSON.parse(metrics), metrics_at: new Date().toISOString() }).eq("business_id", session.businessId);
       }
       const { data } = await db.from("bpos_advisor_weekly").select("enabled, email, last_week").eq("business_id", session.businessId).maybeSingle();
-      return aiReply(request, { success: true, enabled: Boolean(data?.enabled), email: data?.email || session.email, lastWeek: data?.last_week || "" });
+      const refresh = await refreshState(session.businessId);
+      return aiReply(request, { success: true, enabled: Boolean(data?.enabled), email: data?.email || session.email, lastWeek: data?.last_week || "", ...(refresh.tracked ? { refresh: { days: refresh.days, lastAt: refresh.lastAt, nextDay: refresh.nextDay } } : {}) });
     } catch (e) {
       return aiReply(request, { success: false, error: e instanceof Error ? e.message : "No se pudo." }, 500);
     }
@@ -69,6 +82,11 @@ export async function POST(request: NextRequest) {
 
   try {
     if (action === "analizar") {
+      const refresh = await refreshState(session.businessId);
+      if (refresh.nextDay) {
+        const every = REFRESH_OPTIONS.find((o) => o.value === refresh.days)?.text || "una vez al día";
+        return aiReply(request, { success: false, code: "refresh", error: `Puedes pedir un análisis nuevo ${every}. El siguiente, desde el ${dayLabel(refresh.nextDay)}.`, refresh }, 429);
+      }
       const r = await generateJson(session.ai!, {
         system: SYSTEM,
         schema: AnalysisSchema,
@@ -78,7 +96,10 @@ export async function POST(request: NextRequest) {
       });
       await chargeAi(session, r.usage);
       if (!r.data) return aiReply(request, { success: false, error: "El asesor no pudo armar el análisis. Intenta de nuevo." }, 502);
-      return aiReply(request, { success: true, analysis: r.data });
+      // Solo cuenta el análisis que sí salió
+      const now = new Date().toISOString();
+      if (refresh.tracked) await adminDb().from("bpos_advisor_weekly").upsert({ business_id: session.businessId, last_analysis_at: now });
+      return aiReply(request, { success: true, analysis: r.data, ...(refresh.tracked ? { refresh: { days: refresh.days, lastAt: now, nextDay: nextAnalysisDay(now, refresh.days) } } : {}) });
     }
 
     if (action === "preguntar") {

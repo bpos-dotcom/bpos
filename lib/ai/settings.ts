@@ -131,6 +131,8 @@ export type AiSettingRow = {
   credits_per_day?: number;
   credits_per_use?: number;
   credits_period?: string;
+  /** Solo el Asesor: cada cuántos días puede pedir cada negocio un análisis nuevo (0033) */
+  refresh_days?: number;
   /** Prompts propios del Estudio de fotos (vacío = el de fábrica) */
   prompt_keep?: string;
   prompt_remove?: string;
