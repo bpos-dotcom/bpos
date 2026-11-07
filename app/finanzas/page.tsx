@@ -386,7 +386,7 @@ export default function FinanzasPage() {
     if (word === "semana" || (word === "periodo" && data.cur.days.length <= 7)) {
       const best = days.reduce((a, b) => (value(b) > value(a) ? b : a));
       const when = `${DAY_FULL[best.date.getDay()]} ${best.date.getDate()} de ${best.date.toLocaleDateString("es-MX", { month: "short" }).replace(".", "")}`;
-      return { when, amount: value(best), detail: chartMetric === "ingresos" ? `locales ${money(best.local)} · apps ${money(best.apps)}` : "", average: false, count: 1 };
+      return { when, amount: value(best), detail: chartMetric === "ingresos" ? `locales ${money(best.local)} · apps ${money(best.apps)}` : "", average: false, count: 1, unit: "" };
     }
     const byWeekday = new Map<number, { total: number; local: number; apps: number; count: number }>();
     days.forEach((d) => {
@@ -396,6 +396,7 @@ export default function FinanzasPage() {
     const [weekday, best] = [...byWeekday.entries()].reduce((a, b) => (b[1].total / b[1].count > a[1].total / a[1].count ? b : a));
     return {
       when: `Los ${WEEKDAY_PLURAL[weekday]}`,
+      unit: best.count === 1 ? DAY_FULL[weekday].toLowerCase() : WEEKDAY_PLURAL[weekday],
       amount: best.total / best.count,
       detail: chartMetric === "ingresos" ? `locales ${money(best.local / best.count)} · apps ${money(best.apps / best.count)}` : "",
       average: true,
@@ -606,7 +607,7 @@ export default function FinanzasPage() {
                   bestDay && (
                     <p className="mt-3 rounded-2xl border border-zinc-800 bg-black px-3 py-2 text-sm text-zinc-300">
                       🏆 ¿Cuál fue el mejor día?: <b className="text-white">{bestDay.when}</b>, con <b className="text-emerald-400">{money(bestDay.amount)}</b>
-                      {bestDay.average ? ` de ${chartMetric === "ingresos" ? "ingresos" : "utilidad"} en promedio (${bestDay.count} ${bestDay.count === 1 ? "día" : "días"})` : ` de ${chartMetric === "ingresos" ? "ingresos" : "utilidad"}`}
+                      {bestDay.average ? ` de ${chartMetric === "ingresos" ? "ingresos" : "utilidad"} en promedio (${bestDay.count} ${bestDay.unit})` : ` de ${chartMetric === "ingresos" ? "ingresos" : "utilidad"}`}
                       {bestDay.detail && <span className="text-zinc-500"> · {bestDay.detail}</span>}
                     </p>
                   )
