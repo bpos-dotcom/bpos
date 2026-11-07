@@ -11,6 +11,7 @@ import { ask } from "@/components/layout/Dialogs";
 import { useCallback, useEffect, useState } from "react";
 import { aiFetch } from "@/lib/ai/client";
 import { CREDIT_PERIODS, periodTexts, type CreditsPeriod } from "@/lib/ai/credits-period";
+import { REFRESH_OPTIONS, type RefreshDays } from "@/lib/ai/advisor-refresh";
 
 type Provider = "anthropic" | "gemini" | "openai";
 type Model = { id: string; label: string; priceIn?: number; priceOut?: number };
@@ -23,6 +24,8 @@ type Feature = {
   models?: Partial<Record<Provider, Model[]>>;
   /** BPOS Credits del Estudio de fotos: cada cuánto se reinician, cuántos hay en el periodo y cuántos usa cada foto */
   credits?: { period: CreditsPeriod; perPeriod: number; perUse: number; periodReady: boolean };
+  /** Asesor: cada cuántos días puede pedir cada negocio un análisis nuevo (ready: ya está la migración 0033) */
+  refresh?: { days: RefreshDays; ready: boolean };
   /** Falta la migración 0029 */
   missingTable?: boolean;
   /** Prompts del Estudio de fotos (vacío = el de fábrica) */
@@ -93,6 +96,7 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
   const [period, setPeriod] = useState<CreditsPeriod>(f.credits?.period ?? "dia");
   const [perPeriod, setPerPeriod] = useState(String(f.credits?.perPeriod ?? ""));
   const [perUse, setPerUse] = useState(String(f.credits?.perUse ?? ""));
+  const [refreshDays, setRefreshDays] = useState<RefreshDays>(f.refresh?.days ?? 1);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const modelsFor = (p: Provider) => f.models?.[p] || models[p];
@@ -151,6 +155,7 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
       priceIn: Number(priceIn),
       priceOut: Number(priceOut),
       ...(f.credits ? { creditsPeriod: period, creditsPerPeriod: Number(perPeriod), creditsPerUse: Number(perUse) } : {}),
+      ...(f.refresh ? { refreshDays } : {}),
     });
     if (b) {
       setKey("");
@@ -274,6 +279,27 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
           onSave={(text) => savePrompt(editing, text)}
           onClose={() => setEditing(null)}
         />
+      )}
+      {f.refresh && (
+        <div className="mt-3 rounded-2xl border border-orange-500/40 bg-orange-500/5 p-3">
+          <p className={label}>Cada negocio puede pedir un análisis nuevo</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {REFRESH_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                type="button"
+                onClick={() => setRefreshDays(o.value)}
+                className={`rounded-xl border px-4 py-2 text-sm font-black ${refreshDays === o.value ? "border-orange-400 bg-orange-500/25 text-white" : "border-zinc-700 text-zinc-400"}`}
+              >
+                {o.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-zinc-400">
+            El análisis de la semana (resumen, alertas y consejos) se puede pedir {REFRESH_OPTIONS.find((o) => o.value === refreshDays)?.text}. El chat con el asesor no tiene este límite (lo cuida el presupuesto de IA del plan).
+          </p>
+          {!f.refresh.ready && refreshDays !== 1 && <p className="mt-1 text-xs font-bold text-yellow-300">Para cada 3 días o cada semana falta aplicar la migración 0033 en Supabase.</p>}
+        </div>
       )}
       {f.credits && (
         <div className="mt-3 grid gap-3 rounded-2xl border border-violet-500/40 bg-violet-500/5 p-3 md:grid-cols-3">

@@ -4,13 +4,14 @@ import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 import { AiFailure, checkOpenAiModel, generateText } from "@/lib/ai/engine";
 import { PHOTO_PROMPTS } from "@/lib/ai/photo-studio";
 import { asCreditsPeriod } from "@/lib/ai/credits-period";
+import { asRefreshDays } from "@/lib/ai/advisor-refresh";
 import { FEATURES, MODELS, PHOTO_MODELS, adminDb, aiTable, getAiConfig, packKeys, photoCredits, readHints, readKeys, type AiFeature, type AiProvider, type AiSettingRow } from "@/lib/ai/settings";
 
 /**
  * Configuración → Administrador → Claves de IA (solo administradores de la
  * plataforma, is_platform_admin):
  *   GET                                   → funciones, proveedor, modelo, últimos 4 de cada clave
- *   POST { action: "guardar", feature, provider, model, key?, priceIn, priceOut, creditsPeriod?, creditsPerPeriod?, creditsPerUse? }
+ *   POST { action: "guardar", feature, provider, model, key?, priceIn, priceOut, creditsPeriod?, creditsPerPeriod?, creditsPerUse?, refreshDays? }
  *   POST { action: "probar", feature, provider?, model? } → una pregunta corta (lo elegido, aunque no esté guardado)
  *   POST { action: "quitar", feature, provider } → borra la clave de ese proveedor
  *   POST { action: "prompts", feature: "fotos", promptKeep, promptRemove } → prompts del Estudio de fotos (vacío = el de fábrica)
@@ -37,10 +38,12 @@ async function requireAdmin(request: NextRequest) {
 
 async function list() {
   const db = adminDb();
-  const [{ data }, photo] = await Promise.all([
+  const [{ data }, photo, refresh] = await Promise.all([
     db.from("bpos_ai_settings").select("feature, provider, model, key_hint, price_in, price_out, updated_by, updated_at"),
     // Todo (también los prompts si ya está la migración 0031); la clave cifrada no sale de aquí
     db.from(aiTable("fotos")).select("*"),
+    // Cada cuánto se pide un análisis nuevo del Asesor (falla sin la migración 0033)
+    db.from("bpos_ai_settings").select("feature, refresh_days").eq("feature", "asesor"),
   ]);
   const rows = [...((data || []) as Omit<AiSettingRow, "key_cipher">[]), ...((photo.data || []) as Omit<AiSettingRow, "key_cipher">[])];
   const vercel = Boolean(process.env.ANTHROPIC_API_KEY);
@@ -78,6 +81,7 @@ async function list() {
               prompts: { keep: r?.prompt_keep || "", remove: r?.prompt_remove || "", defaults: PHOTO_PROMPTS, editable: !photo.error && (!r || "prompt_keep" in r) },
             }
           : {}),
+        ...(f.id === "asesor" ? { refresh: { days: asRefreshDays(refresh.data?.[0]?.refresh_days), ready: !refresh.error } } : {}),
       };
     }),
   };
@@ -132,13 +136,22 @@ export async function POST(request: NextRequest) {
               credits_period: period,
             }
           : {};
-      const row: Record<string, unknown> = { feature, provider, model, ...packKeys(keys), price_in: priceIn, price_out: priceOut, ...credits, updated_by: who, updated_at: new Date().toISOString() };
+      // Asesor: cada cuántos días puede pedir cada negocio un análisis nuevo
+      const refreshDays = asRefreshDays(body.refreshDays);
+      const refresh = feature === "asesor" && body.refreshDays !== undefined ? { refresh_days: refreshDays } : {};
+      const row: Record<string, unknown> = { feature, provider, model, ...packKeys(keys), price_in: priceIn, price_out: priceOut, ...credits, ...refresh, updated_by: who, updated_at: new Date().toISOString() };
       let { error } = await db.from(table).upsert(row);
       // Sin la columna credits_period (falta la migración 0032) se guarda lo demás; solo "al día" funciona así
       if (error && feature === "fotos" && /credits_period/.test(error.message)) {
         delete row.credits_period;
         ({ error } = await db.from(table).upsert(row));
         if (!error && period !== "dia") return reply({ error: "Se guardó todo menos el periodo: falta aplicar la migración 0032 en Supabase. Mientras, los créditos siguen siendo al día." }, 400);
+      }
+      // Sin la columna refresh_days (falta la migración 0033) se guarda lo demás; queda "diario"
+      if (error && feature === "asesor" && /refresh_days/.test(error.message)) {
+        delete row.refresh_days;
+        ({ error } = await db.from(table).upsert(row));
+        if (!error && refreshDays !== 1) return reply({ error: "Se guardó todo menos cada cuánto se pide el análisis: falta aplicar la migración 0033 en Supabase. Mientras, sigue siendo diario." }, 400);
       }
       if (error) throw new Error(error.message);
       return reply(await list());

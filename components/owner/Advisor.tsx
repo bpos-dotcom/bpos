@@ -2,13 +2,15 @@
 /**
  * App del dueño → ✨ Asesor con IA: con los números del negocio (ventas,
  * platillos, horas, gastos, clientes) arma el resumen de la semana, alertas
- * y consejos, y responde preguntas. Un análisis nuevo por día; el chat,
- * cuando quiera. Solo plan Max (app/api/ai/asesor).
+ * y consejos, y responde preguntas. Un análisis nuevo diario, cada 3 días o
+ * cada semana (lo elige el dueño de B-POS); el chat, cuando quiera. Solo plan
+ * Max (app/api/ai/asesor).
  */
 import { useEffect, useMemo, useRef, useState } from "react";
 import { aiFetch } from "@/lib/ai/client";
 import { buildMetrics, today } from "@/lib/advisor-metrics";
 import { syncAdvisorSnapshot } from "@/lib/advisor-sync";
+import { asRefreshDays, dayLabel, REFRESH_OPTIONS, type RefreshDays } from "@/lib/ai/advisor-refresh";
 import type { ReportOrder } from "@/lib/reports";
 
 type Analysis = { resumen: string; alertas: { titulo: string; texto: string }[]; consejos: { titulo: string; texto: string }[] };
@@ -25,6 +27,8 @@ export function Advisor({ orders, branchLabel }: { orders: ReportOrder[]; branch
   const [asking, setAsking] = useState(false);
   const chatEnd = useRef<HTMLDivElement>(null);
   const [weekly, setWeekly] = useState<{ enabled: boolean; email: string } | null>(null);
+  // Cada cuánto se puede pedir un análisis nuevo y desde qué día el siguiente (lo dice el servidor)
+  const [refresh, setRefresh] = useState<{ days: RefreshDays; nextDay: string | null } | null>(null);
   const [weeklyBusy, setWeeklyBusy] = useState(false);
   const metrics = useMemo(() => buildMetrics(orders, branchLabel), [orders, branchLabel]);
 
@@ -40,7 +44,11 @@ export function Advisor({ orders, branchLabel }: { orders: ReportOrder[]; branch
   useEffect(() => {
     aiFetch("/api/ai/asesor", { method: "POST", body: JSON.stringify({ action: "estado" }) })
       .then((r) => r.json())
-      .then((b) => b.success && setWeekly({ enabled: b.enabled, email: b.email }))
+      .then((b) => {
+        if (!b.success) return;
+        setWeekly({ enabled: b.enabled, email: b.email });
+        if (b.refresh) setRefresh({ days: asRefreshDays(b.refresh.days), nextDay: b.refresh.nextDay || null });
+      })
       .catch(() => undefined);
   }, []);
 
@@ -77,6 +85,7 @@ export function Advisor({ orders, branchLabel }: { orders: ReportOrder[]; branch
     setError("");
     try {
       const b = await call({ action: "analizar" });
+      if (b.refresh) setRefresh({ days: asRefreshDays(b.refresh.days), nextDay: b.refresh.nextDay || null });
       const next = { date: today(), analysis: b.analysis as Analysis };
       setSaved(next);
       try {
@@ -110,7 +119,9 @@ export function Advisor({ orders, branchLabel }: { orders: ReportOrder[]; branch
   }
 
   const a = saved?.analysis;
-  const usedToday = saved?.date === today();
+  // Sin respuesta del servidor todavía: como antes, uno por día en este dispositivo
+  const locked = refresh ? Boolean(refresh.nextDay) : saved?.date === today();
+  const every = REFRESH_OPTIONS.find((o) => o.value === (refresh?.days ?? 1))?.text || "una vez al día";
 
   return (
     <div className="space-y-4">
@@ -126,14 +137,17 @@ export function Advisor({ orders, branchLabel }: { orders: ReportOrder[]; branch
             </div>
           </div>
           <button
-            disabled={busy || usedToday}
+            disabled={busy || locked}
             onClick={() => void analyze()}
             className="rounded-2xl border border-orange-500 px-4 py-2 text-sm font-black text-orange-400 disabled:border-zinc-800 disabled:text-zinc-600"
           >
             {busy ? "Analizando..." : a ? "↻ Actualizar análisis" : "✨ Analizar mi semana"}
           </button>
         </div>
-        <p className="mt-2 text-xs text-zinc-500">Puedes pedir un análisis nuevo una vez al día.{usedToday ? " Ya pediste el de hoy." : ""}</p>
+        <p className="mt-2 text-xs text-zinc-500">
+          Puedes pedir un análisis nuevo {every}.
+          {locked ? (refresh?.nextDay ? ` El siguiente, desde el ${dayLabel(refresh.nextDay)}.` : " Ya pediste el de hoy.") : ""}
+        </p>
 
         {!a && !busy && <p className="mt-4 rounded-2xl bg-black p-4 text-sm text-zinc-400">Toca “Analizar mi semana” y tu asesor revisa tus ventas, platillos, horarios, gastos y clientes para decirte qué hacer.</p>}
         {busy && <p className="mt-4 animate-pulse rounded-2xl bg-black p-4 text-sm text-zinc-400">Revisando tus números...</p>}
