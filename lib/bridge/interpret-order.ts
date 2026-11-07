@@ -30,7 +30,7 @@ export type CatalogProduct = {
   id: string | number;
   name: string;
   /** Opciones del producto (si tiene, un renglón reconocido por nombre se trata como combo) */
-  modifierGroups?: unknown[];
+  modifierGroups?: { options?: { name?: string; productId?: string | number }[] }[];
 };
 
 export type CatalogIngredient = {
@@ -226,6 +226,35 @@ function findProductByName(products: CatalogProduct[], externalName: string): Ca
   return products.find((product) => normalize(product.name) === wanted);
 }
 
+/**
+ * ¿La sub-línea es opción de este producto del POS? Por nombre: "Polaca" →
+ * opción "Hamburguesa Polaca".
+ */
+function isOptionOf(product: CatalogProduct, products: CatalogProduct[], externalName: string) {
+  return (product.modifierGroups || []).some((group) =>
+    (group.options || []).some((option) => {
+      const linkedId = option.productId === undefined || option.productId === null ? "" : String(option.productId);
+      const linked = linkedId ? products.find((p) => String(p.id) === linkedId) : undefined;
+      return optionNameMatches(externalName, linked?.name || option.name || "");
+    })
+  );
+}
+
+/**
+ * ¿Lo que dice el ticket nombra esta opción? Igual, o una contiene a la otra
+ * en palabras completas ("Polaca" ↔ "Hamburguesa Polaca"). Lo contenido debe
+ * tener al menos 4 letras: "Si" (catsup aparte) no es la hamburguesa "Si Racha".
+ */
+export function optionNameMatches(said: string, option: string) {
+  const words = (s: string) => normalize(s).replace(/[^a-z0-9ñ]+/g, " ").trim();
+  const a = words(said);
+  const b = words(option);
+  if (!a || !b) return false;
+  if (a === b) return true;
+  const [short, long] = a.length < b.length ? [a, b] : [b, a];
+  return short.replace(/ /g, "").length >= 4 && ` ${long} `.includes(` ${short} `);
+}
+
 function findCatalogEntry<T extends { id: string | number }>(
   entries: T[],
   id: string
@@ -263,15 +292,39 @@ export function interpretOrder(input: {
     });
   }
 
+  // Productos que se volvieron combo por sus sub-líneas (la equivalencia no estaba marcada 🧩)
+  const autoCombos = new Set<number>();
+
   for (const line of lines) {
-    // Sub-línea de un combo con equivalencia compuesta: la elige el combo
-    // (hamburguesa, refresco...), así que no se interpreta ni se cobra aparte
     const parentIndex = parents.get(line.index);
-    const parentCombo = parentIndex === undefined ? undefined : products.find((p) => p.sourceIndex === parentIndex && p.compound);
-    if (parentCombo) {
+    const parent = parentIndex === undefined ? undefined : products.find((p) => p.sourceIndex === parentIndex);
+    const alias = findAlias(input.aliases, line.externalName, platform);
+
+    // Sub-línea de un combo con equivalencia compuesta: la elige el combo
+    // (hamburguesa, refresco...), así que no se interpreta ni se cobra aparte.
+    // Si la equivalencia no se marcó combo pero el producto tiene opciones, una
+    // sub-línea sin costo ("1x Polaca MX$0.00") o que es opción del producto
+    // también la elige el producto: si no, salía la hamburguesa dos veces (la
+    // del combo y otra aparte). Lo que descuenta un insumo y un extra con costo
+    // que no es opción siguen por su propia equivalencia.
+    let comboOption = Boolean(parent?.compound && !autoCombos.has(parent.sourceIndex));
+    if (parent && !comboOption) {
+      const catalogParent = findCatalogEntry(input.products, parent.productId);
+      const price = linePrice(line.rawLine);
+      comboOption =
+        Boolean(catalogParent?.modifierGroups?.length) &&
+        alias?.actionType !== "ingredient" &&
+        alias?.actionType !== "bundle" &&
+        (price === null || price === 0 || isOptionOf(catalogParent!, input.products, line.externalName));
+      if (comboOption) {
+        parent.compound = true;
+        autoCombos.add(parent.sourceIndex);
+      }
+    }
+    if (parent && comboOption) {
       ignored.push({
         type: "ignore",
-        aliasId: parentCombo.aliasId,
+        aliasId: parent.aliasId,
         sourceIndex: line.index,
         externalName: line.externalName,
         sourceQuantity: line.quantity,
@@ -280,8 +333,6 @@ export function interpretOrder(input: {
       });
       continue;
     }
-
-    const alias = findAlias(input.aliases, line.externalName, platform);
 
     if (!alias) {
       // Sin equivalencia, pero el nombre es exactamente el de un producto del POS

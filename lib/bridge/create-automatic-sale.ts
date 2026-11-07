@@ -10,6 +10,7 @@ import { allocateShiftOrderNumber } from "@/lib/order-sequence";
 import { OWN_OPTIONS, buildSelection, isAutoGroup, optionName, type SoldModifier, type SoldPart } from "@/lib/compound";
 import type { Product } from "@/data/products";
 import { addAuditEvent } from "@/lib/audit";
+import { optionNameMatches } from "@/lib/bridge/interpret-order";
 import { getOperationsAlerts, resolveOperationsAlert, upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
 
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -56,8 +57,9 @@ function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTic
     if (isAutoGroup(group)) continue; // ya se llena solo
     const matched = group.options
       .filter((o) => {
-        const name = plain(optionName(o, catalog));
-        return name && said.some((s) => s.includes(name) || name.includes(s));
+        // Palabras completas y al menos 4 letras: "Si" (catsup aparte) no elige "Si Racha"
+        const name = optionName(o, catalog);
+        return said.some((s) => optionNameMatches(s, name));
       })
       .map((o) => o.key);
     const limit = group.max > 0 ? group.max : matched.length;
@@ -73,8 +75,9 @@ function deliverySelection(product: Product, catalog: Product[], ticket: Deliver
   const kept = modifiers?.filter((m) => !m.extra);
   // Grupo obligatorio que el ticket no eligió ("Combo El Favorito" sin decir qué
   // hamburguesa, o una hamburguesa que no está en el combo del POS): no se inventa
-  // la opción, pero se avisa porque esa parte no descuenta inventario
-  const missing = (product.modifierGroups || []).filter((g) => g.min > 0 && !isAutoGroup(g) && !picks[g.key]?.length).map((g) => g.name);
+  // la opción, pero se avisa porque esa parte no descuenta inventario (solo grupos de
+  // productos enlazados: "¿Deseas agregar algún extra?" sin contestar no falta nada)
+  const missing = (product.modifierGroups || []).filter((g) => g.min > 0 && !isAutoGroup(g) && g.options.some((o) => o.productId) && !picks[g.key]?.length).map((g) => g.name);
   return { ...(parts?.length ? { parts, ownTicket } : {}), ...(kept?.length ? { modifiers: kept } : {}), ...(missing.length ? { missingChoices: missing } : {}) };
 }
 
