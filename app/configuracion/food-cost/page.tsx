@@ -152,7 +152,13 @@ export default function FoodCostPage() {
   return (
     <AppShell title="Food cost" subtitle="Cuánto te cuesta hacer cada producto y cuánto te deja, antes y después de los gastos fijos.">
       <div className="space-y-6">
-        {data && <MenuProgress products={data.products} recipes={progressRecipes} className="max-w-xl" />}
+        <div className="flex flex-wrap items-start gap-4">
+          {data && <MenuProgress products={data.products} recipes={progressRecipes} className="max-w-xl flex-1" />}
+          <Link href="/servicios/food-cost" className="rounded-3xl border border-orange-500/40 bg-zinc-950 p-5 hover:border-orange-500">
+            <p className="font-black">🧮 Asistente paso a paso</p>
+            <p className="mt-1 max-w-xs text-sm text-zinc-400">Da de alta un platillo con sus costos y calcula su precio en DiDi, Uber y Rappi.</p>
+          </Link>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           {FINANCE_PERIODS.map(([key, text]) => (
             <button
