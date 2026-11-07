@@ -10,6 +10,7 @@
 import { createPrivateKey, generateKeyPairSync, sign } from "node:crypto";
 import { supabaseAdmin } from "@/lib/billing/mercadopago";
 import { planAccess, type PlanState } from "@/lib/plans";
+import { servicesLicense, type ServiceRow } from "@/lib/services";
 
 export const MAX_OFFLINE_DAYS = 3;
 const DAY = 86_400_000;
@@ -43,14 +44,24 @@ export async function licenseKeys() {
 /** Permiso firmado para ese negocio según su plan */
 export async function issueLicense(businessId: string, now = Date.now()) {
   const db = supabaseAdmin();
-  const { data: business } = await db.from("businesses").select("plan, plan_status, trial_ends_at, paid_until").eq("id", businessId).maybeSingle();
+  const { data: business } = await db.from("businesses").select("*").eq("id", businessId).maybeSingle();
   if (!business) throw new Error("Negocio no encontrado.");
-  const state = business as PlanState;
-  const access = planAccess(state, now);
-  const ends = [state.plan_status === "trial" ? state.trial_ends_at : state.paid_until].filter(Boolean).map((d) => Date.parse(String(d)));
-  const planEnd = ends.length ? Math.min(...ends) : Infinity; // plan activo sin fecha: activación manual, no vence
-  const until = access.locked ? now : Math.min(planEnd, now + MAX_OFFLINE_DAYS * DAY);
-  const payload: LicensePayload = { b: businessId, u: until, i: now, l: access.locked };
+  let locked: boolean;
+  let planEnd: number;
+  if (business.account_kind === "servicios") {
+    // Solo servicios: abierto mientras alguno esté vigente, hasta el que venza al último
+    const { data: rows } = await db.from("bpos_services").select("service, status, trial_ends_at, paid_until").eq("business_id", businessId);
+    const access = servicesLicense((rows || []) as ServiceRow[], now);
+    locked = access.locked;
+    planEnd = access.end ?? Infinity;
+  } else {
+    const state = business as PlanState;
+    locked = planAccess(state, now).locked;
+    const ends = [state.plan_status === "trial" ? state.trial_ends_at : state.paid_until].filter(Boolean).map((d) => Date.parse(String(d)));
+    planEnd = ends.length ? Math.min(...ends) : Infinity; // plan activo sin fecha: activación manual, no vence
+  }
+  const until = locked ? now : Math.min(planEnd, now + MAX_OFFLINE_DAYS * DAY);
+  const payload: LicensePayload = { b: businessId, u: until, i: now, l: locked };
   const { privatePem } = await licenseKeys();
   const body = Buffer.from(JSON.stringify(payload));
   const signature = sign(null, body, createPrivateKey(privatePem));

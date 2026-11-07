@@ -7,6 +7,7 @@
  */
 import { hasPermission, permissionForPath } from "@/lib/permissions";
 import type { CurrentUser } from "@/lib/auth";
+import type { ServiceId } from "@/lib/services";
 
 /**
  * aiBadge: la pestaña agrega [AI🟢] si el plan incluye IA (Max o prueba) o [AI🔴] si no.
@@ -84,9 +85,56 @@ const canOpen = (user: CurrentUser | null, href: string) => {
   return !permission || hasPermission(user, permission);
 };
 
-/** Grupos que el usuario puede ver, solo con las pestañas que puede abrir */
-export function visibleNav(user: CurrentUser | null): NavGroup[] {
-  return NAV.map((g) => ({ ...g, tabs: g.tabs.filter((t) => canOpen(user, t.href)) })).filter((g) => g.tabs.length > 0);
+/** Menú de una cuenta de solo servicios: el panel y una sección por servicio vigente */
+const SERVICE_NAV: Record<ServiceId, NavGroup> = {
+  lealtad: {
+    label: "Tarjetas de lealtad",
+    icon: "💳",
+    tabs: [
+      { label: "Capturar compra", href: "/servicios/lealtad", icon: "💳" },
+      { label: "Configurar club", href: "/configuracion/club", icon: "⚙️" },
+      { label: "Clientes", href: "/clientes", icon: "👥" },
+    ],
+  },
+  menu: {
+    label: "Menú digital",
+    icon: "📱",
+    tabs: [
+      { label: "Pedidos en línea", href: "/pedidos-en-linea", icon: "🌐" },
+      { label: "Diseño del menú", href: "/configuracion/menu-digital", icon: "🎨" },
+      { label: "Productos", href: "/configuracion/productos", icon: "🍔" },
+      { label: "Importar menú", href: "/servicios/menu/importar", icon: "📥" },
+      { label: "Opiniones", href: "/opiniones", icon: "⭐" },
+    ],
+  },
+  kiosco: { label: "Kiosco", icon: "🖥️", tabs: [{ label: "Kiosco", href: "/configuracion/menu-digital", icon: "🖥️" }] },
+  asesor: { label: "Asesor con IA", icon: "🤖", tabs: [{ label: "Asesor con IA", href: "/servicios/asesor", icon: "🤖" }] },
+  foodcost: { label: "Food cost", icon: "🧮", tabs: [{ label: "Food cost", href: "/servicios/food-cost", icon: "🧮" }] },
+  checador: {
+    label: "Reloj checador",
+    icon: "⏱️",
+    tabs: [
+      { label: "Checador", href: "/checador", icon: "⏱️" },
+      { label: "Asistencia", href: "/configuracion/asistencia", icon: "📅" },
+      { label: "Empleados", href: "/configuracion/usuarios", icon: "👤" },
+    ],
+  },
+};
+
+/**
+ * Grupos que el usuario puede ver, solo con las pestañas que puede abrir.
+ * `services`: la cuenta es de solo servicios y estos son los vigentes.
+ */
+export function visibleNav(user: CurrentUser | null, services?: ServiceId[] | null): NavGroup[] {
+  const groups = services
+    ? [
+        { label: "Mis servicios", icon: "🧩", tabs: [{ label: "Mis servicios", href: "/servicios", icon: "🧩" }] },
+        // El kiosco se configura en el diseño del menú: no lleva sección aparte si ya está el menú
+        ...services.filter((id) => !(id === "kiosco" && services.includes("menu"))).map((id) => SERVICE_NAV[id]),
+        { label: "Ayuda", icon: "❓", tabs: [{ label: "Ayuda", href: "/ayuda", icon: "❓" }] },
+      ]
+    : NAV;
+  return groups.map((g) => ({ ...g, tabs: g.tabs.filter((t) => canOpen(user, t.href)) })).filter((g) => g.tabs.length > 0);
 }
 
 const matches = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);

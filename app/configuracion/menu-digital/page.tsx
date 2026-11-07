@@ -32,6 +32,7 @@ import { DAY_SHORT } from "@/lib/sale-schedule";
 import { getSupabase } from "@/lib/supabase/client";
 import { getMpStatus } from "@/lib/mp/client";
 import { KioskScreens } from "@/components/menu/KioskScreens";
+import { ServiceGate } from "@/components/cloud/ServiceGate";
 import { MenuDesignEditor } from "@/components/menu/MenuDesignEditor";
 import { HolidaysEditor, TimedMenusEditor } from "@/components/menu/MenuSchedulesEditor";
 import { SortableList } from "@/components/menu/SortableList";
@@ -454,7 +455,9 @@ export default function MenuDigitalPage() {
           </section>
 
           {/* WhatsApp y transferencia */}
-          <KioskScreens published={menu.enabled && menu.acceptOrders && Boolean(menu.slug)} />
+          <ServiceGate service="kiosco">
+            <KioskScreens published={menu.enabled && menu.acceptOrders && Boolean(menu.slug)} />
+          </ServiceGate>
 
           <section className={card}>
             <h2 className="text-lg font-black">💬 WhatsApp y transferencia</h2>

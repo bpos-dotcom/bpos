@@ -33,6 +33,7 @@ import { PLANS, TRIAL_DAYS, planAccess, type PlanState } from "@/lib/plans";
 import { PIN_RE, startNewBusinessHere } from "@/lib/cloud/new-business";
 import { SignupForm } from "@/components/cloud/SignupForm";
 import { LicenseLock } from "@/components/cloud/LicenseLock";
+import { ServicesLock } from "@/components/cloud/ServicesLock";
 
 const ACCOUNT_CACHE_KEY = "bpos_sync_account";
 /** Más que esto sin respuesta de la nube al abrir: se entra con la cuenta guardada en este equipo */
@@ -59,7 +60,7 @@ type GateState =
  * Si no hay Supabase configurado, muestra B-POS directo (modo local).
  */
 /** Páginas que cualquiera puede ver sin cuenta (la portada de B-POS en "/", menús, club y kiosco) */
-export const PUBLIC_PATHS = ["/demo", "/m", "/fidelidad", "/kiosco", "/meseros", "/terminos", "/privacidad"];
+export const PUBLIC_PATHS = ["/demo", "/m", "/fidelidad", "/kiosco", "/meseros", "/terminos", "/privacidad", "/servicios/login"];
 export const isPublicPath = (pathname: string) =>
   pathname === "/" ||
   PUBLIC_PATHS.some((p) => pathname === p || pathname.startsWith(`${p}/`));
@@ -169,6 +170,7 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
       <>
         {children}
         <PlanLock account={state.account} />
+        <ServicesLock />
         <LicenseLock />
         <SyncBadge account={state.account} />
       </>
@@ -189,7 +191,7 @@ export function CloudGate({ children }: { children: React.ReactNode }) {
           <p className="text-center text-zinc-300">{state.text}</p>
         )}
 
-        {state.step === "account" && <AccountForm onDone={refresh} />}
+        {state.step === "account" && (pathname.startsWith("/servicios") ? <ToServicesLogin /> : <AccountForm onDone={refresh} />)}
 
         {state.step === "business" && (
           <BusinessForm email={state.email} onDone={refresh} />
@@ -597,10 +599,11 @@ function PlanLock({ account }: { account: ReadyAccount }) {
       if (!navigator.onLine) return;
       const { data, error } = await getSupabase()
         .from("businesses")
-        .select("plan, plan_status, trial_ends_at, paid_until")
+        .select("*")
         .eq("id", account.businessId)
         .maybeSingle();
-      if (alive && !error && data) setAccess(planAccess(data as PlanState));
+      // Cuenta de solo servicios: no tiene plan; cada servicio lo cuida ServicesLock
+      if (alive && !error && data) setAccess(data.account_kind === "servicios" ? null : planAccess(data as PlanState));
     };
     void check();
     const timer = setInterval(check, 30 * 60_000);
@@ -777,4 +780,12 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
       </button>
     </div>
   );
+}
+
+/** /servicios sin sesión: a la entrada de B-POS Servicios */
+function ToServicesLogin() {
+  useEffect(() => {
+    window.location.replace("/servicios/login");
+  }, []);
+  return <p className="text-center text-zinc-300">Abriendo la entrada de B-POS Servicios...</p>;
 }

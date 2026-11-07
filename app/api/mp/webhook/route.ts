@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { applyPreapproval, billingConfigured, getAuthorizedPayment, getPreapproval } from "@/lib/billing/mercadopago";
+import { applyServicePreapproval } from "@/lib/services-server";
+import { parseServiceReference } from "@/lib/services";
 
 /**
  * Avisos de Mercado Pago (Tus integraciones → Webhooks → evento "Planes y
@@ -28,7 +30,9 @@ export async function POST(request: NextRequest) {
     if (type.includes("authorized_payment")) preapprovalId = (await getAuthorizedPayment(id)).preapproval_id || "";
     else if (type.includes("preapproval")) preapprovalId = id;
     if (!preapprovalId) return NextResponse.json({ ok: true, ignored: type });
-    const result = await applyPreapproval(await getPreapproval(preapprovalId));
+    const pre = await getPreapproval(preapprovalId);
+    // Servicio suelto (svc|negocio|servicio) o plan completo
+    const result = parseServiceReference(pre.external_reference) ? await applyServicePreapproval(pre) : await applyPreapproval(pre);
     return NextResponse.json({ ok: true, ...result });
   } catch (error) {
     console.error("[B-POS] Aviso de Mercado Pago:", error instanceof Error ? error.message : error);
