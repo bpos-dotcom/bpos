@@ -26,6 +26,16 @@ export default function ServicesLoginPage() {
   const [picked, setPicked] = useState<ServiceId[]>([]);
   const [step, setStep] = useState<"servicios" | "datos">("servicios");
 
+  // Desde la página de venta: ?crear=servicio abre "Crear cuenta" con ese servicio ya elegido
+  useEffect(() => {
+    const wanted = new URLSearchParams(window.location.search).get("crear");
+    if (!wanted) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- lee la dirección una vez al abrir
+    setTab("crear");
+    const info = SERVICES.find((s) => s.id === wanted);
+    if (info) setPicked(info.addonOf ? [info.addonOf, info.id] : [info.id]);
+  }, []);
+
   useEffect(() => {
     if (!isCloudConfigured) return;
     // Con sesión abierta en este navegador: directo al panel
@@ -73,7 +83,12 @@ export default function ServicesLoginPage() {
           <img src="/bpos-logo.png" alt="B-POS" className="h-14 w-14 object-contain" />
           <div>
             <p className="text-3xl font-black">B-POS Servicios</p>
-            <p className="text-sm text-zinc-400">Contrata solo lo que tu restaurante necesita.</p>
+            <p className="text-sm text-zinc-400">
+              Contrata solo lo que tu restaurante necesita.{" "}
+              <Link href="/servicios" className="font-bold text-orange-400 underline">
+                Ver servicios
+              </Link>
+            </p>
           </div>
         </div>
 

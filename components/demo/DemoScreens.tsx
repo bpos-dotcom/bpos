@@ -8,7 +8,7 @@
 import { useEffect, useState } from "react";
 
 /** Fase de la escena: 0..n-1, avanza cada `ms` y vuelve a empezar */
-function useScene(n: number, ms = 1300) {
+export function useScene(n: number, ms = 1300) {
   const [phase, setPhase] = useState(0);
   useEffect(() => {
     const id = window.setInterval(() => setPhase((p) => (p + 1) % n), ms);
@@ -18,10 +18,10 @@ function useScene(n: number, ms = 1300) {
 }
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-4 shadow-[0_0_40px_rgba(249,115,22,0.08)]";
-const pop = "animate-[demo-pop_.45s_ease-out]";
-const slide = "animate-[demo-slide_.5s_ease-out]";
+export const pop = "animate-[demo-pop_.45s_ease-out]";
+export const slide = "animate-[demo-slide_.5s_ease-out]";
 
-function Window({ title, children, badge, badgeTone = "orange" }: { title: string; children: React.ReactNode; badge?: string; badgeTone?: "orange" | "green" }) {
+export function Window({ title, children, badge, badgeTone = "orange" }: { title: string; children: React.ReactNode; badge?: string; badgeTone?: "orange" | "green" }) {
   return (
     <div className={card}>
       <div className="mb-3 flex items-center justify-between text-xs">
@@ -42,7 +42,7 @@ function Window({ title, children, badge, badgeTone = "orange" }: { title: strin
   );
 }
 
-function Phone({ children, title }: { children: React.ReactNode; title: string }) {
+export function Phone({ children, title }: { children: React.ReactNode; title: string }) {
   return (
     <div className="mx-auto w-full max-w-[300px] rounded-[2rem] border-4 border-zinc-800 bg-zinc-950 p-3 shadow-[0_0_40px_rgba(249,115,22,0.1)]">
       <div className="mx-auto mb-2 h-1.5 w-16 rounded-full bg-zinc-700" />
@@ -53,7 +53,7 @@ function Phone({ children, title }: { children: React.ReactNode; title: string }
 }
 
 /** Dedo que toca algo (aparece sobre el elemento) */
-function Finger() {
+export function Finger() {
   return <span className={`pointer-events-none absolute -bottom-2 -right-1 text-2xl drop-shadow ${pop}`}>👆</span>;
 }
 
