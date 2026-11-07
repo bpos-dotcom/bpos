@@ -25,6 +25,7 @@ import {
   type SocialKey,
 } from "@/lib/loyalty";
 import { PUSH_SERVER as PUBLIC_SITE } from "@/lib/push/rules";
+import { ClubSlugPicker } from "@/components/club/ClubSlugPicker";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -257,7 +258,7 @@ export default function ClubPage() {
           <section className={card}>
             <h2 className="text-lg font-black">🔳 QR para tu restaurante</h2>
             {!slug ? (
-              <p className="mt-2 text-sm text-yellow-300">Primero elige la liga de tu menú en Configuración → Menú digital.</p>
+              <ClubSlugPicker onSaved={setSlug} />
             ) : (
               <div className="mt-4 flex flex-wrap items-center gap-5">
                 {/* eslint-disable-next-line @next/next/no-img-element -- QR generado aquí */}
