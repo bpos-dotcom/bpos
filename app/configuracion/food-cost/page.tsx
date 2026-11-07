@@ -9,7 +9,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import type { Product } from "@/data/products";
 import { getAdminIngredients, getAdminProducts, getAdminRecipes } from "@/lib/admin";
-import { FINANCE_PERIODS, financeRanges, fixedForRange, getFixedExpenses, ymd, type FinancePeriod } from "@/lib/finance";
+import { FINANCE_PERIODS, financeRanges, fixedForRange, getFixedExpenses, periodDays, ymd, type FinancePeriod, type Range } from "@/lib/finance";
 import {
   COST_METHODS,
   FOODCOST_EVENT,
@@ -76,9 +76,15 @@ export default function FoodCostPage() {
     const ingredients = new Map(getAdminIngredients().map((i) => [Number(i.id), i]));
     const costAt = makeCostLookup(getIngredientCostHistory());
     const sellable = data.products.filter((p) => !p.notSoldAlone);
-    // Piezas vendidas en el periodo (la venta del producto, no sus partes dentro de un combo)
-    const units = new Map<number, number>();
-    for (const o of buildReport(loadReportSources(), range).orders) for (const i of o.items || []) units.set(Number(i.id), (units.get(Number(i.id)) || 0) + (Number(i.quantity) || 0));
+    const sources = loadReportSources();
+    // Piezas vendidas (la venta del producto, no sus partes dentro de un combo)
+    const unitsIn = (r: Range) => {
+      const map = new Map<number, number>();
+      const orders = buildReport(sources, r).orders;
+      for (const o of orders) for (const i of o.items || []) map.set(Number(i.id), (map.get(Number(i.id)) || 0) + (Number(i.quantity) || 0));
+      return { map, orders };
+    };
+    const units = unitsIn(range).map;
     const rows = sellable.map((p) => {
       const c = productCost(p, recipes, ingredients, (id) => costAt(id));
       const price = Number(p.price) || 0;
@@ -86,9 +92,29 @@ export default function FoodCostPage() {
     });
     const fixedMonthly = getFixedExpenses().reduce((s, e) => s + (Number(e.amount) || 0), 0);
     const fixed = fixedForRange(fixedMonthly, range);
-    const alloc = allocateFixed(fixed, rows.map((r) => ({ units: r.units, price: r.price, method: r.method })));
-    return { rows: rows.map((r) => ({ ...r, net: r.gross - fixedPerUnit(r.price, r.method, alloc) })), fixed, alloc };
-  }, [data, range, settings]);
+    // Los fijos se reparten entre lo que salió. Si el periodo no ha terminado o no tuvo ventas,
+    // se estima con el ritmo de venta de los últimos 28 días (o desde la primera venta)
+    let allocUnits = units;
+    let estimate: { days: number; pieces: number } | null = null;
+    const soldNow = rows.reduce((s, r) => s + r.units, 0);
+    if (!finished || soldNow === 0) {
+      const now = new Date();
+      const end = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1);
+      const start = new Date(end.getTime() - 28 * 86_400_000);
+      const ref = unitsIn({ from: start, to: end });
+      if (ref.map.size) {
+        const first = Math.min(...ref.orders.map((o) => Date.parse(o.createdAt)));
+        const firstDay = new Date(new Date(first).getFullYear(), new Date(first).getMonth(), new Date(first).getDate()).getTime();
+        const days = Math.max(1, Math.round((end.getTime() - Math.max(start.getTime(), firstDay)) / 86_400_000));
+        const factor = periodDays(range) / days;
+        allocUnits = new Map([...ref.map].map(([id, n]) => [id, n * factor]));
+        estimate = { days, pieces: Math.round([...ref.map.values()].reduce((s, n) => s + n, 0) * factor) };
+      }
+    }
+    const alloc = allocateFixed(fixed, rows.map((r) => ({ units: allocUnits.get(Number(r.p.id)) || 0, price: r.price, method: r.method })));
+    return { rows: rows.map((r) => ({ ...r, net: r.gross - fixedPerUnit(r.price, r.method, alloc) })), fixed, alloc, estimate };
+  }, [data, range, settings, finished]);
+  const canNet = Boolean(calc && (calc.estimate || finished));
 
   function setCategoryMethod(c: string, m: CostMethod) {
     const next = { ...settings, categories: { ...settings.categories, [c]: m } };
@@ -162,25 +188,34 @@ export default function FoodCostPage() {
           </div>
           <div className={card}>
             <p className="text-sm text-zinc-400">Gasto fijo que carga cada pieza</p>
-            <p className="text-3xl font-black text-orange-400">{finished && calc?.alloc.pieceUnits ? money(calc.alloc.perPiece) : "–"}</p>
+            <p className="text-3xl font-black text-orange-400">
+              {canNet && calc?.alloc.pieceUnits ? money(calc.alloc.perPiece) : "–"}
+              {calc?.estimate && calc.alloc.pieceUnits ? <span className="ml-2 text-sm font-bold text-sky-300">estimado</span> : null}
+            </p>
             <p className="mt-1 text-xs text-zinc-500">
-              {finished ? `Entre ${calc?.alloc.pieceUnits || 0} piezas "por pieza"` : "Se calcula cuando termina el periodo"}
-              {finished && calc?.alloc.pctRate ? ` · los "por porcentaje" cargan ${pct(calc.alloc.pctRate * 100)} de su precio` : ""}
+              {canNet ? `Entre ${Math.round(calc?.alloc.pieceUnits || 0)} piezas "por pieza"${calc?.estimate ? " (a tu ritmo de venta)" : ""}` : "Todavía no hay ventas para repartirlo"}
+              {canNet && calc?.alloc.pctRate ? ` · los "por porcentaje" cargan ${pct(calc.alloc.pctRate * 100)} de su precio` : ""}
             </p>
           </div>
           <div className={card}>
             <p className="text-sm text-zinc-400">Lo vendido dejó</p>
             <p className="text-3xl font-black text-emerald-400">{money(totals.gross)}</p>
             <p className="mt-1 text-xs text-zinc-500">
-              Utilidad bruta (food cost {pct(totals.sales ? (totals.cost / totals.sales) * 100 : 0)}) · neta {finished ? money(totals.net) : "–"}
+              Utilidad bruta (food cost {pct(totals.sales ? (totals.cost / totals.sales) * 100 : 0)}) · neta {canNet ? `${money(totals.net)}${calc?.estimate ? " (estimada)" : ""}` : "–"}
             </p>
           </div>
         </div>
 
-        {!finished && (
+        {calc?.estimate ? (
           <p className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3 text-sm text-sky-200">
-            La utilidad neta sale con “–” porque el periodo todavía no termina: falta saber cuántas piezas van a salir para repartir los gastos fijos. Elige Semana pasada, Mes pasado o un rango que ya terminó.
+            Gastos fijos estimados: como {finished ? "en este periodo no hubo ventas" : "el periodo todavía no termina"}, se reparten con tu ritmo de venta de los últimos {calc.estimate.days} día{calc.estimate.days === 1 ? "" : "s"} (unas {calc.estimate.pieces} piezas en el periodo). Cuando termine un periodo con ventas, se calcula con lo que salió de verdad.
           </p>
+        ) : (
+          !canNet && (
+            <p className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3 text-sm text-sky-200">
+              La utilidad neta sale con “–” porque todavía no hay ventas para repartir los gastos fijos entre las piezas.
+            </p>
+          )
         )}
         {noRecipe > 0 && (
           <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-100">
@@ -287,7 +322,7 @@ export default function FoodCostPage() {
                           </td>
                           <td className={`py-2 pr-3 text-right font-black ${unknown ? "text-zinc-600" : fc > 35 ? "text-red-400" : "text-emerald-400"}`}>{unknown ? "–" : pct(fc)}</td>
                           <td className="py-2 pr-3 text-right font-black">{money(r.gross)}</td>
-                          <td className={`py-2 text-right font-black ${finished ? (r.net >= 0 ? "text-emerald-400" : "text-red-400") : "text-zinc-500"}`}>{finished ? money(r.net) : "–"}</td>
+                          <td className={`py-2 text-right font-black ${canNet ? (r.net >= 0 ? "text-emerald-400" : "text-red-400") : "text-zinc-500"}`}>{canNet ? money(r.net) : "–"}</td>
                         </tr>
                       );
                     })}
