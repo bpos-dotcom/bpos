@@ -1436,7 +1436,7 @@ function BridgeScreen() {
   );
 }
 
-type SaleLine = { name: string; quantity: number; price: number; parts?: { name: string; quantity: number }[]; modifiers?: { name: string }[] };
+type SaleLine = { name: string; quantity: number; price: number; parts?: { name: string; quantity: number }[]; modifiers?: { name: string }[]; missingChoices?: string[] };
 
 /** La venta que creó el pedido (en este dispositivo) */
 function readSale(id?: number) {
@@ -1519,6 +1519,11 @@ function FinalizedSheet({
                 </p>
                 {(item.parts || []).length > 0 && <p className="text-xs text-zinc-500">{(item.parts || []).map((p) => `${p.quantity}× ${p.name}`).join(" · ")}</p>}
                 {(item.modifiers || []).length > 0 && <p className="text-xs text-zinc-500">{(item.modifiers || []).map((m) => m.name).join(" · ")}</p>}
+                {(item.missingChoices || []).length > 0 && (
+                  <p className="mt-1 rounded-lg border border-yellow-500/60 bg-yellow-500/10 px-2 py-1 text-xs font-bold text-yellow-200">
+                    ⚠️ Sin {item.missingChoices!.join(", ")}: el ticket no trae una opción que exista en este combo de B-POS, así que no se descontó del inventario. Cambia la equivalencia o agrega esa opción al combo y corrige la venta.
+                  </p>
+                )}
               </li>
             ))}
             <li className="flex justify-between py-2 font-black">

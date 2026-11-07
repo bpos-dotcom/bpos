@@ -42,6 +42,7 @@ export const PUSH_ACTIONS = new Set([
   "permissions.updated",
   "drawer.unjustified",
   "product.created_from_bridge",
+  "sale.combo_incomplete",
 ]);
 
 export type PushEvent = {
@@ -93,6 +94,10 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
     // Siempre: un empleado creó un producto que llegó del Bridge y no existía
     case "product.created_from_bridge":
       return { title: "🆕 Producto nuevo desde el Bridge", body: event.description, tag, url: "/configuracion/productos" };
+    // Combo de delivery que quedó sin una opción obligatoria (no descontó inventario)
+    case "sale.combo_incomplete":
+      if (!prefs.delivery) return null;
+      return { title: "⚠️ Combo sin opción en un pedido", body: event.description, tag, url: "/bridge" };
     case "backup.restored":
     case "user.created":
     case "permissions.updated":

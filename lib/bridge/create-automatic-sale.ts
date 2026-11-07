@@ -9,6 +9,8 @@ import type { KdsTicketLine } from "@/lib/bridge/ticket-structure";
 import { allocateShiftOrderNumber } from "@/lib/order-sequence";
 import { OWN_OPTIONS, buildSelection, isAutoGroup, optionName, type SoldModifier, type SoldPart } from "@/lib/compound";
 import type { Product } from "@/data/products";
+import { addAuditEvent } from "@/lib/audit";
+import { getOperationsAlerts, resolveOperationsAlert, upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
 
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
@@ -65,10 +67,37 @@ function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTic
 }
 
 function deliverySelection(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
-  const { parts, modifiers, ownTicket } = buildSelection(product, catalog, { [OWN_OPTIONS]: deliveryPicks(product, catalog, ticket, line) });
+  const picks = deliveryPicks(product, catalog, ticket, line);
+  const { parts, modifiers, ownTicket } = buildSelection(product, catalog, { [OWN_OPTIONS]: picks });
   // El cobro de extras ya viene en el total de la plataforma
   const kept = modifiers?.filter((m) => !m.extra);
-  return { ...(parts?.length ? { parts, ownTicket } : {}), ...(kept?.length ? { modifiers: kept } : {}) };
+  // Grupo obligatorio que el ticket no eligió ("Combo El Favorito" sin decir qué
+  // hamburguesa, o una hamburguesa que no está en el combo del POS): no se inventa
+  // la opción, pero se avisa porque esa parte no descuenta inventario
+  const missing = (product.modifierGroups || []).filter((g) => g.min > 0 && !isAutoGroup(g) && !picks[g.key]?.length).map((g) => g.name);
+  return { ...(parts?.length ? { parts, ownTicket } : {}), ...(kept?.length ? { modifiers: kept } : {}), ...(missing.length ? { missingChoices: missing } : {}) };
+}
+
+/** Avisa al dueño (Centro de Operaciones y su celular) de los combos que quedaron sin una opción obligatoria */
+function warnMissingChoices(order: { id: number; externalPlatform: string; externalOrderNumber: string; items: AutomaticSaleItem[] }) {
+  const incomplete = order.items.filter((i) => i.missingChoices?.length);
+  if (!incomplete.length) {
+    // Venta corregida: el aviso anterior ya no aplica
+    if (getOperationsAlerts().some((a) => a.id === `bridge-combo:${order.id}` && a.status !== "resolved")) resolveOperationsAlert(`bridge-combo:${order.id}`, "B-POS", "Venta corregida");
+    return;
+  }
+  const what = incomplete.map((i) => `${i.name} sin "${i.missingChoices!.join('", "')}"`).join("; ");
+  const message = `Pedido ${platformLabel(order.externalPlatform)} #${order.externalOrderNumber} (venta #${String(order.id).padStart(6, "0")}): ${what}. El ticket no trae una opción que exista en el combo de B-POS, así que esa parte no se descontó del inventario. Revisa la equivalencia en el Bridge.`;
+  upsertOperationsAlert({
+    id: `bridge-combo:${order.id}`,
+    priority: "warning",
+    title: "Combo sin opción obligatoria",
+    message,
+    source: "Bridge",
+    moduleHref: "/bridge",
+    metadata: { orderId: order.id },
+  });
+  addAuditEvent({ category: "Bridge", action: "sale.combo_incomplete", description: message, entityId: String(order.id), metadata: { orderId: order.id } });
 }
 
 const ORDERS_KEY = "bpos_orders";
@@ -105,6 +134,8 @@ type AutomaticSaleItem = {
   parts?: SoldPart[];
   modifiers?: SoldModifier[];
   ownTicket?: boolean;
+  /** Grupos obligatorios del combo que el ticket no eligió (no descontaron inventario) */
+  missingChoices?: string[];
 };
 
 export type AutomaticSaleOrder = {
@@ -228,6 +259,7 @@ export function correctAutomaticSale(saleId: number, payload: SaleReadyPayload, 
   }
   localStorage.setItem(ORDERS_KEY, JSON.stringify(orders.map((o) => (Number(o.id) === Number(saleId) ? updated : o))));
   window.dispatchEvent(new CustomEvent("bpos:orders-updated", { detail: { orderId: sale.id, source: "bridge" } }));
+  warnMissingChoices(updated);
   return { success: true as const, sale: updated, before, after, previousTotal: sale.total };
 }
 
@@ -361,6 +393,7 @@ export function createAutomaticSale(
   if (!inventoryResult.success) {
     console.error("Venta creada, pero inventario pendiente:", inventoryResult.error);
   }
+  warnMissingChoices(order);
 
   window.dispatchEvent(
     new CustomEvent("bpos:orders-updated", {
