@@ -108,7 +108,7 @@ export function buildDeliveryTicket(
   let question: string | null = null; // texto suelto pendiente: encabezado de grupo o nota
   let lastQuestion: string | null = null; // último encabezado (para opciones seguidas)
   let inCharges = false;
-  const orderNotes: string[] = [];
+  const noteLines: string[] = []; // el OCR parte la nota en renglones: se juntan al final
   let inOrderNotes = false; // renglones después de "Notas del pedido"
 
   const lines = String(order.rawText || "").replace(/\r/g, "").split("\n");
@@ -120,15 +120,13 @@ export function buildDeliveryTicket(
     const notesHeader = inCharges ? null : line.match(ORDER_NOTES) || (items.length ? null : line.match(HEADER_NOTES));
     if (notesHeader) {
       inOrderNotes = true;
-      const rest = cleanOrderNote(notesHeader[1] || "");
-      if (rest) orderNotes.push(rest);
+      if (notesHeader[1]) noteLines.push(notesHeader[1]);
       return;
     }
     if (inOrderNotes) {
       const ends = QUANTIFIED.test(fixOcrQuantity(line)) || CHARGE.test(line) || END_OF_ITEMS.test(line);
       if (!ends) {
-        const note = cleanOrderNote(line);
-        if (/[a-záéíóúñ]/i.test(note)) orderNotes.push(note);
+        noteLines.push(line);
         return;
       }
       inOrderNotes = false;
@@ -205,6 +203,9 @@ export function buildDeliveryTicket(
     const allIgnored = [item.index].every((i) => routing.get(i)?.ignored);
     if (!item.stations.length && !allIgnored) item.stations.push(fallback);
   });
+
+  const note = cleanOrderNote(noteLines.join(" "));
+  const orderNotes = /[a-záéíóúñ]/i.test(note) ? [note] : [];
 
   const totalCharge = [...charges].reverse().find((c) => /^(total|importe\s+pagado|monto\s+pagado)/i.test(c.label));
   return {
