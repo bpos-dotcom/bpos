@@ -1,28 +1,39 @@
 "use client";
 /**
  * Finanzas: cómo va subiendo el periodo (acumulado día por día) contra el
- * periodo anterior en los mismos días. Rojo continuo = este periodo; gris
- * punteado = el anterior. Al pasar el dedo o el mouse se ven los dos valores.
+ * periodo anterior en los mismos días. Cada serie (ej. ingresos locales en
+ * verde y de apps en naranja) va en línea continua; la misma serie del
+ * periodo anterior, punteada y más tenue. Al pasar el dedo o el mouse se ven
+ * los valores de ese día.
  */
 import { useRef, useState } from "react";
 
-type Props = {
-  /** Etiqueta de cada día del eje (ej. "Lun 3") */
-  labels: string[];
+export type ChartSeries = {
+  name: string;
+  /** Color CSS de la línea (ej. "var(--color-emerald-500)") */
+  color: string;
   /** Acumulado de este periodo; null = día que todavía no llega */
   current: (number | null)[];
   /** Acumulado del periodo anterior, mismo número de día */
   previous: (number | null)[];
-  currentName: string;
-  previousName: string;
-  format: (n: number) => string;
   /** Lo de ese día solo (no acumulado), para el recuadro al pasar el dedo */
   currentDay?: (number | null)[];
   previousDay?: (number | null)[];
+  /** De dónde vino lo de ese día en este periodo (Efectivo $372 · Tarjeta $269...) */
+  breakdown?: ({ label: string; amount: number }[] | null)[];
+};
+
+type Props = {
+  /** Etiqueta de cada día del eje (ej. "Lun 3") */
+  labels: string[];
+  series: ChartSeries[];
+  currentName: string;
+  previousName: string;
+  format: (n: number) => string;
   /** Título de lo del día ("Ventas del día") */
   dayName?: string;
-  /** Cómo se pagó lo de ese día en este periodo (Efectivo $372 · Tarjeta $269...) */
-  currentBreakdown?: ({ label: string; amount: number }[] | null)[];
+  /** Debajo de la leyenda (ej. el mejor día) */
+  footer?: React.ReactNode;
 };
 
 const W = 720;
@@ -42,11 +53,13 @@ function ticks(min: number, max: number, count = 4) {
   return out;
 }
 
-export function FinanceChart({ labels, current, previous, currentName, previousName, format, currentDay, previousDay, dayName, currentBreakdown }: Props) {
+const has = (v: number | null | undefined): v is number => v !== null && v !== undefined;
+
+export function FinanceChart({ labels, series, currentName, previousName, format, dayName, footer }: Props) {
   const box = useRef<SVGSVGElement>(null);
   const [hover, setHover] = useState<number | null>(null);
   const n = Math.max(labels.length, 1);
-  const values = [...current, ...previous].filter((v): v is number => v !== null);
+  const values = series.flatMap((s) => [...s.current, ...s.previous]).filter(has);
   const yTicks = ticks(Math.min(0, ...values), Math.max(1, ...values));
   const yMin = yTicks[0];
   const yMax = yTicks[yTicks.length - 1];
@@ -59,7 +72,12 @@ export function FinanceChart({ labels, current, previous, currentName, previousN
       .join(" ");
   // Etiquetas del eje sin amontonarse: unas 7 como máximo
   const every = Math.max(1, Math.ceil(n / 7));
-  const lastCurrent = current.reduce<number>((last, v, i) => (v === null ? last : i), -1);
+  const lastCurrent = (list: (number | null)[]) => list.reduce<number>((last, v, i) => (v === null ? last : i), -1);
+  const several = series.length > 1;
+  const sum = (pick: (s: ChartSeries) => number | null | undefined) => {
+    const got = series.map(pick).filter(has);
+    return got.length ? got.reduce((a, b) => a + b, 0) : null;
+  };
 
   function onMove(e: React.PointerEvent<SVGSVGElement>) {
     const r = box.current?.getBoundingClientRect();
@@ -69,32 +87,30 @@ export function FinanceChart({ labels, current, previous, currentName, previousN
     setHover(Math.max(0, Math.min(n - 1, i)));
   }
 
-  const tip = hover !== null ? { i: hover, cur: current[hover], prev: previous[hover] } : null;
-  const diff = tip && tip.cur !== null && tip.cur !== undefined && tip.prev !== null && tip.prev !== undefined ? tip.cur - tip.prev : null;
+  const tip = hover;
+  const curTotal = tip === null ? null : sum((s) => s.current[tip]);
+  const prevTotal = tip === null ? null : sum((s) => s.previous[tip]);
+  const diff = has(curTotal) && has(prevTotal) ? curTotal - prevTotal : null;
+
+  /** Renglón del recuadro: nombre de la serie, este periodo y el anterior */
+  const row = (key: string, name: React.ReactNode, now: number | null | undefined, before: number | null | undefined, strong = false) => (
+    <p key={key} className={`grid grid-cols-[1fr_auto_auto] gap-3 ${strong ? "font-black text-white" : "text-zinc-300"}`}>
+      <span>{name}</span>
+      <b className="text-right text-white">{has(now) ? format(now) : "—"}</b>
+      <span className="text-right text-zinc-500">{has(before) ? format(before) : "—"}</span>
+    </p>
+  );
+  const dot = (color: string) => <span className="mr-1.5 inline-block h-2 w-2 rounded-full align-middle" style={{ background: color }} />;
 
   return (
     <div>
-      <div className="mb-2 flex flex-wrap gap-4 text-xs font-bold text-zinc-300">
-        <span className="flex items-center gap-2">
-          <svg width="22" height="8" aria-hidden>
-            <line x1="1" y1="4" x2="21" y2="4" style={{ stroke: "var(--color-red-500)" }} strokeWidth="2.5" strokeLinecap="round" />
-          </svg>
-          {currentName}
-        </span>
-        <span className="flex items-center gap-2">
-          <svg width="22" height="8" aria-hidden>
-            <line x1="1" y1="4" x2="21" y2="4" style={{ stroke: "var(--color-zinc-500)" }} strokeWidth="2" strokeDasharray="4 3" strokeLinecap="round" />
-          </svg>
-          {previousName}
-        </span>
-      </div>
       <div className="relative">
         <svg
           ref={box}
           viewBox={`0 0 ${W} ${H}`}
           className="h-auto w-full touch-none select-none"
           role="img"
-          aria-label={`${currentName} contra ${previousName}`}
+          aria-label={`${series.map((s) => s.name).join(" y ")}: ${currentName} contra ${previousName}`}
           onPointerMove={onMove}
           onPointerDown={onMove}
           onPointerLeave={() => setHover(null)}
@@ -114,57 +130,63 @@ export function FinanceChart({ labels, current, previous, currentName, previousN
               </text>
             ) : null
           )}
-          <path d={path(previous)} fill="none" style={{ stroke: "var(--color-zinc-500)" }} strokeWidth="2" strokeDasharray="5 4" strokeLinecap="round" strokeLinejoin="round" />
-          <path d={path(current)} fill="none" style={{ stroke: "var(--color-red-500)" }} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
-          {lastCurrent >= 0 && current[lastCurrent] !== null && (
-            <circle cx={x(lastCurrent)} cy={y(current[lastCurrent]!)} r="4.5" style={{ fill: "var(--color-red-500)", stroke: "var(--color-zinc-950)" }} strokeWidth="2" />
-          )}
-          {tip && (
+          {series.map((s) => (
+            <path key={`prev-${s.name}`} d={path(s.previous)} fill="none" style={{ stroke: s.color }} opacity="0.45" strokeWidth="2" strokeDasharray="5 4" strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+          {series.map((s) => (
+            <path key={`cur-${s.name}`} d={path(s.current)} fill="none" style={{ stroke: s.color }} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+          {series.map((s) => {
+            const last = lastCurrent(s.current);
+            return last >= 0 && has(s.current[last]) ? <circle key={`end-${s.name}`} cx={x(last)} cy={y(s.current[last]!)} r="4.5" style={{ fill: s.color, stroke: "var(--color-zinc-950)" }} strokeWidth="2" /> : null;
+          })}
+          {tip !== null && (
             <g pointerEvents="none">
-              <line x1={x(tip.i)} x2={x(tip.i)} y1={PAD.top} y2={H - PAD.bottom} style={{ stroke: "var(--color-zinc-500)" }} strokeWidth="1" />
-              {tip.prev !== null && tip.prev !== undefined && <circle cx={x(tip.i)} cy={y(tip.prev)} r="4" style={{ fill: "var(--color-zinc-500)", stroke: "var(--color-zinc-950)" }} strokeWidth="2" />}
-              {tip.cur !== null && tip.cur !== undefined && <circle cx={x(tip.i)} cy={y(tip.cur)} r="4.5" style={{ fill: "var(--color-red-500)", stroke: "var(--color-zinc-950)" }} strokeWidth="2" />}
+              <line x1={x(tip)} x2={x(tip)} y1={PAD.top} y2={H - PAD.bottom} style={{ stroke: "var(--color-zinc-500)" }} strokeWidth="1" />
+              {series.map((s) => (
+                <g key={`tip-${s.name}`}>
+                  {has(s.previous[tip]) && <circle cx={x(tip)} cy={y(s.previous[tip]!)} r="4" style={{ fill: s.color, stroke: "var(--color-zinc-950)" }} opacity="0.5" strokeWidth="2" />}
+                  {has(s.current[tip]) && <circle cx={x(tip)} cy={y(s.current[tip]!)} r="4.5" style={{ fill: s.color, stroke: "var(--color-zinc-950)" }} strokeWidth="2" />}
+                </g>
+              ))}
             </g>
           )}
         </svg>
-        {tip && (
+        {tip !== null && (
           <div
-            className="pointer-events-none absolute top-2 z-10 min-w-44 rounded-xl border border-zinc-700 bg-zinc-950/95 px-3 py-2 text-xs shadow-lg"
-            style={x(tip.i) > W / 2 ? { right: `${((W - x(tip.i)) / W) * 100 + 2}%` } : { left: `${(x(tip.i) / W) * 100 + 2}%` }}
+            className="pointer-events-none absolute top-2 z-10 min-w-56 rounded-xl border border-zinc-700 bg-zinc-950/95 px-3 py-2 text-xs shadow-lg"
+            style={x(tip) > W / 2 ? { right: `${((W - x(tip)) / W) * 100 + 2}%` } : { left: `${(x(tip) / W) * 100 + 2}%` }}
           >
-            <p className="font-black text-white">Día {tip.i + 1} · {labels[tip.i]}</p>
+            <p className="font-black text-white">Día {tip + 1} · {labels[tip]}</p>
+            <p className="mt-1 grid grid-cols-[1fr_auto_auto] gap-3 text-[10px] font-bold text-zinc-500">
+              <span />
+              <span className="text-right">{currentName}</span>
+              <span className="text-right">{previousName}</span>
+            </p>
             {dayName && (
               <>
-                <p className="mt-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500">{dayName}</p>
-                <p className="flex justify-between gap-3 text-zinc-300">
-                  <span>{currentName}</span>
-                  <b className="text-white">{currentDay?.[tip.i] === null || currentDay?.[tip.i] === undefined ? "—" : format(currentDay[tip.i]!)}</b>
-                </p>
-                {(currentBreakdown?.[tip.i]?.length || 0) > 0 && (
-                  <div className="mb-1 ml-2 border-l border-zinc-700 pl-2">
-                    {currentBreakdown![tip.i]!.map((b) => (
-                      <p key={b.label} className="flex justify-between gap-3 text-zinc-400">
-                        <span>{b.label}</span>
-                        <span>{format(b.amount)}</span>
-                      </p>
-                    ))}
+                <p className="mt-1 text-[10px] font-black uppercase tracking-wider text-zinc-500">{dayName}</p>
+                {series.map((s) => (
+                  <div key={`day-${s.name}`}>
+                    {row(s.name, <>{dot(s.color)}{s.name}</>, s.currentDay?.[tip], s.previousDay?.[tip])}
+                    {(s.breakdown?.[tip]?.length || 0) > 0 && (
+                      <div className="mb-1 ml-3 border-l border-zinc-700 pl-2">
+                        {s.breakdown![tip]!.map((b) => (
+                          <p key={b.label} className="flex justify-between gap-3 text-zinc-400">
+                            <span>{b.label}</span>
+                            <span>{format(b.amount)}</span>
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                )}
-                <p className="flex justify-between gap-3 text-zinc-400">
-                  <span>{previousName}</span>
-                  <b>{previousDay?.[tip.i] === null || previousDay?.[tip.i] === undefined ? "—" : format(previousDay[tip.i]!)}</b>
-                </p>
+                ))}
+                {several && row("day-total", "Total", sum((s) => s.currentDay?.[tip]), sum((s) => s.previousDay?.[tip]), true)}
               </>
             )}
             <p className="mt-1.5 text-[10px] font-black uppercase tracking-wider text-zinc-500">Acumulado hasta ese día</p>
-            <p className="flex justify-between gap-3 text-zinc-300">
-              <span>{currentName}</span>
-              <b className="text-white">{tip.cur === null || tip.cur === undefined ? "—" : format(tip.cur)}</b>
-            </p>
-            <p className="flex justify-between gap-3 text-zinc-400">
-              <span>{previousName}</span>
-              <b>{tip.prev === null || tip.prev === undefined ? "—" : format(tip.prev)}</b>
-            </p>
+            {series.map((s) => row(`acc-${s.name}`, <>{dot(s.color)}{s.name}</>, s.current[tip], s.previous[tip]))}
+            {several && row("acc-total", "Total", curTotal, prevTotal, true)}
             {diff !== null && (
               <p className={`mt-1 font-black ${diff >= 0 ? "text-emerald-400" : "text-red-400"}`}>
                 {diff >= 0 ? "▲" : "▼"} {format(Math.abs(diff))} {diff >= 0 ? "arriba" : "abajo"} en el acumulado
@@ -173,6 +195,24 @@ export function FinanceChart({ labels, current, previous, currentName, previousN
           </div>
         )}
       </div>
+      {/* Leyenda: qué significa cada color */}
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs font-bold text-zinc-300">
+        {series.map((s) => (
+          <span key={`leg-${s.name}`} className="flex items-center gap-2">
+            <svg width="22" height="8" aria-hidden>
+              <line x1="1" y1="4" x2="21" y2="4" style={{ stroke: s.color }} strokeWidth="2.5" strokeLinecap="round" />
+            </svg>
+            {s.name} ({currentName.toLowerCase()})
+          </span>
+        ))}
+        <span className="flex items-center gap-2 text-zinc-400">
+          <svg width="22" height="8" aria-hidden>
+            <line x1="1" y1="4" x2="21" y2="4" style={{ stroke: "var(--color-zinc-500)" }} strokeWidth="2" strokeDasharray="4 3" strokeLinecap="round" />
+          </svg>
+          Punteada: {previousName.toLowerCase()}{several ? " (mismo color)" : ""}
+        </span>
+      </div>
+      {footer}
     </div>
   );
 }
