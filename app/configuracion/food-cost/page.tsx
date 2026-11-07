@@ -4,6 +4,7 @@
  * empaque), food cost %, utilidad bruta y, cuando el periodo ya terminó,
  * utilidad neta con su parte de los gastos fijos (ver lib/food-cost.ts).
  */
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import type { Product } from "@/data/products";
@@ -119,7 +120,8 @@ export default function FoodCostPage() {
     gross: sold.reduce((s, r) => s + r.units * r.gross, 0),
     net: sold.reduce((s, r) => s + r.units * r.net, 0),
   };
-  const noRecipe = rows.filter((r) => r.cost.noRecipe).length;
+  const noRecipeRows = rows.filter((r) => r.cost.noRecipe);
+  const noRecipe = noRecipeRows.length;
 
   return (
     <AppShell title="Food cost" subtitle="Cuánto te cuesta hacer cada producto y cuánto te deja, antes y después de los gastos fijos.">
@@ -181,9 +183,19 @@ export default function FoodCostPage() {
           </p>
         )}
         {noRecipe > 0 && (
-          <p className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-100">
-            ⚠️ {noRecipe} producto{noRecipe === 1 ? "" : "s"} sin receta ni empaque: su costo sale en $0. Agrégalos en Tu negocio → Productos.
-          </p>
+          <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-sm text-yellow-100">
+            <p>⚠️ {noRecipe} producto{noRecipe === 1 ? "" : "s"} sin receta ni empaque: su costo sale en $0. Agrégalos en Tu negocio → Productos.</p>
+            <ul className="mt-2 max-h-56 space-y-1.5 overflow-y-auto">
+              {noRecipeRows.map((r) => (
+                <li key={r.p.id} className="flex items-center justify-between gap-3 rounded-xl bg-black/30 px-3 py-2">
+                  <span className="min-w-0 truncate font-bold">{r.p.name}</span>
+                  <Link href={`/configuracion/productos?producto=${r.p.id}`} className="shrink-0 rounded-xl bg-yellow-400 px-3 py-1.5 text-xs font-black text-black">
+                    Ir a →
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
 
         <div className="flex flex-wrap items-center gap-2">

@@ -104,9 +104,15 @@ export default function ProductosAdminPage() {
     setProducts(savedProducts);
     setIngredients(getAdminIngredients());
     setRecipes(savedRecipes);
-    setSelectedId(savedProducts[0]?.id ?? null);
-    setDraft(savedProducts[0] ?? null);
-    setRecipeDraft(recipeOf(savedRecipes, savedProducts[0]?.id));
+    // "?producto=ID" (botón "Ir a" de Food cost): abre la ficha de ese producto
+    const wanted = new URLSearchParams(window.location.search).get("producto");
+    const start = savedProducts.find((p) => String(p.id) === wanted) ?? savedProducts[0];
+    setSelectedId(start?.id ?? null);
+    setDraft(start ?? null);
+    setRecipeDraft(recipeOf(savedRecipes, start?.id));
+    if (wanted && start && String(start.id) === wanted) {
+      window.setTimeout(() => document.getElementById("ficha-producto")?.scrollIntoView({ behavior: "smooth", block: "start" }), 300);
+    }
   }, []);
 
   // Cambios que llegan de la nube (otro dispositivo) o de otra pestaña: se
@@ -497,7 +503,7 @@ export default function ProductosAdminPage() {
             ) : (
               <>
                 <div className="flex flex-col gap-4 border-b border-zinc-800 pb-6 md:flex-row md:items-center md:justify-between">
-                  <div className="flex items-center gap-4">
+                  <div id="ficha-producto" className="flex scroll-mt-24 items-center gap-4">
                     <div className="flex h-20 w-20 items-center justify-center overflow-hidden rounded-3xl bg-black text-5xl">
                       {draft.image ? (
                         // eslint-disable-next-line @next/next/no-img-element -- foto del producto en la nube
