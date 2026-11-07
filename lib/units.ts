@@ -94,6 +94,18 @@ export function changeIngredientUnit(ingredientId: number, to: Unit) {
       "bpos_purchase_aliases",
       JSON.stringify(aliases.map((a) => (Number(a.ingredientId) === Number(ingredientId) ? { ...a, quantity: round(Number(a.quantity) * factor), unit: to } : a)))
     );
+    // Kardex: sus movimientos pasados también quedan en la unidad nueva (si no, el Kardex vería un cambio "sin registro")
+    const kardex = JSON.parse(localStorage.getItem("bpos_inventory_kardex") || "[]") as { ingredientId: number; quantity: number; previousStock: number; finalStock: number; unit: Unit }[];
+    localStorage.setItem(
+      "bpos_inventory_kardex",
+      JSON.stringify(
+        kardex.map((m) =>
+          Number(m.ingredientId) === Number(ingredientId)
+            ? { ...m, unit: to, quantity: round(Number(m.quantity) * factor), previousStock: round(Number(m.previousStock) * factor), finalStock: round(Number(m.finalStock) * factor) }
+            : m
+        )
+      )
+    );
     const costs = JSON.parse(localStorage.getItem("bpos_ingredient_cost_history") || "[]") as { ingredientId: number; inventoryQuantity: number; unitCost: number }[];
     localStorage.setItem(
       "bpos_ingredient_cost_history",
