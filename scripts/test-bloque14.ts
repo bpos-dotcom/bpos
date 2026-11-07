@@ -77,7 +77,7 @@ check("DiDi real: 'Cancelar sólo los productos agotados' no es nota", !didi.ord
 // Notas del pedido (DiDi #1): salen en todas las comandas y en el de la bolsa, sin el texto fijo de DiDi
 const notasText = [
   "#1", "isabella", "66 Notas del pedido", "",
-  "bbq aparte , NO PONERLE NINGUN ADEREZO ( MOZTASA, CATSUP ) . Cancelar sólo los productos agotados", "",
+  "bbq aparte , NO PONERLE NINGUN ADEREZO ( MOZTASA, CATSUP", ") . Cancelar sólo los productos agotados", "",
   "Hora de Aceptación de Pedido:06 de nov, 4:33 pm", "1x Combo Especial MX$189.00", "Elige tu hamburguesa especial", "1x Kansas city MX$0.00",
 ].join("\n");
 const conNotas = buildDeliveryTicket({ platform: "didi", orderId: "1", rawText: notasText }, new Map());
