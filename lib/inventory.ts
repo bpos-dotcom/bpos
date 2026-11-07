@@ -16,7 +16,8 @@ export type InventoryMovement = {
   ingredientId: number;
   ingredientName: string;
   unit: Ingredient["unit"];
-  type: "Venta POS" | "Venta plataforma" | "Ajuste positivo" | "Ajuste negativo" | "Merma";
+  /** "Sin registro": no se guarda; lo arma kardexWithGaps donde la existencia cambió sin movimiento */
+  type: "Venta POS" | "Venta plataforma" | "Ajuste positivo" | "Ajuste negativo" | "Merma" | "Sin registro";
   quantity: number;
   previousStock: number;
   finalStock: number;
@@ -30,6 +31,8 @@ export type InventoryMovement = {
   revertOf?: string;
   /** Quién hizo el ajuste a mano (o la compra) */
   userName?: string;
+  /** "Sin registro": desde cuándo pudo pasar (el movimiento anterior del insumo) */
+  gapSince?: string;
   createdAt: string;
 };
 
@@ -498,7 +501,7 @@ export function adjustInventory(input: { ingredientId: number; quantity: number;
   ingredient.stock = input.adjustmentType === "Ajuste positivo" ? previousStock + quantity : previousStock - quantity; // negativo y merma restan
   saveAdminIngredients(inventory);
   const movement: InventoryMovement = {
-    id: `manual-${Date.now()}`,
+    id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     ingredientId: ingredient.id,
     ingredientName: ingredient.name,
     unit: ingredient.unit,
@@ -517,6 +520,43 @@ export function adjustInventory(input: { ingredientId: number; quantity: number;
   return movement;
 }
 
+/**
+ * El Kardex en orden de fecha con los huecos a la vista: si un movimiento
+ * empieza en una existencia distinta a la que dejó el anterior del mismo
+ * insumo (o el primero no empieza en 0), la existencia cambió sin dejar
+ * movimiento (por ejemplo, escrita en la ficha antes de que eso se
+ * registrara). Ese cambio sale como "Sin registro", entre las dos fechas.
+ */
+export function kardexWithGaps(kardex: InventoryMovement[]): InventoryMovement[] {
+  const sorted = kardex.map((m, i) => [m, i] as const).sort((a, b) => Date.parse(a[0].createdAt) - Date.parse(b[0].createdAt) || a[1] - b[1]).map(([m]) => m);
+  const last = new Map<number, InventoryMovement>();
+  const out: InventoryMovement[] = [];
+  for (const m of sorted) {
+    const before = last.get(Number(m.ingredientId));
+    const from = before ? Number(before.finalStock) : 0;
+    const to = Number(m.previousStock);
+    if (Number.isFinite(from) && Number.isFinite(to) && Math.abs(to - from) > 0.0005) {
+      const diff = Math.round((to - from) * 1e6) / 1e6;
+      out.push({
+        id: `gap-${m.id}-${m.ingredientId}`,
+        ingredientId: m.ingredientId,
+        ingredientName: m.ingredientName,
+        unit: m.unit,
+        type: "Sin registro",
+        quantity: Math.abs(diff),
+        previousStock: from,
+        finalStock: to,
+        reason: before ? "La existencia cambió sin movimiento (escrita a mano en la ficha o de otro equipo)" : "Existencia con la que se dio de alta o se escribió en la ficha (sin movimiento)",
+        createdAt: m.createdAt,
+        ...(before ? { gapSince: before.createdAt } : {}),
+      });
+    }
+    out.push(m);
+    last.set(Number(m.ingredientId), m);
+  }
+  return out;
+}
+
 function userStamp() {
   const user = getCurrentUser();
   return user.id ? { userName: user.name } : {};
@@ -530,7 +570,7 @@ export function recordStockEdit(ingredient: Pick<Ingredient, "id" | "name" | "un
   const diff = Math.round((ingredient.stock - previousStock) * 1e6) / 1e6;
   if (!diff) return null;
   const movement: InventoryMovement = {
-    id: `manual-${Date.now()}`,
+    id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     ingredientId: ingredient.id,
     ingredientName: ingredient.name,
     unit: ingredient.unit,

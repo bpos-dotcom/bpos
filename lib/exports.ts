@@ -7,7 +7,7 @@ import type { SavedOrder } from "@/components/OrderHistoryPanel";
 import type { Ingredient } from "@/data/inventory";
 import type { CashCloseRecord } from "@/lib/cash-history";
 import type { Customer } from "@/lib/customers";
-import type { InventoryMovement } from "@/lib/inventory";
+import { kardexWithGaps, type InventoryMovement } from "@/lib/inventory";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { methodLabel } from "@/lib/sale-payments";
 import { downloadXlsx } from "@/lib/xlsx";
@@ -98,11 +98,14 @@ export function exportCustomers(customers: Customer[]) {
   ]);
 }
 
+/** Todo el Kardex, de lo más nuevo a lo más viejo, con los cambios "Sin registro" en su lugar */
 const kardexSheet = (kardex: InventoryMovement[]) => ({
   name: "Kardex",
   rows: [
     ["Fecha", "Insumo", "Tipo", "Cantidad", "Unidad", "Antes", "Después", "Motivo", "Pedido", "Quién"],
-    ...[...kardex].sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt)).map((m) => [when(m.createdAt), m.ingredientName, m.type, m.quantity, m.unit, m.previousStock, m.finalStock, m.reason || "", m.orderId ?? m.externalOrderKey ?? "", m.userName || ""]),
+    ...kardexWithGaps(kardex)
+      .reverse()
+      .map((m) => [m.gapSince ? `Entre ${when(m.gapSince)} y ${when(m.createdAt)}` : when(m.createdAt), m.ingredientName, m.type, m.quantity, m.unit, m.previousStock, m.finalStock, m.reason || "", m.orderId ?? m.externalOrderKey ?? "", m.userName || ""]),
   ],
 });
 
@@ -113,7 +116,7 @@ export function exportInventory(ingredients: Ingredient[], kardex: InventoryMove
   ]);
 }
 
-/** Solo los movimientos (los que se ven en el Kardex, con la búsqueda aplicada) */
+/** Solo el Kardex (completo) */
 export function exportKardex(kardex: InventoryMovement[]) {
   downloadXlsx(`kardex-${stamp()}.xlsx`, [kardexSheet(kardex)]);
 }
