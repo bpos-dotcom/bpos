@@ -6,10 +6,11 @@ import { ask } from "@/components/layout/Dialogs";
  * proveedor (Claude y Gemini): se cambia de uno a otro sin volver a pegarla.
  * La clave se guarda cifrada en el servidor y no se vuelve a mostrar (solo
  * los últimos 4). "Probar" prueba lo que está elegido, aunque no se guarde.
- * El Estudio de fotos solo usa Gemini y además lleva sus BPOS Credits.
+ * El Estudio de fotos usa OpenAI o Gemini y además lleva sus BPOS Credits (al día, a la semana o al mes).
  */
 import { useCallback, useEffect, useState } from "react";
 import { aiFetch } from "@/lib/ai/client";
+import { CREDIT_PERIODS, periodTexts, type CreditsPeriod } from "@/lib/ai/credits-period";
 
 type Provider = "anthropic" | "gemini" | "openai";
 type Model = { id: string; label: string; priceIn?: number; priceOut?: number };
@@ -20,8 +21,8 @@ type Feature = {
   providers: Provider[];
   /** Modelos propios (Estudio de fotos: modelos de imagen) */
   models?: Partial<Record<Provider, Model[]>>;
-  /** BPOS Credits del Estudio de fotos */
-  credits?: { perDay: number; perUse: number };
+  /** BPOS Credits del Estudio de fotos: cada cuánto se reinician, cuántos hay en el periodo y cuántos usa cada foto */
+  credits?: { period: CreditsPeriod; perPeriod: number; perUse: number; periodReady: boolean };
   /** Falta la migración 0029 */
   missingTable?: boolean;
   /** Prompts del Estudio de fotos (vacío = el de fábrica) */
@@ -89,7 +90,8 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
   const [key, setKey] = useState("");
   const [priceIn, setPriceIn] = useState(String(f.priceIn));
   const [priceOut, setPriceOut] = useState(String(f.priceOut));
-  const [perDay, setPerDay] = useState(String(f.credits?.perDay ?? ""));
+  const [period, setPeriod] = useState<CreditsPeriod>(f.credits?.period ?? "dia");
+  const [perPeriod, setPerPeriod] = useState(String(f.credits?.perPeriod ?? ""));
   const [perUse, setPerUse] = useState(String(f.credits?.perUse ?? ""));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -148,7 +150,7 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
       key,
       priceIn: Number(priceIn),
       priceOut: Number(priceOut),
-      ...(f.credits ? { creditsPerDay: Number(perDay), creditsPerUse: Number(perUse) } : {}),
+      ...(f.credits ? { creditsPeriod: period, creditsPerPeriod: Number(perPeriod), creditsPerUse: Number(perUse) } : {}),
     });
     if (b) {
       setKey("");
@@ -274,17 +276,37 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
         />
       )}
       {f.credits && (
-        <div className="mt-3 grid gap-3 rounded-2xl border border-violet-500/40 bg-violet-500/5 p-3 md:grid-cols-2">
+        <div className="mt-3 grid gap-3 rounded-2xl border border-violet-500/40 bg-violet-500/5 p-3 md:grid-cols-3">
+          <div className={`${label} md:col-span-3`}>
+            Los BPOS Credits se reinician
+            <div className="mt-1 flex flex-wrap gap-2">
+              {CREDIT_PERIODS.map((p) => (
+                <button
+                  key={p.value}
+                  type="button"
+                  onClick={() => setPeriod(p.value)}
+                  className={`rounded-xl border px-4 py-2 text-sm font-black ${period === p.value ? "border-violet-400 bg-violet-500/25 text-white" : "border-zinc-700 text-zinc-400"}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {!f.credits.periodReady && period !== "dia" && <p className="mt-1 text-xs font-bold text-yellow-300">Para semana o mes falta aplicar la migración 0032 en Supabase.</p>}
+          </div>
           <label className={label}>
-            BPOS Credits al día por negocio
-            <input type="number" min={0} step={1} value={perDay} onChange={(e) => setPerDay(e.target.value)} className={`${input} mt-1`} />
+            BPOS Credits por negocio {periodTexts(period).per}
+            <input type="number" min={0} step={1} value={perPeriod} onChange={(e) => setPerPeriod(e.target.value)} className={`${input} mt-1`} />
           </label>
           <label className={label}>
             BPOS Credits por foto
             <input type="number" min={1} step={1} value={perUse} onChange={(e) => setPerUse(e.target.value)} className={`${input} mt-1`} />
           </label>
-          <p className="text-xs text-zinc-400 md:col-span-2">
-            Con estos números cada negocio Max puede mejorar {Math.floor((Number(perDay) || 0) / Math.max(1, Number(perUse) || 1))} foto(s) al día. Se reinician a medianoche (hora de México) y si la IA falla no se gastan.
+          <div className="rounded-xl bg-black/40 p-3 text-center">
+            <p className="text-xs text-zinc-400">Fotos por negocio {periodTexts(period).per}</p>
+            <p className="text-2xl font-black text-violet-300">{Math.floor((Number(perPeriod) || 0) / Math.max(1, Number(perUse) || 1))}</p>
+          </div>
+          <p className="text-xs text-zinc-400 md:col-span-3">
+            Cada negocio Max tiene {Number(perPeriod) || 0} BPOS Credits {periodTexts(period).per} y cada foto usa {Number(perUse) || 0}. Se reinician {periodTexts(period).reset} (hora de México) y si la IA falla no se gastan.
           </p>
         </div>
       )}

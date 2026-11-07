@@ -16,6 +16,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_URL } from "@/lib/supabase/client";
+import { asCreditsPeriod } from "@/lib/ai/credits-period";
 
 export type AiFeature = "interprete" | "asesor" | "fotos";
 export type AiProvider = "anthropic" | "gemini" | "openai";
@@ -126,9 +127,10 @@ export type AiSettingRow = {
   price_out: number;
   updated_by: string;
   updated_at: string;
-  /** Solo el Estudio de fotos */
+  /** Solo el Estudio de fotos. credits_per_day: cuántos hay en el periodo (credits_period, 0032) */
   credits_per_day?: number;
   credits_per_use?: number;
+  credits_period?: string;
   /** Prompts propios del Estudio de fotos (vacío = el de fábrica) */
   prompt_keep?: string;
   prompt_remove?: string;
@@ -193,11 +195,15 @@ export async function readAiRow(feature: AiFeature): Promise<AiSettingRow | null
   }
 }
 
-/** BPOS Credits del Estudio de fotos: cuántos hay al día y cuántos gasta cada foto */
-export function photoCredits(row: Pick<AiSettingRow, "credits_per_day" | "credits_per_use"> | null) {
-  const perDay = Number(row?.credits_per_day);
+/** BPOS Credits del Estudio de fotos: cada cuánto se reinician, cuántos hay en ese periodo y cuántos gasta cada foto */
+export function photoCredits(row: Pick<AiSettingRow, "credits_per_day" | "credits_per_use" | "credits_period"> | null) {
+  const perPeriod = Number(row?.credits_per_day);
   const perUse = Number(row?.credits_per_use);
-  return { perDay: Number.isFinite(perDay) && perDay >= 0 ? perDay : PHOTO_CREDITS.perDay, perUse: Number.isFinite(perUse) && perUse > 0 ? perUse : PHOTO_CREDITS.perUse };
+  return {
+    period: asCreditsPeriod(row?.credits_period),
+    perPeriod: Number.isFinite(perPeriod) && perPeriod >= 0 ? perPeriod : PHOTO_CREDITS.perDay,
+    perUse: Number.isFinite(perUse) && perUse > 0 ? perUse : PHOTO_CREDITS.perUse,
+  };
 }
 
 /**

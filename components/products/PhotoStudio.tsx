@@ -2,15 +2,16 @@
 /**
  * Estudio de fotos con IA (Tu negocio → Estudio Fotográfico). Al subir una foto
  * pregunta "¿Mejorar con IA?": si sí, la manda a /api/ai/fotos (plan Max,
- * gasta BPOS Credits del día) y enseña el antes y el después; se guarda en la
+ * gasta BPOS Credits del periodo: día, semana o mes) y enseña el antes y el después; se guarda en la
  * galería la que el dueño elija. También mejora una foto que ya está en la
  * galería (la mejorada se agrega como foto nueva; la original se queda).
  */
 import { useEffect, useState } from "react";
 import { aiFetch } from "@/lib/ai/client";
+import { asCreditsPeriod, periodTexts, type CreditsPeriod } from "@/lib/ai/credits-period";
 import { addToGallery, photoName, type GalleryPhoto } from "@/lib/photo-gallery";
 
-type Credits = { perDay: number; perUse: number; used: number; left: number };
+type Credits = { period?: CreditsPeriod; perPeriod: number; perUse: number; used: number; left: number };
 type Status = { available: boolean; reason: "plan" | "inactive" | "unavailable" | "limit" | null; credits: Credits; /** El modelo puede quitar el fondo (OpenAI) */ transparent?: boolean };
 type Background = "conservar" | "quitar";
 type Source = { file: File } | { photo: GalleryPhoto };
@@ -129,7 +130,7 @@ export function PhotoStudio({ source, onDone, onClose }: { source: Source; onDon
 
         {credits && (
           <p className="mt-3 rounded-2xl border border-violet-500/30 bg-violet-500/10 px-4 py-2 text-sm font-bold text-violet-200">
-            Te quedan {credits.left} BPOS Credits hoy · cada foto usa {credits.perUse} · se reinician a medianoche
+            Te quedan {credits.left} BPOS Credits {periodTexts(asCreditsPeriod(credits.period)).now} · cada foto usa {credits.perUse} · se reinician {periodTexts(asCreditsPeriod(credits.period)).reset}
           </p>
         )}
         {blocked && <p className="mt-3 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 px-4 py-2 text-sm font-bold text-yellow-200">{blocked}</p>}
@@ -215,7 +216,7 @@ export function PhotoStudio({ source, onDone, onClose }: { source: Source; onDon
             </>
           )}
         </div>
-        {credits && !enough && !blocked && !result && <p className="mt-2 text-sm font-bold text-yellow-300">Ya no te alcanzan los BPOS Credits de hoy. Se reinician a medianoche.</p>}
+        {credits && !enough && !blocked && !result && <p className="mt-2 text-sm font-bold text-yellow-300">Ya no te alcanzan los BPOS Credits de {periodTexts(asCreditsPeriod(credits.period)).now}. Se reinician {periodTexts(asCreditsPeriod(credits.period)).reset}.</p>}
         <p className="mt-3 text-xs text-zinc-500">La IA tiene la orden de no cambiar ingredientes, porciones ni acomodo. Revisa el después antes de guardarla; la original nunca se borra.</p>
       </div>
     </div>

@@ -2,7 +2,8 @@ import type { NextRequest } from "next/server";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 import { AiFailure, editImage } from "@/lib/ai/engine";
 import { getAiConfig, photoCredits, readAiRow } from "@/lib/ai/settings";
-import { creditsDay, photoPrompt, creditsUsed, refundCredits, spendCredits, type PhotoBackground } from "@/lib/ai/photo-studio";
+import { photoPrompt, creditsUsed, refundCredits, spendCredits, type PhotoBackground } from "@/lib/ai/photo-studio";
+import { creditsKey, periodTexts } from "@/lib/ai/credits-period";
 
 /**
  * Estudio de fotos con IA (plan Max):
@@ -24,10 +25,11 @@ export function OPTIONS(request: NextRequest) {
   return aiPreflight(request);
 }
 
+/** BPOS Credits del periodo (día, semana o mes) del negocio */
 async function creditsFor(businessId: string) {
-  const { perDay, perUse } = photoCredits(await readAiRow("fotos"));
-  const used = await creditsUsed(businessId);
-  return { perDay, perUse, used, left: Math.max(0, perDay - used) };
+  const { period, perPeriod, perUse } = photoCredits(await readAiRow("fotos"));
+  const used = await creditsUsed(businessId, creditsKey(period));
+  return { period, perPeriod, perUse, used, left: Math.max(0, perPeriod - used) };
 }
 
 export async function GET(request: NextRequest) {
@@ -56,15 +58,17 @@ export async function POST(request: NextRequest) {
   if (!data || !/^image\/(jpeg|png|webp)$/.test(mediaType)) return aiReply(request, { success: false, error: "Sube una foto JPG, PNG o WEBP." }, 400);
   if (data.length > MAX_BASE64) return aiReply(request, { success: false, error: "La foto es muy grande. Usa una más pequeña." }, 413);
 
-  const day = creditsDay();
+  let day = "";
   let charged = 0;
   try {
     const row = await readAiRow("fotos");
-    const { perDay, perUse } = photoCredits(row);
-    const used = await spendCredits(session.businessId, perUse, perDay, day);
+    const { period, perPeriod, perUse } = photoCredits(row);
+    day = creditsKey(period);
+    const used = await spendCredits(session.businessId, perUse, perPeriod, day);
     if (used === null) {
       const credits = await creditsFor(session.businessId);
-      return aiReply(request, { success: false, code: "credits", error: `Ya no te alcanzan los BPOS Credits de hoy (cada foto usa ${perUse} y te quedan ${credits.left}). Se reinician a medianoche.`, credits }, 429);
+      const t = periodTexts(period);
+      return aiReply(request, { success: false, code: "credits", error: `Ya no te alcanzan los BPOS Credits de ${t.now} (cada foto usa ${perUse} y te quedan ${credits.left}). Se reinician ${t.reset}.`, credits }, 429);
     }
     charged = perUse;
 
@@ -76,10 +80,10 @@ export async function POST(request: NextRequest) {
       const error = r.refusal ? "La IA no pudo editar esta foto. Prueba con otra foto del platillo." : "La IA no regresó ninguna foto. Intenta otra vez; no se gastaron créditos.";
       return aiReply(request, { success: false, error, credits: await creditsFor(session.businessId) }, 422);
     }
-    return aiReply(request, { success: true, image: { mediaType: r.image.mimeType, data: r.image.data }, credits: { perDay, perUse, used, left: Math.max(0, perDay - used) } });
+    return aiReply(request, { success: true, image: { mediaType: r.image.mimeType, data: r.image.data }, credits: { period, perPeriod, perUse, used, left: Math.max(0, perPeriod - used) } });
   } catch (e) {
     // Si la IA falló, los créditos se regresan
-    if (charged) await refundCredits(session.businessId, charged, day);
+    if (charged && day) await refundCredits(session.businessId, charged, day);
     const status = e instanceof AiFailure ? e.status : 502;
     return aiReply(request, { success: false, error: e instanceof Error ? e.message : "No se pudo mejorar la foto." }, status);
   }

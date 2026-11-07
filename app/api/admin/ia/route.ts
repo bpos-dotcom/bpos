@@ -3,13 +3,14 @@ import { createClient } from "@supabase/supabase-js";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 import { AiFailure, checkOpenAiModel, generateText } from "@/lib/ai/engine";
 import { PHOTO_PROMPTS } from "@/lib/ai/photo-studio";
+import { asCreditsPeriod } from "@/lib/ai/credits-period";
 import { FEATURES, MODELS, PHOTO_MODELS, adminDb, aiTable, getAiConfig, packKeys, photoCredits, readHints, readKeys, type AiFeature, type AiProvider, type AiSettingRow } from "@/lib/ai/settings";
 
 /**
  * Configuración → Administrador → Claves de IA (solo administradores de la
  * plataforma, is_platform_admin):
  *   GET                                   → funciones, proveedor, modelo, últimos 4 de cada clave
- *   POST { action: "guardar", feature, provider, model, key?, priceIn, priceOut, creditsPerDay?, creditsPerUse? }
+ *   POST { action: "guardar", feature, provider, model, key?, priceIn, priceOut, creditsPeriod?, creditsPerPeriod?, creditsPerUse? }
  *   POST { action: "probar", feature, provider?, model? } → una pregunta corta (lo elegido, aunque no esté guardado)
  *   POST { action: "quitar", feature, provider } → borra la clave de ese proveedor
  *   POST { action: "prompts", feature: "fotos", promptKeep, promptRemove } → prompts del Estudio de fotos (vacío = el de fábrica)
@@ -71,7 +72,8 @@ async function list() {
         ...(photos
           ? {
               models: PHOTO_MODELS,
-              credits: photoCredits(r || null),
+              // periodReady: ya existe la columna credits_period (migración 0032)
+              credits: { ...photoCredits(r || null), periodReady: !photo.error && (!r || "credits_period" in r) },
               missingTable: Boolean(photo.error),
               prompts: { keep: r?.prompt_keep || "", remove: r?.prompt_remove || "", defaults: PHOTO_PROMPTS, editable: !photo.error && (!r || "prompt_keep" in r) },
             }
@@ -120,22 +122,24 @@ export async function POST(request: NextRequest) {
       if (key) keys[provider] = key;
       // Sin clave guardada de ese proveedor se pide (Claude puede usar la de Vercel)
       if (!keys[provider] && !(provider === "anthropic" && process.env.ANTHROPIC_API_KEY)) return reply({ error: `Pega la clave de ${PROVIDER_NAME[provider]}.` }, 400);
-      // BPOS Credits del Estudio de fotos: al día por negocio y por foto
+      // BPOS Credits del Estudio de fotos: cada cuánto se reinician, cuántos por negocio en ese periodo y por foto
+      const period = asCreditsPeriod(body.creditsPeriod);
       const credits =
         feature === "fotos"
-          ? { credits_per_day: Math.min(10000, Math.max(0, Math.round(Number(body.creditsPerDay) || 0))), credits_per_use: Math.min(10000, Math.max(1, Math.round(Number(body.creditsPerUse) || 0))) }
+          ? {
+              credits_per_day: Math.min(100000, Math.max(0, Math.round(Number(body.creditsPerPeriod ?? body.creditsPerDay) || 0))),
+              credits_per_use: Math.min(10000, Math.max(1, Math.round(Number(body.creditsPerUse) || 0))),
+              credits_period: period,
+            }
           : {};
-      const { error } = await db.from(table).upsert({
-        feature,
-        provider,
-        model,
-        ...packKeys(keys),
-        price_in: priceIn,
-        price_out: priceOut,
-        ...credits,
-        updated_by: who,
-        updated_at: new Date().toISOString(),
-      });
+      const row: Record<string, unknown> = { feature, provider, model, ...packKeys(keys), price_in: priceIn, price_out: priceOut, ...credits, updated_by: who, updated_at: new Date().toISOString() };
+      let { error } = await db.from(table).upsert(row);
+      // Sin la columna credits_period (falta la migración 0032) se guarda lo demás; solo "al día" funciona así
+      if (error && feature === "fotos" && /credits_period/.test(error.message)) {
+        delete row.credits_period;
+        ({ error } = await db.from(table).upsert(row));
+        if (!error && period !== "dia") return reply({ error: "Se guardó todo menos el periodo: falta aplicar la migración 0032 en Supabase. Mientras, los créditos siguen siendo al día." }, 400);
+      }
       if (error) throw new Error(error.message);
       return reply(await list());
     }
