@@ -2,8 +2,9 @@
  * Estudio de fotos con IA (plan Max, corre en Vercel): la foto de celular de
  * un platillo pasa a calidad de menú de restaurante sin cambiar el platillo.
  *
- * Cada foto gasta BPOS Credits del día del negocio (hora de México). Cuántos
- * hay al día y cuántos gasta cada foto los pone el administrador de B-POS en
+ * Cada foto gasta BPOS Credits del negocio (hora de México). Si se reinician
+ * al día, a la semana o al mes (lib/ai/credits-period.ts), cuántos hay en ese
+ * periodo y cuántos gasta cada foto los pone el administrador de B-POS en
  * Configuración → Administrador → Claves de IA → Estudio de fotos
  * (bpos_ai_image_settings, 0030). Los créditos usados viven en
  * bpos_ai_credits; si la foto falla se regresan.
@@ -45,20 +46,15 @@ export function photoPrompt(row: { prompt_keep?: string; prompt_remove?: string 
   return own || PHOTO_PROMPTS[background];
 }
 
-/** Día de hoy en México (los créditos se reinician a medianoche de aquí) */
-export function creditsDay(now = new Date()) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: "America/Mexico_City", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-}
-
-/** BPOS Credits que el negocio ya usó hoy */
-export async function creditsUsed(businessId: string, day = creditsDay()) {
+/** BPOS Credits que el negocio ya usó en el periodo (day: su primer día, ver creditsKey) */
+export async function creditsUsed(businessId: string, day: string) {
   const { data, error } = await adminDb().from("bpos_ai_credits").select("used").eq("business_id", businessId).eq("day", day).maybeSingle();
   if (error) throw new Error(`No se pudieron leer los BPOS Credits: ${error.message}`);
   return Number(data?.used) || 0;
 }
 
-/** Gasta créditos si alcanzan; regresa los usados del día o null si no alcanzan */
-export async function spendCredits(businessId: string, cost: number, limit: number, day = creditsDay()) {
+/** Gasta créditos si alcanzan; regresa los usados del periodo o null si no alcanzan */
+export async function spendCredits(businessId: string, cost: number, limit: number, day: string) {
   const { data, error } = await adminDb().rpc("bpos_ai_credits_spend", { p_business_id: businessId, p_day: day, p_cost: cost, p_limit: limit });
   if (error) throw new Error(`No se pudieron usar los BPOS Credits: ${error.message}`);
   const used = Number(data);

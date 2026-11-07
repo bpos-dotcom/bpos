@@ -1,7 +1,7 @@
 "use client";
 /**
  * Tu negocio → Estudio Fotográfico: la galería de fotos del negocio. Al subir una foto
- * pregunta "¿Mejorar con IA?" (plan Max, BPOS Credits del día) y la guarda en
+ * pregunta "¿Mejorar con IA?" (plan Max, BPOS Credits del periodo) y la guarda en
  * la galería; desde Productos → Seleccionar foto se usa en cualquier producto.
  */
 import { useEffect, useMemo, useState } from "react";
@@ -14,6 +14,7 @@ import { GALLERY_EVENT, getGallery, removeFromGallery, type GalleryPhoto } from 
 import type { Product } from "@/data/products";
 import { usePlanState } from "@/components/cloud/PlanGate";
 import { aiTabLabel } from "@/components/layout/SectionTabs";
+import { asCreditsPeriod, periodTexts } from "@/lib/ai/credits-period";
 import { planIncludes } from "@/lib/plans";
 
 type Source = { file: File } | { photo: GalleryPhoto };
@@ -62,7 +63,7 @@ export default function EstudioIaPage() {
               <h2 className="text-lg font-black">✨ Estudio de fotos con IA</h2>
               <p className="mt-1 text-sm text-zinc-400">
                 Al subir una foto te preguntamos si la quieres mejorar: luz, color, nitidez y fondo de restaurante, sin cambiar el platillo.
-                {credits ? ` Te quedan ${credits.left} BPOS Credits hoy (cada foto usa ${credits.perUse}).` : ""}
+                {credits ? ` Te quedan ${credits.left} BPOS Credits ${periodTexts(asCreditsPeriod(credits.period)).now} (cada foto usa ${credits.perUse}).` : ""}
                 {status && !status.available && status.reason === "plan" ? " Mejorar con IA viene en el plan Max; subir fotos funciona en todos." : ""}
               </p>
             </div>
