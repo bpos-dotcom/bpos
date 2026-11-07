@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { ANALYZE, AnalysisSchema, SYSTEM } from "@/lib/ai/advisor";
+import { ANALYZE, ANALYZE_REPORTS, AnalysisSchema, SYSTEM } from "@/lib/ai/advisor";
 import { aiPreflight, aiReply, aiSession, chargeAi } from "@/lib/ai/cloud";
 import { AiFailure, generateJson, generateText, type AiTurn } from "@/lib/ai/engine";
 import { adminDb, readAiRow } from "@/lib/ai/settings";
@@ -40,11 +40,14 @@ export async function POST(request: NextRequest) {
   let enabled = false;
   let metrics = "";
   let turns: AiTurn[] = [];
+  // "reportes": Excel o CSV que subió el dueño (B-POS Servicios → Asesor con IA)
+  let reports = false;
   try {
     const body = await request.json();
     action = String(body?.action || "");
     enabled = body?.enabled === true;
-    metrics = JSON.stringify(body?.metrics ?? {}).slice(0, 30_000);
+    reports = body?.fuente === "reportes";
+    metrics = JSON.stringify(body?.metrics ?? {}).slice(0, reports ? 40_000 : 30_000);
     turns = (Array.isArray(body?.turns) ? body.turns : [])
       .slice(-12)
       .map((t: { role?: string; text?: string }) => ({ role: t.role === "assistant" ? "assistant" : "user", text: String(t.text || "").slice(0, 2000) }))
@@ -92,7 +95,7 @@ export async function POST(request: NextRequest) {
         schema: AnalysisSchema,
         maxTokens: 6000,
         effort: "medium",
-        parts: [{ type: "text", text: `Datos del restaurante (JSON):\n${metrics}\n\n${ANALYZE}` }],
+        parts: [{ type: "text", text: reports ? `Reportes del restaurante (JSON):\n${metrics}\n\n${ANALYZE_REPORTS}` : `Datos del restaurante (JSON):\n${metrics}\n\n${ANALYZE}` }],
       });
       await chargeAi(session, r.usage);
       if (!r.data) return aiReply(request, { success: false, error: "El asesor no pudo armar el análisis. Intenta de nuevo." }, 502);
@@ -105,7 +108,7 @@ export async function POST(request: NextRequest) {
     if (action === "preguntar") {
       if (!turns.length || turns[turns.length - 1].role !== "user") return aiReply(request, { success: false, error: "Escribe tu pregunta." }, 400);
       const r = await generateText(session.ai!, {
-        system: `${SYSTEM}\n\nResponde en máximo 6 frases o una lista corta. Datos del restaurante (JSON):\n${metrics}`,
+        system: `${SYSTEM}\n\nResponde en máximo 6 frases o una lista corta. ${reports ? "Reportes que subió el dueño (resumen de cada hoja, JSON)" : "Datos del restaurante (JSON)"}:\n${metrics}`,
         turns,
         maxTokens: 1500,
       });

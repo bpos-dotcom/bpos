@@ -302,6 +302,47 @@ export function parseCsv(text: string): string[][] {
   return rows.filter((r) => r.some(Boolean));
 }
 
+/** Todas las hojas de un .xlsx con su nombre (las de reportes de DiDi o Uber traen varias) */
+async function readXlsxSheets(bytes: Uint8Array): Promise<{ name: string; rows: string[][] }[]> {
+  const files = await unzip(bytes);
+  const decoder = new TextDecoder();
+  const xml = (name: string) => {
+    const f = files.get(name);
+    return f ? new DOMParser().parseFromString(decoder.decode(f), "application/xml") : null;
+  };
+  const shared = [...(xml("xl/sharedStrings.xml")?.getElementsByTagName("si") || [])].map((si) => [...si.getElementsByTagName("t")].map((t) => t.textContent || "").join(""));
+  // Nombre de cada hoja: workbook.xml (sheet r:id) → rels (Target)
+  const rels = new Map([...(xml("xl/_rels/workbook.xml.rels")?.getElementsByTagName("Relationship") || [])].map((r) => [r.getAttribute("Id") || "", (r.getAttribute("Target") || "").replace(/^\/?xl\//, "")]));
+  const sheets = [...(xml("xl/workbook.xml")?.getElementsByTagName("sheet") || [])].map((s, i) => {
+    const rid = s.getAttribute("r:id") || [...s.attributes].find((a) => a.name.endsWith(":id"))?.value || "";
+    return { name: s.getAttribute("name") || `Hoja ${i + 1}`, path: `xl/${rels.get(rid) || `worksheets/sheet${i + 1}.xml`}` };
+  });
+  return sheets
+    .map(({ name, path }) => {
+      const sheet = xml(path);
+      if (!sheet) return { name, rows: [] };
+      const rows = [...sheet.getElementsByTagName("row")].map((row) => {
+        const cells: string[] = [];
+        for (const c of [...row.getElementsByTagName("c")]) {
+          const type = c.getAttribute("t");
+          const v = c.getElementsByTagName("v")[0]?.textContent ?? "";
+          cells[columnIndex(c.getAttribute("r") || "A")] = type === "s" ? shared[Number(v)] ?? "" : type === "inlineStr" ? [...c.getElementsByTagName("t")].map((t) => t.textContent || "").join("") : v;
+        }
+        return Array.from(cells, (x) => (x ?? "").trim());
+      });
+      return { name, rows: rows.filter((r) => r.some(Boolean)) };
+    })
+    .filter((s) => s.rows.length);
+}
+
+/** Lee todas las hojas de un Excel (.xlsx) o el CSV como una sola hoja */
+export async function readSpreadsheetSheets(file: File): Promise<{ name: string; rows: string[][] }[]> {
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes[0] === 0x50 && bytes[1] === 0x4b) return readXlsxSheets(bytes);
+  if (/\.xls$/i.test(file.name)) throw new Error("Ese es un Excel viejo (.xls). Guárdalo como .xlsx o .csv y vuelve a intentar.");
+  return [{ name: file.name.replace(/\.[^.]+$/, ""), rows: parseCsv(new TextDecoder().decode(bytes)) }];
+}
+
 /** Lee un Excel (.xlsx) o CSV: renglones de texto, sin los vacíos */
 export async function readSpreadsheet(file: File): Promise<string[][]> {
   const bytes = new Uint8Array(await file.arrayBuffer());
