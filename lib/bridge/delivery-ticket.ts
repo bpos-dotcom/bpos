@@ -47,10 +47,10 @@ export type DeliveryTicket = {
 };
 
 const QUANTIFIED = /^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/;
-// "MX$135.00", "$135", "135,00 MXN" (Uber, sin signo) y "(40,50 MXN)" (descuento entre paréntesis)
-const TRAILING_MONEY = /\s*(-?)\s*\(?\s*(?:(?:MX\$|\$)\s*(\d[\d,]*(?:\.\d{1,2})?)\s*(?:MXN)?|(\d[\d,]*(?:[.,]\d{2}))\s*MXN)\s*\)?\s*$/i;
+// "MX$135.00", "$135", "MXN 160.00" (Uber), "135,00 MXN" (Uber, sin signo) y "(40,50 MXN)" (descuento entre paréntesis)
+const TRAILING_MONEY = /\s*(-?)\s*\(?\s*(?:(?:MX\$|\$|MXN)\s*(\d[\d,]*(?:[.,]\d{1,2})?)\s*(?:MXN)?|(\d[\d,]*(?:[.,]\d{2}))\s*MXN)\s*\)?\s*$/i;
 // Cargos con signo ("Total MX$367.00") o, como Uber, sin signo ("Total pagado por el usuario 367,00 MXN")
-const CHARGE = /^(sub\s*total|total(?:\s+a\s+pagar|\s+pagado(?:\s+por\s+el\s+usuario)?)?|dto\.?\s+de\s+producto|descuento[^$]*|promoci[oó]n[^$]*|tarifa\s+de\s+(?:entrega|servicio)|costo\s+de\s+env[ií]o|env[ií]o|propina|cargo[^$]*|oferta[^$]*|importe\s+pagado|monto\s+pagado)\s*[:\-]?\s*-?\s*\(?\s*(?:MX\$|\$|\d[\d,]*[.,]\d{2}\s*MXN\s*\)?\s*$)/i;
+const CHARGE = /^(sub\s*total|total(?:\s+a\s+pagar|\s+pagado(?:\s+por\s+el\s+usuario)?)?|dto\.?\s+de\s+producto|descuento[^$]*|promoci[oó]n[^$]*|tarifa\s+de\s+(?:entrega|servicio)|costo\s+de\s+env[ií]o|env[ií]o|propina|cargo[^$]*|oferta[^$]*|importe\s+pagado|monto\s+pagado)\s*[:\-]?\s*-?\s*\(?\s*(?:MX\$|\$|MXN\s*\d|\d[\d,]*[.,]\d{2}\s*MXN\s*\)?\s*$)/i;
 const NOTE = /^(sin|con|extra|poco|mucho|bien|t[eé]rmino|nota|notas|por favor|aparte)\b/i;
 // Encabezado de las notas del pedido ("66 Notas del pedido": el 66 es la comilla que lee el OCR)
 // Con "del pedido" vale en cualquier parte; "Notas:" a secas solo antes del primer producto (después es nota del producto)
@@ -74,8 +74,9 @@ const END_OF_ITEMS = /^(pago\s+(?:de|en|con)\b|hora\s+de|m[eé]todo\s+de\s+pago|
 function splitPrice(text: string): { text: string; price: number | null } {
   const match = text.match(TRAILING_MONEY);
   if (!match) return { text: text.trim(), price: null };
-  // Con signo: "1,234.50" (coma de miles). Sin signo (Uber): "135,00" (coma decimal)
-  const amount = match[2] !== undefined ? Number(match[2].replace(/,/g, "")) : Number(match[3].replace(",", "."));
+  // "1,234.50" (coma de miles); "135,00" y "MXN 160,00" (coma decimal)
+  const digits = match[2] ?? match[3];
+  const amount = /,\d{2}$/.test(digits) ? Number(digits.replace(/\./g, "").replace(",", ".")) : Number(digits.replace(/,/g, ""));
   // Entre paréntesis ("Oferta especial (110,10 MXN)") también es descuento
   const negative = Boolean(match[1]) || match[0].includes("(");
   return { text: text.slice(0, match.index).trim().replace(/[.\s]+$/, ""), price: negative ? -amount : amount };
