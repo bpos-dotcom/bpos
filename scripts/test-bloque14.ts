@@ -8,6 +8,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { buildDeliveryTicket, realCustomerName } from "@/lib/bridge/delivery-ticket";
+import { interpretOrder, optionNameMatches } from "@/lib/bridge/interpret-order";
 import { stationsByLine } from "@/lib/bridge/station-routing";
 import { saleTicket } from "@/lib/bridge/sale-tickets";
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
@@ -35,6 +36,31 @@ const settings = { ...getBusinessSettings(), ticketLogo: "", ticketShowCustomer:
 check("comanda sin 'Usuario'", !stationTicketHtml(dt, "Cocina", settings, 58).includes("Usuario"));
 const venta = saleTicket({ id: 1, createdAt: new Date().toISOString(), items: [{ name: "Hamburguesa", price: 100, quantity: 1 }], total: 100, details: { customerName: "Usuario" }, externalPlatform: "didi", deliveryTicket: { ...dt, customer: "Usuario" } });
 check("reimpresión de venta guardada sin 'Usuario'", venta.customer === null);
+
+// Sub-líneas en $0 de un combo cuya equivalencia no está marcada 🧩: son opciones del combo
+{
+  const catalog = [
+    { id: 10, name: "Combo Clasico BP", modifierGroups: [{ options: [{ name: "Hamburguesa Polaca", productId: 11 }, { name: "Hamburguesa Si Racha", productId: 12 }] }, { options: [{ name: "MTN DEW", productId: 13 }] }] },
+    { id: 11, name: "Hamburguesa Polaca", modifierGroups: [{ options: [{ name: "No, gracias" }] }] },
+    { id: 12, name: "Hamburguesa Si Racha" },
+    { id: 13, name: "MTN DEW" },
+    { id: 14, name: "Papas extra" },
+  ];
+  const alias = (externalName: string, actionType: "product" | "ignore", id?: number) => ({ id: `a-${externalName}`, externalName, normalizedExternalName: externalName.toLowerCase(), platform: "didi", actionType, targets: id ? [{ id: String(id), name: "" }] : [], compound: false });
+  const aliases = [alias("Combo Especial", "product", 10), alias("Polaca", "product", 11), alias("Si", "ignore"), alias("Mountain dew", "product", 13), alias("Papas extra", "product", 14)];
+  const raw = "1x Combo Especial MX$189.00\nElige tu hamburguesa especial\n1x Polaca MX$0.00\nTus papas con catsup aparte?\n1x Si MX$0.00\nElige tu REF(SUJETO A DISPONIBLE)\n1x Mountain dew MX$0.00\nTotal MX$189.00";
+  const r = interpretOrder({ platform: "didi", rawText: raw, aliases, products: catalog, ingredients: [] });
+  check("combo DiDi: solo 1 producto (la Polaca no sale aparte)", r.products.length === 1 && r.products[0].productName === "Combo Clasico BP", r.products);
+  check("combo DiDi: se vuelve combo solo", r.products[0]?.compound === true);
+  check("combo DiDi: Polaca, Si y Mountain dew son opciones", r.ignored.filter((i) => i.reason === "compound_option").length === 3, r.ignored);
+  const conExtra = interpretOrder({ platform: "didi", rawText: "1x Combo Especial MX$189.00\nElige tu hamburguesa especial\n1x Polaca MX$0.00\n1x Papas extra MX$35.00\nTotal MX$224.00", aliases, products: catalog, ingredients: [] });
+  check("combo DiDi: extra con costo que no es opción sí sale aparte", conExtra.products.map((p) => p.productName).join(",") === "Combo Clasico BP,Papas extra", conExtra.products);
+  const sola = interpretOrder({ platform: "didi", rawText: "1x Polaca MX$79.00\nTotal MX$79.00", aliases, products: catalog, ingredients: [] });
+  check("hamburguesa sola sigue siendo producto", sola.products.length === 1 && sola.products[0].productName === "Hamburguesa Polaca" && !sola.products[0].compound, sola.products);
+  check("'Si' no elige la hamburguesa 'Si Racha'", !optionNameMatches("Si", "Hamburguesa Si Racha"));
+  check("'Polaca' elige 'Hamburguesa Polaca'", optionNameMatches("Polaca", "Hamburguesa Polaca"));
+  check("'Kansas city' elige 'Hamburguesa Kansas City'", optionNameMatches("Kansas city", "Hamburguesa Kansas City"));
+}
 
 // Espacio para cortar: 8 px por mm al final del ticket
 const sin = stationTicketHtml(dt, "Cocina", { ...settings, ticketCutSpace: 0 }, 58);
