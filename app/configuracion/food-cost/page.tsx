@@ -201,7 +201,7 @@ export default function FoodCostPage() {
             <p className="text-sm text-zinc-400">Lo vendido dejó</p>
             <p className="text-3xl font-black text-emerald-400">{money(totals.gross)}</p>
             <p className="mt-1 text-xs text-zinc-500">
-              Utilidad bruta (food cost {pct(totals.sales ? (totals.cost / totals.sales) * 100 : 0)}) · neta {canNet ? `${money(totals.net)}${calc?.estimate ? " (estimada)" : ""}` : "–"}
+              Utilidad bruta (food cost {pct(totals.sales ? (totals.cost / totals.sales) * 100 : 0)}){canNet ? ` · gasto fijo -${money(totals.gross - totals.net)}` : ""} · neta {canNet ? `${money(totals.net)}${calc?.estimate ? " (estimada)" : ""}` : "–"}
             </p>
           </div>
         </div>
@@ -280,6 +280,7 @@ export default function FoodCostPage() {
                       <th className="py-2 pr-3 text-right">Costo</th>
                       <th className="py-2 pr-3 text-right">Food cost</th>
                       <th className="py-2 pr-3 text-right">Utilidad bruta</th>
+                      <th className="py-2 pr-3 text-right">Gasto fijo</th>
                       <th className="py-2 text-right">Utilidad neta</th>
                     </tr>
                   </thead>
@@ -322,6 +323,19 @@ export default function FoodCostPage() {
                           </td>
                           <td className={`py-2 pr-3 text-right font-black ${unknown ? "text-zinc-600" : fc > 35 ? "text-red-400" : "text-emerald-400"}`}>{unknown ? "–" : pct(fc)}</td>
                           <td className="py-2 pr-3 text-right font-black">{money(r.gross)}</td>
+                          {/* Lo que le toca de los gastos fijos a cada pieza: bruta − esto = neta */}
+                          <td className="py-2 pr-3 text-right">
+                            {!canNet ? (
+                              <span className="font-black text-zinc-500">–</span>
+                            ) : r.method === "ninguno" ? (
+                              <span className="text-xs font-bold text-zinc-500">No carga</span>
+                            ) : (
+                              <>
+                                <b className="text-orange-400">-{money(r.gross - r.net)}</b>
+                                <span className="block text-[11px] text-zinc-500">{r.method === "porcentaje" ? `${pct((calc?.alloc.pctRate || 0) * 100)} del precio` : "por pieza"}</span>
+                              </>
+                            )}
+                          </td>
                           <td className={`py-2 text-right font-black ${canNet ? (r.net >= 0 ? "text-emerald-400" : "text-red-400") : "text-zinc-500"}`}>{canNet ? money(r.net) : "–"}</td>
                         </tr>
                       );
