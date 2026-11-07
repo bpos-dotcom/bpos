@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { getCurrentUser } from "@/lib/auth";
@@ -12,6 +12,7 @@ import {
   adjustInventory,
   getInventory,
   getKardex,
+  kardexWithGaps,
   InventoryMovement,
   MERMA_REASONS,
   type AdjustmentType,
@@ -82,6 +83,9 @@ export default function InventarioPage() {
       alert(error instanceof Error ? error.message : "Error al ajustar inventario.");
     }
   }
+
+  // De lo más nuevo a lo más viejo, con los cambios que no dejaron movimiento
+  const kardexRows = useMemo(() => kardexWithGaps(kardex).reverse(), [kardex]);
 
   const lowStock = ingredients.filter(
     (ingredient) => ingredient.stock <= ingredient.minimum
@@ -176,9 +180,9 @@ export default function InventarioPage() {
         searchText={(ingredient) => `${ingredient.name} ${ingredient.category || ""}`}
         searchPlaceholder="Buscar insumo"
         empty="Todavía no hay insumos."
-        actions={(found) =>
+        actions={
           ingredients.length > 0 && (
-            <button onClick={() => exportInventory(found, kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
+            <button onClick={() => exportInventory(ingredients, kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
               📥 Excel (existencias y kardex)
             </button>
           )
@@ -186,7 +190,7 @@ export default function InventarioPage() {
         render={(ingredient) => {
           const isLow = ingredient.stock <= ingredient.minimum;
           return (
-            <div key={ingredient.id} className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-black p-4">
+            <div className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-black p-4">
               <div>
                 <p className="font-black">{ingredient.name}</p>
                 <p className="text-sm text-zinc-400">
@@ -206,32 +210,33 @@ export default function InventarioPage() {
 
       <ListPanel
         title="Kardex de inventario"
-        items={[...kardex].reverse()}
+        items={kardexRows}
         searchText={(m) => `${m.ingredientName} ${m.type} ${m.reason || ""} ${m.userName || ""} ${m.orderId ?? ""} ${m.externalOrderKey || ""} ${new Date(m.createdAt).toLocaleDateString("es-MX")}`}
         searchPlaceholder="Buscar insumo, pedido, motivo o persona"
         empty="Todavía no hay movimientos de inventario."
-        actions={(found) =>
+        actions={
           kardex.length > 0 && (
-            <button onClick={() => exportKardex(found)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
+            <button onClick={() => exportKardex(kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
               📥 Excel
             </button>
           )
         }
         render={(movement) => {
-          const isPositive = movement.type === "Ajuste positivo";
-          const isNegative = movement.type !== "Ajuste positivo" && movement.finalStock < movement.previousStock;
+          const gap = movement.type === "Sin registro";
+          const isPositive = movement.finalStock > movement.previousStock;
+          const isNegative = movement.finalStock < movement.previousStock;
           return (
-            <div key={movement.id} className="flex flex-col justify-between gap-3 rounded-2xl border border-zinc-800 bg-black p-4 md:flex-row md:items-center">
+            <div className={`flex flex-col justify-between gap-3 rounded-2xl border p-4 md:flex-row md:items-center ${gap ? "border-yellow-500/50 bg-yellow-500/10" : "border-zinc-800 bg-black"}`}>
               <div>
                 <p className="font-black">{movement.ingredientName}</p>
-                <p className="text-sm text-zinc-400">
+                <p className={`text-sm ${gap ? "font-bold text-yellow-300" : "text-zinc-400"}`}>
                   {movement.orderId ? `Pedido #${movement.orderId.toString().padStart(6, "0")} · ` : ""}
-                  {movement.type}
+                  {gap ? "⚠️ Cambio sin registro (no se sabe quién)" : movement.type}
                   {movement.userName ? ` · por ${movement.userName}` : ""}
                 </p>
-                {movement.reason && <p className="text-sm text-zinc-500">Motivo: {movement.reason}</p>}
+                {movement.reason && <p className="text-sm text-zinc-500">{gap ? movement.reason : `Motivo: ${movement.reason}`}</p>}
                 <p className="text-xs text-zinc-600">
-                  {new Date(movement.createdAt).toLocaleString()}
+                  {movement.gapSince ? `Entre ${new Date(movement.gapSince).toLocaleString()} y ${new Date(movement.createdAt).toLocaleString()}` : gap ? `Antes de ${new Date(movement.createdAt).toLocaleString()}` : new Date(movement.createdAt).toLocaleString()}
                   {typeof movement.previousStock === "number" && typeof movement.finalStock === "number" ? ` · ${movement.previousStock} → ${movement.finalStock} ${movement.unit}` : ""}
                 </p>
               </div>
@@ -325,12 +330,14 @@ function ListPanel<T>({
   searchText: (item: T) => string;
   searchPlaceholder: string;
   empty: string;
-  actions?: (found: T[]) => React.ReactNode;
+  /** Botones del encabezado (los Excel descargan todo, no solo lo buscado) */
+  actions?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const q = plain(query.trim());
-  const found = q ? items.filter((item) => plain(searchText(item)).includes(q)) : items;
+  // Cada renglón con su lugar en la lista como llave (hay movimientos viejos con el mismo id)
+  const found = items.map((item, index) => ({ item, index })).filter(({ item }) => !q || plain(searchText(item)).includes(q));
   const expanded = open || Boolean(q);
   const shown = expanded ? found : found.slice(0, 2);
 
@@ -340,7 +347,7 @@ function ListPanel<T>({
         <button type="button" onClick={() => setOpen(!open)} className="text-left text-xl font-black text-orange-500">
           {title} <span className="text-sm font-bold text-zinc-500">({items.length})</span>
         </button>
-        {actions?.(found)}
+        {actions}
       </div>
       <label className="mt-4 flex items-center gap-2 rounded-2xl border border-zinc-800 bg-black px-4 py-2.5">
         <span aria-hidden>🔍</span>
@@ -357,7 +364,7 @@ function ListPanel<T>({
       ) : found.length === 0 ? (
         <p className="mt-4 text-sm text-zinc-500">Nada coincide con &quot;{query}&quot;.</p>
       ) : (
-        <div className={`mt-4 space-y-3 ${expanded ? "max-h-[34rem] overflow-y-auto pr-1" : ""}`}>{shown.map(render)}</div>
+        <div className={`mt-4 space-y-3 ${expanded ? "max-h-[34rem] overflow-y-auto pr-1" : ""}`}>{shown.map(({ item, index }) => <Fragment key={index}>{render(item)}</Fragment>)}</div>
       )}
 
       {!q && found.length > 2 && (
