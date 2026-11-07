@@ -23,7 +23,12 @@ async function registro(body: object) {
   return data;
 }
 
-export function SignupForm({ onDone }: { onDone: () => void }) {
+/**
+ * onCreated: lo que se hace con la cuenta ya creada y con sesión, antes de onDone
+ * (B-POS Servicios marca la cuenta como de servicios y empieza sus pruebas).
+ * forServices: los textos hablan de "administrador" en lugar de "caja".
+ */
+export function SignupForm({ onDone, onCreated, forServices = false }: { onDone: () => void; onCreated?: () => Promise<void>; forServices?: boolean }) {
   const [step, setStep] = useState<"datos" | "codigo">("datos");
   const [businessName, setBusinessName] = useState("");
   const [address, setAddress] = useState("");
@@ -43,8 +48,8 @@ export function SignupForm({ onDone }: { onDone: () => void }) {
     if (phone.replace(/\D/g, "").length < 10) return setMessage("Escribe un teléfono de 10 dígitos.");
     if (!email.includes("@")) return setMessage("Escribe un correo válido.");
     if (password.length < 6) return setMessage("La contraseña debe tener al menos 6 caracteres.");
-    if (ownerName.trim().length < 2) return setMessage("Escribe tu nombre (serás el administrador en la caja).");
-    if (!PIN_RE.test(pin)) return setMessage("Tu PIN para la caja debe ser de 4 a 8 números.");
+    if (ownerName.trim().length < 2) return setMessage(forServices ? "Escribe tu nombre (serás el administrador)." : "Escribe tu nombre (serás el administrador en la caja).");
+    if (!PIN_RE.test(pin)) return setMessage(forServices ? "Tu PIN debe ser de 4 a 8 números." : "Tu PIN para la caja debe ser de 4 a 8 números.");
     setBusy(true);
     try {
       await registro({ accion: "codigo", email });
@@ -69,6 +74,7 @@ export function SignupForm({ onDone }: { onDone: () => void }) {
         pin,
         settings: { businessName: businessName.trim(), address: address.trim(), businessEmail: email.trim(), ticketPhone: phone, ownerWhatsapp: phone },
       });
+      if (onCreated) await onCreated();
       onDone();
     } catch (e) {
       setMessage(e instanceof Error ? e.message : "No se pudo crear la cuenta.");
@@ -138,14 +144,14 @@ export function SignupForm({ onDone }: { onDone: () => void }) {
         />
       </label>
       <label className={label}>
-        Tu nombre (administrador en la caja)
+        {forServices ? "Tu nombre (administrador)" : "Tu nombre (administrador en la caja)"}
         <input value={ownerName} onChange={(e) => setOwnerName(e.target.value)} maxLength={40} placeholder="Ej. Tomás" autoComplete="name" className={`${input} mt-1`} />
       </label>
       <label className={label}>
-        Tu PIN para entrar a la caja (4 a 8 números)
+        {forServices ? "Tu PIN de administrador (4 a 8 números)" : "Tu PIN para entrar a la caja (4 a 8 números)"}
         <input
           value={pin}
-          onChange={(e) => setPin(e.target.value.replace(/D/g, "").slice(0, 8))}
+          onChange={(e) => setPin(e.target.value.replace(/\D/g, "").slice(0, 8))}
           inputMode="numeric"
           type="password"
           autoComplete="off"

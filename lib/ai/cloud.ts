@@ -14,6 +14,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 import { getAiConfig, type AiConfig, type AiFeature } from "@/lib/ai/settings";
 import { aiCost, type AiUsage } from "@/lib/ai/engine";
+import { serviceOpen } from "@/lib/services-server";
 
 // Las cajas llaman desde http://localhost:3000; la sesión va en el encabezado (sin cookies)
 function cors(request: NextRequest) {
@@ -61,6 +62,13 @@ export async function aiSession(request: NextRequest, check = true, feature: AiF
   const { data: allowance, error: allowanceError } = await supabase.rpc("bpos_ai_allowance", { p_business_id: businessId });
   if (allowanceError || !allowance) return { error: aiReply(request, { success: false, error: "No se pudo revisar el plan del negocio." }, 503) };
   const a = { ...(allowance as AiAllowance), budget: Number((allowance as AiAllowance).budget) || 0, spent: Number((allowance as AiAllowance).spent) || 0 };
+
+  // El Asesor también se vende suelto (bpos.com.mx/servicios): con ese servicio vigente
+  // cuenta como Max para el asesor, con el presupuesto de IA del servicio
+  if (feature === "asesor" && (a.plan !== "max" || !a.active)) {
+    const svc = await serviceOpen(businessId, "asesor").catch(() => null);
+    if (svc?.open) Object.assign(a, { plan: "max", active: true, budget: Math.max(a.plan === "max" ? a.budget : 0, svc.entry.ai_budget_usd) });
+  }
 
   if (check) {
     if (a.plan !== "max") return { error: aiReply(request, { success: false, code: "plan", error: "Las funciones con IA vienen en el plan Max." }, 402) };
