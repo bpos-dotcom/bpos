@@ -1,11 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bridgeAuth } from "@/lib/bridge/api-guard";
-import { bridgeStore } from "@/lib/bridge/store";
+import { bridgeStore, orderKey } from "@/lib/bridge/store";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
 
 export const dynamic = "force-dynamic";
+
+/** Finalizados que todavía pueden salir a estaciones (igual que en el procesador) */
+const WORK_WINDOW_MS = 2 * 60 * 60 * 1000;
+/** Un equipo que apartó un pedido y no lo terminó en este tiempo ya no lo detiene */
+const CLAIM_STALE_MS = 90_000;
 
 type BridgeStatus =
   | "Recibido"
@@ -61,7 +66,10 @@ function normalizeOrderId(value: unknown) {
 export async function GET(request: NextRequest) {
   const auth = await bridgeAuth(request);
   if ("denied" in auth) return auth.denied;
-  const orders = (await bridgeStore(auth.ctx).orders()) as BridgeOrder[];
+  // ?trabajo=1: solo lo que el procesador en segundo plano tiene que revisar (pocos pedidos, no el historial)
+  const work = request.nextUrl.searchParams.get("trabajo") === "1";
+  const store = bridgeStore(auth.ctx);
+  const orders = (await (work ? store.workOrders(WORK_WINDOW_MS) : store.orders())) as BridgeOrder[];
 
   return NextResponse.json(
     {
@@ -155,10 +163,11 @@ export async function PATCH(request: NextRequest) {
   const store = bridgeStore(auth.ctx);
 
   try {
-    const orders = (await store.orders()) as BridgeOrder[];
     const body = (await request.json()) as {
       platform?: string;
       orderId?: string;
+      /** Apartar el pedido para este equipo antes de procesarlo (ver claimOrder) */
+      claim?: string;
       status?: BridgeStatus;
       createdOrderId?: number;
       interpretation?: OrderInterpretation;
@@ -170,11 +179,17 @@ export async function PATCH(request: NextRequest) {
     const platform = normalizePlatform(body.platform);
     const orderId = normalizeOrderId(body.orderId);
 
-    const index = orders.findIndex(
-      (order) =>
-        normalizePlatform(order.platform) === platform &&
-        normalizeOrderId(order.orderId) === orderId
-    );
+    const key = orderKey({ platform, orderId });
+
+    if (body.claim) {
+      const claimed = await store.claimOrder(key, String(body.claim).replace(/[^\w:-]/g, "").slice(0, 80), CLAIM_STALE_MS);
+      return NextResponse.json({ success: true, claimed });
+    }
+
+    // Solo ese pedido (antes se bajaban todos para cambiar uno)
+    const found = (await store.order(key)) as BridgeOrder | null;
+    const orders = found ? [found] : [];
+    const index = found ? 0 : -1;
 
     if (index === -1) {
       return NextResponse.json(
