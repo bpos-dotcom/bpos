@@ -30,10 +30,12 @@ function money(value: number | null) {
   return `${sign}$${Math.abs(value).toFixed(2)}`;
 }
 
+/** "dom 8 nov 2026 · 4:52 p.m." */
 function time(iso: string) {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
-  return d.toLocaleString("es-MX", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+  const day = d.toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short", year: "numeric" }).replace(/,/g, "").replace(/ de /g, " ");
+  return `${day} · ${d.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" })}`;
 }
 
 function style(settings: BusinessSettings, paper: PaperWidth) {
@@ -48,7 +50,7 @@ function style(settings: BusinessSettings, paper: PaperWidth) {
   .center { text-align: center; }
   .logo { display: block; margin: 0 auto 6px; max-width: 100%; max-height: ${logo}px; }
   .platform { font-size: ${b * 1.25}px; font-weight: 900; }
-  .order { font-size: ${b * 1.7}px; font-weight: 900; }
+  .order { font-size: ${b * 1.55}px; font-weight: 900; line-height: 1.1; overflow-wrap: anywhere; }
   .meta { font-size: ${b}px; }
   .station { margin: 8px 0; padding: 4px 0; border: 5px solid #000; font-size: ${b * 1.6}px; font-weight: 900; letter-spacing: 1px; text-align: center; }
   .rule { border-top: 3px solid #000; margin: 8px 0; }
@@ -78,11 +80,19 @@ function header(ticket: DeliveryTicket, settings: BusinessSettings) {
   const logo = settings.ticketLogo
     ? `<img class="logo" src="${settings.ticketLogo}">`
     : `<div class="center platform">${esc(settings.businessName)}</div>`;
-  const who = settings.ticketShowCustomer && ticket.customer ? `${esc(ticket.customer)} · ` : "";
+  const customer = settings.ticketShowCustomer && ticket.customer ? ticket.customer : "";
+  // Debajo del logo (el logo queda tapado por la impresora; esto sale a la vista):
+  // - Plataforma: "DiDi Food / 4", abajo "Delivery · Cliente" y nuestro número
+  // - Tienda (mostrador, mesa, en línea, kiosco): "Cliente / Local", abajo de dónde vino y el número
+  const delivery = ticket.kind !== "mostrador";
+  const title = delivery ? `${ticket.platform} / ${ticket.orderId}` : customer ? `${customer} / Local` : `Local / ${ticket.orderId}`;
+  const subtitle = delivery ? ["Delivery", customer].filter(Boolean).join(" · ") : ticket.platform;
+  const number = delivery ? ticket.localNumber : customer ? ticket.orderId : "";
   return `${logo}
-    <div class="center platform">${esc(ticket.platform)}</div>
-    <div class="center order">Pedido #${esc(ticket.orderId)}</div>
-    <div class="center meta">${who}${esc(time(ticket.receivedAt))}</div>
+    <div class="center order">${esc(title)}</div>
+    <div class="center platform">${esc(subtitle)}</div>
+    ${number ? `<div class="center meta">Pedido #${esc(number)}</div>` : ""}
+    <div class="center meta">${esc(time(ticket.receivedAt))}</div>
     ${ticket.waiter ? `<div class="center meta">Mesero: ${esc(ticket.waiter)}</div>` : ""}`;
 }
 
