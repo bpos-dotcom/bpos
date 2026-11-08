@@ -27,6 +27,17 @@ function ticketWidthPx() {
 
 let config = null; // { printers: { Parrilla: "EPSON...", ... }, paperWidthMm: 80 }
 const printed = new Map(); // "plataforma:pedido" → { at, printers }
+/** DiDi reinicia sus números cada día: lo impreso hace más de 12 h es otro pedido con el mismo número */
+const PRINTED_TTL_MS = 12 * 60 * 60 * 1000;
+function alreadyPrinted(key) {
+  const record = printed.get(key);
+  if (!record) return false;
+  if (Date.now() - Date.parse(record.at) > PRINTED_TTL_MS) {
+    printed.delete(key);
+    return false;
+  }
+  return true;
+}
 const fallbackTimers = new Map();
 let helperWindow = null;
 
@@ -242,7 +253,7 @@ async function printTickets(req) {
   const key = orderKey(req.platform, req.orderId);
   clearTimeout(fallbackTimers.get(key));
   fallbackTimers.delete(key);
-  if (printed.has(key) && !req.force) return { alreadyPrinted: true, ...printed.get(key) };
+  if (alreadyPrinted(key) && !req.force) return { alreadyPrinted: true, ...printed.get(key) };
 
   const record = { at: new Date().toISOString(), targets: req.tickets.map((t) => t.target), reason: req.force ? "reimpresion" : "bridge" };
   printed.set(key, record);
@@ -314,7 +325,7 @@ async function printOriginal(req) {
   const key = orderKey(req.platform, req.orderId);
   clearTimeout(fallbackTimers.get(key));
   fallbackTimers.delete(key);
-  if (printed.has(key) && !req.force) return { alreadyPrinted: true, ...printed.get(key) };
+  if (alreadyPrinted(key) && !req.force) return { alreadyPrinted: true, ...printed.get(key) };
   const hasText = typeof req.rawText === "string" && req.rawText.trim().length > 20;
   if (!hasText && (!req.filePath || !fs.existsSync(req.filePath))) throw new Error("No está el ticket original de este pedido.");
 
@@ -353,13 +364,14 @@ async function printOriginal(req) {
 function scheduleFallback(job) {
   if (!job?.filePath || !job.platform || !job.orderId) return;
   const key = orderKey(job.platform, job.orderId);
-  if (printed.has(key) || fallbackTimers.has(key)) return;
+  if (alreadyPrinted(key) || fallbackTimers.has(key)) return;
   fallbackTimers.set(
     key,
     setTimeout(() => {
       fallbackTimers.delete(key);
       console.warn(`El Bridge no pidió los tickets de ${key}: sale el original en Cocina.`);
-      printOriginal({ platform: job.platform, orderId: job.orderId, filePath: job.filePath, stations: ["Cocina"], reason: "respaldo" }).catch((e) =>
+      // Con el texto leído sale en letra grande (la hoja de la plataforma reducida a 58 mm salía diminuta)
+      printOriginal({ platform: job.platform, orderId: job.orderId, filePath: job.filePath, rawText: job.rawText, stations: ["Cocina"], reason: "respaldo" }).catch((e) =>
         console.error(`Respaldo de impresión ${key}:`, e.message)
       );
     }, FALLBACK_MS)
