@@ -235,13 +235,23 @@ export function KitchenScreen({ bare = false, extra }: { bare?: boolean; /** Bot
     );
   }
 
+  function formatDuration(totalSeconds: number) {
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const mmss = `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
+    return hours > 0 ? `${hours}:${mmss}` : mmss;
+  }
+
   function getElapsedTime(createdAt: string) {
-    const seconds = getElapsedSeconds(createdAt);
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes.toString().padStart(2, "0")}:${remainingSeconds
-      .toString()
-      .padStart(2, "0")}`;
+    return formatDuration(getElapsedSeconds(createdAt));
+  }
+
+  // Entregados: el reloj se queda en lo que tardó (de que llegó a que se marcó Entregado)
+  function getFinalTime(order: KdsOrder) {
+    if (!order.kdsCompletedAt) return null;
+    const seconds = Math.floor((new Date(order.kdsCompletedAt).getTime() - new Date(order.createdAt).getTime()) / 1000);
+    return Number.isFinite(seconds) ? formatDuration(Math.max(0, seconds)) : null;
   }
 
   function getTimeColor(createdAt: string) {
@@ -431,13 +441,24 @@ export function KitchenScreen({ bare = false, extra }: { bare?: boolean; /** Bot
             )}
           </div>
 
-          <div
-            className={`shrink-0 rounded-xl border px-3 py-2 text-sm font-black ${getTimeColor(
-              order.createdAt
-            )}`}
-          >
-            ⏱ {getElapsedTime(order.createdAt)}
-          </div>
+          {status === "Entregado" ? (
+            <div className="shrink-0 rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-right text-sm font-black text-zinc-300">
+              {getFinalTime(order) ? `✓ Tardó ${getFinalTime(order)}` : "✓ Entregado"}
+              {order.kdsCompletedAt && (
+                <span className="block text-[11px] font-bold text-zinc-500">
+                  {new Date(order.kdsCompletedAt).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" })}
+                </span>
+              )}
+            </div>
+          ) : (
+            <div
+              className={`shrink-0 rounded-xl border px-3 py-2 text-sm font-black ${getTimeColor(
+                order.createdAt
+              )}`}
+            >
+              ⏱ {getElapsedTime(order.createdAt)}
+            </div>
+          )}
         </button>
 
         {expanded && (
@@ -559,7 +580,7 @@ export function KitchenScreen({ bare = false, extra }: { bare?: boolean; /** Bot
           </>
         )}
 
-        <div className="mt-4 flex flex-wrap gap-2">
+        {status !== "Entregado" && <div className="mt-4 flex flex-wrap gap-2">
           {status === "Nuevo" && (
             <button
               onClick={() => updateStatus(order.id, "En preparación")}
@@ -582,7 +603,7 @@ export function KitchenScreen({ bare = false, extra }: { bare?: boolean; /** Bot
           >
             Entregado
           </button>
-        </div>
+        </div>}
       </article>
     );
   }
