@@ -98,7 +98,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       "aceptado",
       async () => {
         const result = await acceptOnlineOrder(order, etaUse, getCurrentUser()?.name, quoting ? { deliveryFee: fee } : {});
-        if (result.printFailed.length) setMessage(`Aceptado. No se imprimió en: ${result.printFailed.join(", ")}. Reimprime desde Impresiones.`);
+        if (result.printFailed.length) setMessage(`Aceptado. No se imprimió en: ${result.printFailed.join(", ")}. Reimprime desde Historial de pedidos.`);
         // A domicilio: de una vez elegir quién lo lleva
         if (order.data.type === "Domicilio") setDispatching(true);
       },

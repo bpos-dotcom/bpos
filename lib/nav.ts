@@ -25,7 +25,6 @@ export const NAV: NavGroup[] = [
     icon: "📋",
     tabs: [
       { label: "Pedidos", href: "/historial", icon: "📋" },
-      { label: "Impresiones", href: "/impresiones", icon: "🖨️" },
     ],
   },
   {

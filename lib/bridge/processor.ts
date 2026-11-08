@@ -213,7 +213,7 @@ export async function processBridgeOrders(orders: ProcessorOrder[], aliases: unk
               const detail = failures.map((r) => `${r.target}: ${r.error || "sin detalle"}`).join(" · ");
               console.error(`Ningún ticket de ${key} salió (intento ${tries}): ${detail}`);
               if (tries < 3) give = false;
-              else notify(`No se pudieron imprimir los tickets del pedido ${order.orderId} tras 3 intentos (${detail}). Revisa la impresora y usa Reimprimir en Impresiones.`, "error");
+              else notify(`No se pudieron imprimir los tickets del pedido ${order.orderId} tras 3 intentos (${detail}). Revisa la impresora y reimprime desde Historial de pedidos.`, "error");
             }
             if (give) {
               order = await patchOrder(order, { stationPrint: { at: new Date().toISOString(), stations: tickets.map((t) => t.target), printers } });
@@ -259,7 +259,7 @@ export async function processBridgeOrders(orders: ProcessorOrder[], aliases: unk
       if (!finished(order) && order.readyForSale && order.saleReadyPayload) {
         const result = createAutomaticSale(order.saleReadyPayload, {
           receivedAt: order.bridgeReceivedAt || order.receivedAt,
-          // Para reimprimir desde Impresiones con los mismos renglones del pedido
+          // Para reimprimir desde Historial de pedidos con los mismos renglones del pedido
           ticket: buildDeliveryTicket(order, stationsByLine(order.interpretation, catalog.products, getAdminRecipes())),
         });
         if (!result.success) {

@@ -44,6 +44,7 @@ export const PUSH_ACTIONS = new Set([
   "product.created_from_bridge",
   "sale.combo_incomplete",
   "inventory.manual_edit",
+  "print.reprinted",
 ]);
 
 export type PushEvent = {
@@ -103,6 +104,9 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
     case "inventory.manual_edit":
       if (!prefs.seguridad) return null;
       return { title: "📦 Cambio de inventario a mano", body: event.description, tag, url: "/inventario" };
+    case "print.reprinted":
+      if (!prefs.seguridad) return null;
+      return { title: "🖨️ Reimpresión de pedido", body: event.description, tag, url: "/historial" };
     case "backup.restored":
     case "user.created":
     case "permissions.updated":

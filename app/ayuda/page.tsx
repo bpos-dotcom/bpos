@@ -40,7 +40,7 @@ function readSteps(agentOnline: boolean | null): Step[] {
 }
 
 const FAQ: { q: string; a: string; href?: string }[] = [
-  { q: "No sale la comanda o el ticket", a: "Revisa que la computadora de las impresoras esté prendida con B-POS Agent abierto (Configuración → Sistema debe decir conectado) y que cada estación tenga impresora en Configuración → Impresoras. Puedes reimprimir desde Impresiones.", href: "/configuracion/impresoras" },
+  { q: "No sale la comanda o el ticket", a: "Revisa que la computadora de las impresoras esté prendida con B-POS Agent abierto (Configuración → Sistema debe decir conectado) y que cada estación tenga impresora en Configuración → Impresoras. Puedes reimprimir desde Historial de pedidos (botón Imprimir).", href: "/configuracion/impresoras" },
   { q: "El cajón no abre", a: "El cajón va conectado con cable a la impresora de Caja. En Configuración → Impresoras → Cajón de dinero eliges cuándo abre (al abrir el cobro o al confirmar), con qué formas de pago y para qué tipos de pedido. En el cobro en efectivo también hay botón “Abrir cajón”.", href: "/configuracion/impresoras" },
   { q: "¿Cómo cancelo una venta?", a: "En Historial de pedidos, en la venta, “Cancelar”. Pide el motivo y, según tus permisos, el PIN de un administrador. Queda en la bitácora y le avisa al dueño.", href: "/historial" },
   { q: "¿Cómo hago el corte de caja?", a: "En Caja cuenta el efectivo, escribe lo contado y “Cerrar turno”. El corte llega al correo y/o WhatsApp del dueño, con ventas por método y canal, movimientos y horas del personal.", href: "/caja" },
