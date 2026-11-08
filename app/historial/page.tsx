@@ -7,7 +7,10 @@ import { getCurrentUser, type CurrentUser } from "@/lib/auth";
 import { getCashCloseHistory } from "@/lib/cash-history";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { exportOrders } from "@/lib/exports";
-import { cancelSavedOrder, changeSavedOrderPayment, loadSavedOrders, markSavedOrderPaid, printSaleTicket, sendSaleWhatsapp } from "@/lib/sale-actions";
+import { cancelSavedOrder, changeSavedOrderPayment, loadSavedOrders, markSavedOrderPaid, sendSaleWhatsapp } from "@/lib/sale-actions";
+import { ask } from "@/components/layout/Dialogs";
+import { ReprintDialog } from "@/components/print/ReprintDialog";
+import type { SaleForTickets } from "@/lib/bridge/sale-tickets";
 
 const PLATFORM_LABEL: Record<string, string> = { uber: "Uber Eats", didi: "DiDi Food", rappi: "Rappi" };
 
@@ -44,7 +47,8 @@ function inPeriod(order: SavedOrder & { shiftSessionId?: string }, period: Perio
 
 /**
  * Historial de pedidos: todas las ventas (del más reciente al más viejo) con
- * filtro por origen, reimpresión, WhatsApp, cambio de método de pago (con PIN
+ * filtro por origen, reimpresión (pregunta, avisa al dueño y deja elegir
+ * estaciones y tickets; antes era la pantalla Impresiones), WhatsApp, cambio de método de pago (con PIN
  * de administrador) y cancelación. Abajo, el resumen de pedidos de plataforma.
  */
 export default function OrderHistoryPage() {
@@ -55,6 +59,14 @@ export default function OrderHistoryPage() {
   const [periodKey, setPeriodKey] = useState("actual");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  /** Pedido a reimprimir (ventana para elegir estaciones y tickets) */
+  const [reprint, setReprint] = useState<SavedOrder | null>(null);
+
+  // Reimprimir: se confirma (le avisa al dueño) y luego se elige a dónde. Sin PIN.
+  async function askReprint(order: SavedOrder) {
+    if (!(await ask("¿Deseas reimprimir este pedido? (Esto le avisa al dueño)", { ok: "Sí, reimprimir", cancel: "No" }))) return;
+    setReprint(order);
+  }
 
   useEffect(() => {
     const load = () => {
@@ -131,7 +143,7 @@ export default function OrderHistoryPage() {
             const order = orders.find((o) => o.id === id);
             if (order) void cancelSavedOrder(order, user);
           }}
-          onPrint={printSaleTicket}
+          onPrint={(order) => void askReprint(order)}
           onWhatsapp={sendSaleWhatsapp}
           onMarkPaid={(order, method) => void markSavedOrderPaid(order, method, user)}
           onChangePayment={(order, method) => changeSavedOrderPayment(order, method, user)}
@@ -155,6 +167,7 @@ export default function OrderHistoryPage() {
           </section>
         )}
       </div>
+      {reprint && <ReprintDialog sale={reprint as unknown as SaleForTickets} onClose={() => setReprint(null)} />}
     </AppShell>
   );
 }

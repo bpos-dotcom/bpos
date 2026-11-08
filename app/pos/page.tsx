@@ -74,7 +74,7 @@ const menuItems = [
   { label: "📦 Inventario", href: "/inventario" },
   { label: "🛒 Compras", href: "/compras" },
   { label: "🌉 B-POS Bridge", href: "/bridge" },
-  { label: "🖨️ Impresiones", href: "/impresiones" },
+  { label: "📋 Historial de pedidos", href: "/historial" },
   { label: "⚙️ Configuración", href: "/configuracion" },
 ];
 
@@ -367,7 +367,7 @@ function PosScreen() {
     discountInventoryByOrder(`${order.id}-r${round}`, cart);
     void printSale({ ...updated, items: newItems }, { stations: saleStations({ ...updated, items: newItems }), customer: false }, true)
       .then((failed) => {
-        if (failed.length) notify(`Ronda mandada, pero no salió en: ${failed.join(" · ")}. Reimprime desde Impresiones.`, "error");
+        if (failed.length) notify(`Ronda mandada, pero no salió en: ${failed.join(" · ")}. Reimprime desde Historial de pedidos.`, "error");
       })
       .catch(() => notify("Ronda guardada, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado.", "error"));
     addAuditEvent({ category: "Venta", action: "sale.round", description: `${currentUser?.name || "Usuario"} mandó la ronda ${round} de ${tableLabel(order.details.table)} (Pedido #${formatOrderNumber(updated as SavedOrder & { localOrderNumber?: number })}): ${cart.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { round, total: updated.total } });
@@ -803,9 +803,9 @@ function PosScreen() {
     // Comandas por estación y ticket del cliente en Caja, directo a las térmicas
     void printSale(newOrder, { stations: saleStations(newOrder), customer: true, drawer: drawerWanted && !drawerOpened }, false)
       .then((failed) => {
-        if (failed.length) notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Impresiones.`, "error");
+        if (failed.length) notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Historial de pedidos.`, "error");
       })
-      .catch(() => notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Impresiones.`, "error"));
+      .catch(() => notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Historial de pedidos.`, "error"));
     addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por ${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
     // Si antes se cerró un cobro de esta cuenta con el cajón abierto, no era sospechoso (se guardó en espera o se cobró)
     void clearDrawerSuspect(total, data.pending ? "espera" : "cobro");
