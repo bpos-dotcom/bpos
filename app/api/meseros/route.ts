@@ -6,10 +6,10 @@ import { supabaseAdmin } from "@/lib/billing/mercadopago";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 
 /**
- * App de meseros (migración 0026). Corre en Vercel con la llave de servicio.
- *   GET    ?branch=<id>                          celulares vinculados de la sucursal (sesión del negocio)
- *   POST   { accion: "codigo", branchId }        código de 6 dígitos, 15 minutos (sesión del negocio)
- *   POST   { accion: "vincular", slug, code, name }   desde el celular: crea la cuenta del dispositivo
+ * App de meseros (migración 0026) y tablets de cocina (0035, tipo "kds"). Corre en Vercel con la llave de servicio.
+ *   GET    ?branch=<id>&tipo=kds                 dispositivos vinculados de la sucursal (sesión del negocio)
+ *   POST   { accion: "codigo", branchId, tipo }  código de 6 dígitos, 15 minutos (sesión del negocio)
+ *   POST   { accion: "vincular", slug, code, name, tipo }   desde el dispositivo: crea su cuenta
  *                                                      y regresa con qué entrar (correo y contraseña)
  *   PATCH  { accion: "visto" }                    el celular avisa que sigue en uso (sesión del dispositivo)
  *   DELETE ?id=<dispositivo>                     desvincular: borra la cuenta del dispositivo (sesión del negocio)
@@ -19,6 +19,14 @@ export const dynamic = "force-dynamic";
 
 const CODE_MINUTES = 15;
 const DEVICE_DOMAIN = "dispositivos.bpos.com.mx";
+
+/** Celular de mesero o tablet de cocina (KDS) */
+type DeviceKind = "mesero" | "kds";
+const asKind = (value: unknown): DeviceKind => (value === "kds" ? "kds" : "mesero");
+const KIND_TEXT: Record<DeviceKind, { device: string; config: string }> = {
+  mesero: { device: "Celular de mesero", config: "Configuración → Meseros" },
+  kds: { device: "Tablet de cocina", config: "Configuración → Tablets de cocina" },
+};
 
 class Friendly extends Error {
   constructor(message: string, public status = 400) {
@@ -54,7 +62,7 @@ export async function GET(request: NextRequest) {
     const session = await businessSession(request);
     const branch = request.nextUrl.searchParams.get("branch") || "";
     if (!session.branchIds.includes(branch)) throw new Friendly("Sucursal no encontrada.", 404);
-    const { data, error } = await supabaseAdmin().from("bpos_waiter_devices").select("id, name, created_at, last_seen_at").eq("branch_id", branch).is("revoked_at", null).order("created_at", { ascending: true });
+    const { data, error } = await supabaseAdmin().from("bpos_waiter_devices").select("id, name, created_at, last_seen_at").eq("branch_id", branch).eq("kind", asKind(request.nextUrl.searchParams.get("tipo"))).is("revoked_at", null).order("created_at", { ascending: true });
     if (error) throw new Error(error.message);
     return aiReply(request, { success: true, devices: data || [] });
   } catch (error) {
@@ -65,8 +73,9 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   try {
-    if (body?.accion === "codigo") return aiReply(request, { success: true, ...(await newCode(request, String(body.branchId || ""))) });
-    if (body?.accion === "vincular") return aiReply(request, { success: true, ...(await link(String(body.slug || ""), String(body.code || ""), String(body.name || ""))) });
+    const kind = asKind(body?.tipo);
+    if (body?.accion === "codigo") return aiReply(request, { success: true, ...(await newCode(request, String(body.branchId || ""), kind)) });
+    if (body?.accion === "vincular") return aiReply(request, { success: true, ...(await link(String(body.slug || ""), String(body.code || ""), String(body.name || ""), kind)) });
     throw new Friendly("Acción desconocida.");
   } catch (error) {
     return fail(request, error);
@@ -103,7 +112,7 @@ export async function DELETE(request: NextRequest) {
   }
 }
 
-async function newCode(request: NextRequest, branchId: string) {
+async function newCode(request: NextRequest, branchId: string, kind: DeviceKind) {
   const session = await businessSession(request);
   if (!session.branchIds.includes(branchId)) throw new Friendly("Sucursal no encontrada.", 404);
   const db = supabaseAdmin();
@@ -111,7 +120,7 @@ async function newCode(request: NextRequest, branchId: string) {
   for (let attempt = 0; attempt < 10; attempt++) {
     const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
     const expires = new Date(Date.now() + CODE_MINUTES * 60 * 1000).toISOString();
-    const { error } = await db.from("bpos_waiter_codes").insert({ code, business_id: session.businessId, branch_id: branchId, created_by: session.userId, expires_at: expires });
+    const { error } = await db.from("bpos_waiter_codes").insert({ code, business_id: session.businessId, branch_id: branchId, created_by: session.userId, expires_at: expires, kind });
     if (!error) return { code, expiresAt: expires };
     if (error.code !== "23505") throw new Error(error.message);
   }
@@ -119,31 +128,33 @@ async function newCode(request: NextRequest, branchId: string) {
 }
 
 /** El celular teclea el código: se crea su cuenta de dispositivo y se le regresa con qué entrar. */
-async function link(slug: string, code: string, name: string) {
+async function link(slug: string, code: string, name: string, kind: DeviceKind) {
   const db = supabaseAdmin();
   const cleanSlug = slug.trim().toLowerCase();
   const cleanCode = code.replace(/\D/g, "");
   if (cleanCode.length !== 6) throw new Friendly("El código es de 6 dígitos.");
   const { data: linkRow } = await db.from("bpos_menu_links").select("business_id, branch_id").eq("slug", cleanSlug).maybeSingle();
   if (!linkRow) throw new Friendly("Esa liga no existe. Revisa la dirección que te dieron.", 404);
-  const { data: codeRow } = await db.from("bpos_waiter_codes").select("code, business_id, branch_id, expires_at, used_at").eq("code", cleanCode).maybeSingle();
-  if (!codeRow || codeRow.business_id !== linkRow.business_id || codeRow.branch_id !== linkRow.branch_id) throw new Friendly("Código incorrecto. Pide uno nuevo en Configuración → Meseros.");
-  if (codeRow.used_at || Date.parse(codeRow.expires_at) < Date.now()) throw new Friendly("Ese código ya venció. Pide uno nuevo en Configuración → Meseros.");
+  const { data: codeRow } = await db.from("bpos_waiter_codes").select("code, business_id, branch_id, expires_at, used_at, kind").eq("code", cleanCode).maybeSingle();
+  const where = KIND_TEXT[kind].config;
+  if (!codeRow || codeRow.business_id !== linkRow.business_id || codeRow.branch_id !== linkRow.branch_id) throw new Friendly(`Código incorrecto. Pide uno nuevo en ${where}.`);
+  if (asKind(codeRow.kind) !== kind) throw new Friendly(`Ese código no es para ${kind === "kds" ? "tablets de cocina" : "celulares de meseros"}. Pide uno en ${where}.`);
+  if (codeRow.used_at || Date.parse(codeRow.expires_at) < Date.now()) throw new Friendly(`Ese código ya venció. Pide uno nuevo en ${where}.`);
 
-  const email = `mesero-${randomBytes(8).toString("hex")}@${DEVICE_DOMAIN}`;
+  const email = `${kind}-${randomBytes(8).toString("hex")}@${DEVICE_DOMAIN}`;
   const password = randomBytes(24).toString("base64url");
-  const { data: created, error: userError } = await db.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { kind: "waiter-device", business_id: linkRow.business_id, branch_id: linkRow.branch_id } });
-  if (userError || !created.user) throw new Error(userError?.message || "No se pudo crear la cuenta del celular.");
+  const { data: created, error: userError } = await db.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { kind: kind === "kds" ? "kds-device" : "waiter-device", business_id: linkRow.business_id, branch_id: linkRow.branch_id } });
+  if (userError || !created.user) throw new Error(userError?.message || "No se pudo crear la cuenta del dispositivo.");
   const userId = created.user.id;
   const { error: memberError } = await db.from("business_members").insert({ business_id: linkRow.business_id, user_id: userId, role: "device" });
   if (memberError) {
     await db.auth.admin.deleteUser(userId).catch(() => undefined);
     throw new Error(memberError.message);
   }
-  const deviceName = name.trim().slice(0, 40) || "Celular de mesero";
+  const deviceName = name.trim().slice(0, 40) || KIND_TEXT[kind].device;
   const { data: device, error: deviceError } = await db
     .from("bpos_waiter_devices")
-    .insert({ business_id: linkRow.business_id, branch_id: linkRow.branch_id, user_id: userId, name: deviceName, last_seen_at: new Date().toISOString() })
+    .insert({ business_id: linkRow.business_id, branch_id: linkRow.branch_id, user_id: userId, name: deviceName, last_seen_at: new Date().toISOString(), kind })
     .select("id")
     .single();
   if (deviceError) throw new Error(deviceError.message);
