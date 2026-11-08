@@ -89,9 +89,12 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
   useEffect(() => {
     const savedIngredients = getAdminIngredients();
     setIngredients(savedIngredients);
-    const first = savedIngredients.find(mineOf(kind));
-    setSelectedId(first?.id ?? null);
-    setDraft(first ?? null);
+    // Desde Inventario real (?insumo=ID): abre la ficha de ese insumo
+    const wanted = Number(new URLSearchParams(window.location.search).get("insumo"));
+    const target = (wanted && savedIngredients.find((i) => i.id === wanted && mineOf(kind)(i))) || savedIngredients.find(mineOf(kind));
+    setSelectedId(target?.id ?? null);
+    setDraft(target ?? null);
+    if (wanted && target?.id === wanted) window.setTimeout(() => document.getElementById("ficha-insumo")?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   }, [kind]);
 
   function selectIngredient(ingredient: Ingredient) {
@@ -254,7 +257,7 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
             </div>
           </section>
 
-          <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+          <section id="ficha-insumo" className="scroll-mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
             {!draft ? (
               <div className="rounded-2xl border border-dashed border-zinc-800 p-10 text-center text-zinc-500">
                 Selecciona un {t.one}.

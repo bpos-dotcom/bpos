@@ -280,7 +280,7 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
       const ingredient = inventory.find((item) => Number(item.id) === ingredientId);
       if (!ingredient) throw new Error(`El ingrediente ${ingredientId} no existe.`);
       const previousStock = Number(ingredient.stock);
-      ingredient.stock = previousStock - quantity;
+      ingredient.stock = round(previousStock - quantity); // sin colas de decimales (7.3359999…)
       movements.push({
         id: `mov-${Date.now()}-${ingredientId}-${Math.random().toString(36).slice(2, 7)}`,
         ingredientId,
@@ -498,7 +498,7 @@ export function adjustInventory(input: { ingredientId: number; quantity: number;
   const ingredient = inventory.find((item) => Number(item.id) === Number(input.ingredientId));
   if (!ingredient) throw new Error("Ingrediente no encontrado.");
   const previousStock = ingredient.stock;
-  ingredient.stock = input.adjustmentType === "Ajuste positivo" ? previousStock + quantity : previousStock - quantity; // negativo y merma restan
+  ingredient.stock = round(input.adjustmentType === "Ajuste positivo" ? previousStock + quantity : previousStock - quantity); // negativo y merma restan
   saveAdminIngredients(inventory);
   const movement: InventoryMovement = {
     id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
