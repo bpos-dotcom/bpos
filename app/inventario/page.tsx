@@ -5,7 +5,8 @@ import { AppShell } from "@/components/layout/AppShell";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { getCurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
-import type { Ingredient, RecipeItem } from "@/data/inventory";
+import Link from "next/link";
+import { isPackaging, type Ingredient, type RecipeItem } from "@/data/inventory";
 import type { Product } from "@/data/products";
 import { getAdminProducts, getAdminRecipes } from "@/lib/admin";
 import {
@@ -180,6 +181,7 @@ export default function InventarioPage() {
         searchText={(ingredient) => `${ingredient.name} ${ingredient.category || ""}`}
         searchPlaceholder="Buscar insumo"
         empty="Todavía no hay insumos."
+        filters={INVENTORY_FILTERS}
         actions={
           ingredients.length > 0 && (
             <button onClick={() => exportInventory(ingredients, kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
@@ -189,21 +191,26 @@ export default function InventarioPage() {
         }
         render={(ingredient) => {
           const isLow = ingredient.stock <= ingredient.minimum;
+          // Al tocarlo abre su ficha (Ingredientes o Packaging)
+          const href = `/configuracion/${isPackaging(ingredient) ? "packaging" : "ingredientes"}?insumo=${ingredient.id}`;
           return (
-            <div className="flex items-center justify-between rounded-2xl border border-zinc-800 bg-black p-4">
-              <div>
+            <Link href={href} className={`flex items-center justify-between gap-3 rounded-2xl border bg-black p-4 transition hover:border-orange-500 ${isLow ? "border-red-500/40" : "border-zinc-800"}`}>
+              <div className="min-w-0">
                 <p className="font-black">{ingredient.name}</p>
                 <p className="text-sm text-zinc-400">
-                  Mínimo: {ingredient.minimum} {ingredient.unit}
+                  Mínimo: {qty(ingredient.minimum)} {ingredient.unit}
                 </p>
               </div>
-              <div className="text-right">
-                <p className="text-xl font-black text-orange-500">
-                  {ingredient.stock} {ingredient.unit}
+              <div className="shrink-0 text-right">
+                <p className={`text-xl font-black ${isLow ? "text-red-400" : "text-orange-500"}`}>
+                  {qty(ingredient.stock)} {ingredient.unit}
                 </p>
-                {isLow && <p className="text-sm font-bold text-red-400">Stock bajo</p>}
+                {isLow && <p className="text-sm font-bold text-red-400">{ingredient.stock <= 0 ? "Agotado" : "Stock bajo"}</p>}
               </div>
-            </div>
+              <span className="shrink-0 text-zinc-600" aria-hidden>
+                ›
+              </span>
+            </Link>
           );
         }}
       />
@@ -211,9 +218,10 @@ export default function InventarioPage() {
       <ListPanel
         title="Kardex de inventario"
         items={kardexRows}
-        searchText={(m) => `${m.ingredientName} ${m.type} ${m.reason || ""} ${m.userName || ""} ${m.orderId ?? ""} ${m.externalOrderKey || ""} ${new Date(m.createdAt).toLocaleDateString("es-MX")}`}
+        searchText={(m) => `${m.ingredientName} ${m.type} ${movementLabel(m)} ${m.reason || ""} ${m.userName || ""} ${m.orderId ?? ""} ${m.externalOrderKey || ""} ${new Date(m.createdAt).toLocaleDateString("es-MX")}`}
         searchPlaceholder="Buscar insumo, pedido, motivo o persona"
         empty="Todavía no hay movimientos de inventario."
+        filters={KARDEX_FILTERS}
         actions={
           kardex.length > 0 && (
             <button onClick={() => exportKardex(kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
@@ -231,18 +239,18 @@ export default function InventarioPage() {
                 <p className="font-black">{movement.ingredientName}</p>
                 <p className={`text-sm ${gap ? "font-bold text-yellow-300" : "text-zinc-400"}`}>
                   {movement.orderId ? `Pedido #${movement.orderId.toString().padStart(6, "0")} · ` : ""}
-                  {gap ? "⚠️ Cambio sin registro (no se sabe quién)" : movement.type}
+                  {gap ? "⚠️ Cambio sin registro (no se sabe quién)" : movementLabel(movement)}
                   {movement.userName ? ` · por ${movement.userName}` : ""}
                 </p>
                 {movement.reason && <p className="text-sm text-zinc-500">{gap ? movement.reason : `Motivo: ${movement.reason}`}</p>}
                 <p className="text-xs text-zinc-600">
                   {movement.gapSince ? `Entre ${new Date(movement.gapSince).toLocaleString()} y ${new Date(movement.createdAt).toLocaleString()}` : gap ? `Antes de ${new Date(movement.createdAt).toLocaleString()}` : new Date(movement.createdAt).toLocaleString()}
-                  {typeof movement.previousStock === "number" && typeof movement.finalStock === "number" ? ` · ${movement.previousStock} → ${movement.finalStock} ${movement.unit}` : ""}
+                  {typeof movement.previousStock === "number" && typeof movement.finalStock === "number" ? ` · ${qty(movement.previousStock)} → ${qty(movement.finalStock)} ${movement.unit}` : ""}
                 </p>
               </div>
               <p className={`text-xl font-black ${isPositive ? "text-green-400" : "text-red-400"}`}>
                 {isPositive ? "+" : isNegative ? "-" : ""}
-                {movement.quantity} {movement.unit}
+                {qty(Math.abs(movement.quantity))} {movement.unit}
               </p>
             </div>
           );
@@ -311,6 +319,33 @@ export default function InventarioPage() {
 
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
+/** 4.959999999999 → "4.96" (hasta 3 decimales, sin ceros de más) */
+const qty = (n: number) => (Number.isFinite(n) ? String(Math.round(n * 1000) / 1000) : String(n));
+
+/** Las compras se guardan como ajuste positivo con el folio en el motivo ("C-000012 · Proveedor") */
+const isPurchase = (m: InventoryMovement) => m.type === "Ajuste positivo" && /^C-\d{3,}/.test(m.reason || "");
+
+/** Cómo se llama el movimiento en el kardex */
+function movementLabel(m: InventoryMovement) {
+  if (isPurchase(m)) return "Compra";
+  if (m.revertOf) return "Devolución de venta";
+  return m.type;
+}
+
+/** Filtros del kardex: entradas (compras, devoluciones, ajustes +), salidas (ventas y ajustes −), merma */
+const KARDEX_FILTERS: { label: string; test: (m: InventoryMovement) => boolean }[] = [
+  { label: "⬆️ Entradas", test: (m) => m.type !== "Sin registro" && m.finalStock > m.previousStock },
+  { label: "🧾 Compras", test: isPurchase },
+  { label: "⬇️ Salidas", test: (m) => m.type !== "Merma" && m.type !== "Sin registro" && m.finalStock < m.previousStock },
+  { label: "🗑️ Merma", test: (m) => m.type === "Merma" },
+  { label: "⚠️ Sin registro", test: (m) => m.type === "Sin registro" },
+];
+
+const INVENTORY_FILTERS: { label: string; test: (i: Ingredient) => boolean }[] = [
+  { label: "⚠️ Existencia baja", test: (i) => i.stock <= i.minimum },
+  { label: "⛔ Agotados", test: (i) => i.stock <= 0 },
+];
+
 /**
  * Lista contraída: muestra 2; al tocar "Ver más" se abre con scroll (caben
  * unos 5 o 6). Con la lupa busca en toda la lista y muestra lo encontrado.
@@ -323,6 +358,7 @@ function ListPanel<T>({
   searchPlaceholder,
   empty,
   actions,
+  filters,
 }: {
   title: string;
   items: T[];
@@ -332,13 +368,18 @@ function ListPanel<T>({
   empty: string;
   /** Botones del encabezado (los Excel descargan todo, no solo lo buscado) */
   actions?: React.ReactNode;
+  /** Botoncitos para ver solo una parte (ej. Entradas, Existencia baja); se combinan con la lupa */
+  filters?: { label: string; test: (item: T) => boolean }[];
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("");
   const q = plain(query.trim());
+  const active = filters?.find((f) => f.label === filter);
   // Cada renglón con su lugar en la lista como llave (hay movimientos viejos con el mismo id)
-  const found = items.map((item, index) => ({ item, index })).filter(({ item }) => !q || plain(searchText(item)).includes(q));
-  const expanded = open || Boolean(q);
+  const found = items.map((item, index) => ({ item, index })).filter(({ item }) => (!active || active.test(item)) && (!q || plain(searchText(item)).includes(q)));
+  const narrowed = Boolean(q) || Boolean(active);
+  const expanded = open || narrowed;
   const shown = expanded ? found : found.slice(0, 2);
 
   return (
@@ -358,21 +399,39 @@ function ListPanel<T>({
           </button>
         )}
       </label>
+      {filters && items.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {[{ label: "Todo" }, ...filters].map((f) => {
+            const on = f.label === "Todo" ? !filter : filter === f.label;
+            const count = "test" in f ? items.filter(f.test).length : items.length;
+            return (
+              <button
+                key={f.label}
+                type="button"
+                onClick={() => setFilter(f.label === "Todo" ? "" : f.label)}
+                className={`rounded-xl border px-3 py-1.5 text-sm font-black ${on ? "border-orange-500 bg-orange-500/15 text-orange-200" : "border-zinc-800 text-zinc-400 hover:border-zinc-600"}`}
+              >
+                {f.label} <span className="font-bold opacity-70">{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {items.length === 0 ? (
         <div className="mt-4 rounded-2xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">{empty}</div>
       ) : found.length === 0 ? (
-        <p className="mt-4 text-sm text-zinc-500">Nada coincide con &quot;{query}&quot;.</p>
+        <p className="mt-4 text-sm text-zinc-500">{q ? <>Nada coincide con &quot;{query}&quot;{active ? ` en ${active.label}` : ""}.</> : `Nada en ${active?.label || "esta lista"}.`}</p>
       ) : (
         <div className={`mt-4 space-y-3 ${expanded ? "max-h-[34rem] overflow-y-auto pr-1" : ""}`}>{shown.map(({ item, index }) => <Fragment key={index}>{render(item)}</Fragment>)}</div>
       )}
 
-      {!q && found.length > 2 && (
+      {!narrowed && found.length > 2 && (
         <button type="button" onClick={() => setOpen(!open)} className="mt-3 w-full rounded-2xl border border-zinc-800 py-2.5 text-sm font-black text-zinc-300 hover:border-orange-500">
           {open ? "Ver menos ▴" : `Ver más (${found.length - 2}) ▾`}
         </button>
       )}
-      {q && found.length > 0 && <p className="mt-2 text-xs text-zinc-500">{found.length} encontrado{found.length === 1 ? "" : "s"}</p>}
+      {narrowed && found.length > 0 && <p className="mt-2 text-xs text-zinc-500">{found.length} encontrado{found.length === 1 ? "" : "s"}</p>}
     </section>
   );
 }
