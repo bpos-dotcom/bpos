@@ -10,6 +10,7 @@ import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { usePlanState } from "@/components/cloud/PlanGate";
 import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
+import { startBackgroundTicker } from "@/lib/background-ticker";
 import { bridgeFetch, bridgeVersion } from "@/lib/bridge/bridge-fetch";
 import { processBridgeOrders, type ProcessorOrder } from "@/lib/bridge/processor";
 import { isPrimaryDevice } from "@/lib/cloud/sync";
@@ -80,10 +81,11 @@ export function BridgeProcessor() {
     };
 
     void tick();
-    const timer = window.setInterval(() => void tick(), TICK_MS);
+    // Con la caja minimizada un setInterval normal se espacia a una vez por minuto: este no
+    const stopTicker = startBackgroundTicker(TICK_MS, () => void tick());
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      stopTicker();
     };
   }, [allowed, pathname]);
 
