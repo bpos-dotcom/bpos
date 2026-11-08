@@ -30,6 +30,8 @@ export type SaleForTickets = {
   externalPlatform?: string;
   externalOrderNumber?: string;
   deliveryTicket?: DeliveryTicket;
+  /** Pedido del menú en línea: su folio de 4 letras */
+  onlineFolio?: string;
 };
 
 export const STATIONS: KitchenStation[] = ["Parrilla", "Freidora", "Barra", "Cocina"];
@@ -40,10 +42,13 @@ export function isDeliverySale(sale: SaleForTickets) {
 
 /** Datos del ticket de una venta (el del Bridge si es delivery). */
 export function saleTicket(sale: SaleForTickets): DeliveryTicket {
-  if (sale.deliveryTicket) return { ...sale.deliveryTicket, customer: realCustomerName(sale.deliveryTicket.customer) };
+  const localNumber = sale.localOrderNumber ? formatOrderNumber(sale) : undefined;
+  if (sale.deliveryTicket) return { ...sale.deliveryTicket, customer: realCustomerName(sale.deliveryTicket.customer), ...(localNumber ? { localNumber } : {}) };
   const delivery = isDeliverySale(sale);
   const discount = Number(sale.details?.discount || 0);
   const subtotal = Number(sale.subtotal ?? sale.items.reduce((s, i) => s + i.price * i.quantity, 0));
+  // Menú en línea: "En línea #K7QM · Recoger" (el folio es el que ve el cliente en su liga)
+  const orderType = sale.details?.orderType || "Mostrador";
   return {
     kind: delivery ? "delivery" : "mostrador",
     // Mesa: "Mesa 4 · 3 personas" (y "PRECUENTA" cuando se imprime antes de cobrar)
@@ -51,8 +56,11 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
       ? platformLabel(sale.externalPlatform)
       : sale.details?.table
         ? `${sale.details.precuenta ? "PRECUENTA · " : ""}Mesa ${sale.details.table.name}${sale.details.diners ? ` · ${sale.details.diners} pers.` : ""}`
-        : sale.details?.orderType || "Mostrador",
+        : sale.onlineFolio && orderType.startsWith("En línea")
+          ? orderType.replace(/^En línea/, `En línea #${sale.onlineFolio}`)
+          : orderType,
     orderId: delivery && sale.externalOrderNumber ? String(sale.externalOrderNumber) : formatOrderNumber(sale),
+    ...(delivery && localNumber ? { localNumber } : {}),
     customer: realCustomerName(sale.details?.customerName),
     receivedAt: sale.createdAt,
     items: sale.items.map((item, index) => ({

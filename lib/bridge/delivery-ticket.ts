@@ -32,6 +32,8 @@ export type DeliveryTicket = {
   kind?: "delivery" | "mostrador";
   platform: string; // "DiDi Food", "Uber Eats", "Rappi" o el tipo de venta del POS ("Mostrador"...)
   orderId: string;
+  /** Delivery: nuestro número de pedido (el de la plataforma va en orderId) */
+  localNumber?: string;
   customer: string | null;
   receivedAt: string;
   items: TicketItem[];
