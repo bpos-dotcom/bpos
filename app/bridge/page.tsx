@@ -17,6 +17,7 @@ import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
 import { correctAutomaticSale } from "@/lib/bridge/create-automatic-sale";
 import BridgeAliases from "./BridgeAliases";
+import { NotPrimaryBanner } from "@/components/settings/PrimaryDeviceCard";
 import { bridgeFetch, bridgeVersion } from "@/lib/bridge/bridge-fetch";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
@@ -500,6 +501,7 @@ function BridgeScreen() {
       title="B-POS Bridge"
       subtitle="Los pedidos avanzan a Interpretado automáticamente cuando todas sus líneas cuantificadas tienen equivalencia."
     >
+      <NotPrimaryBanner />
       <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-[minmax(320px,0.9fr)_minmax(0,1.6fr)]">
         <aside className="min-w-0 space-y-6">
           <section

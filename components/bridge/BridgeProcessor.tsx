@@ -9,6 +9,7 @@
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { usePlanState } from "@/components/cloud/PlanGate";
+import { usePrimaryDevice } from "@/components/settings/PrimaryDeviceCard";
 import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
 import { startBackgroundTicker } from "@/lib/background-ticker";
 import { bridgeFetch, bridgeVersion } from "@/lib/bridge/bridge-fetch";
@@ -31,6 +32,8 @@ export function BridgeProcessor() {
   const pathname = usePathname() || "";
   const plan = usePlanState();
   const allowed = planIncludes(plan, "delivery");
+  // Al marcar o quitar esta computadora como caja principal (Configuración → Sistema) se vuelve a decidir
+  const { primary } = usePrimaryDevice();
 
   useEffect(() => {
     if (!allowed || !bridgeProcessorActive(pathname)) return;
@@ -87,7 +90,7 @@ export function BridgeProcessor() {
       stopped = true;
       stopTicker();
     };
-  }, [allowed, pathname]);
+  }, [allowed, pathname, primary]);
 
   return null;
 }
