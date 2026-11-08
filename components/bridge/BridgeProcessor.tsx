@@ -9,7 +9,9 @@
 import { usePathname } from "next/navigation";
 import { useEffect } from "react";
 import { usePlanState } from "@/components/cloud/PlanGate";
+import { usePrimaryDevice } from "@/components/settings/PrimaryDeviceCard";
 import { getAdminIngredients, getAdminProducts } from "@/lib/admin";
+import { startBackgroundTicker } from "@/lib/background-ticker";
 import { bridgeFetch, bridgeVersion } from "@/lib/bridge/bridge-fetch";
 import { processBridgeOrders, type ProcessorOrder } from "@/lib/bridge/processor";
 import { isPrimaryDevice } from "@/lib/cloud/sync";
@@ -30,6 +32,8 @@ export function BridgeProcessor() {
   const pathname = usePathname() || "";
   const plan = usePlanState();
   const allowed = planIncludes(plan, "delivery");
+  // Al marcar o quitar esta computadora como caja principal (Configuración → Sistema) se vuelve a decidir
+  const { primary } = usePrimaryDevice();
 
   useEffect(() => {
     if (!allowed || !bridgeProcessorActive(pathname)) return;
@@ -80,12 +84,13 @@ export function BridgeProcessor() {
     };
 
     void tick();
-    const timer = window.setInterval(() => void tick(), TICK_MS);
+    // Con la caja minimizada un setInterval normal se espacia a una vez por minuto: este no
+    const stopTicker = startBackgroundTicker(TICK_MS, () => void tick());
     return () => {
       stopped = true;
-      window.clearInterval(timer);
+      stopTicker();
     };
-  }, [allowed, pathname]);
+  }, [allowed, pathname, primary]);
 
   return null;
 }

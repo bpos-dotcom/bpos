@@ -743,11 +743,12 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
               onChange={(e) => {
                 setPrimaryDevice(e.target.checked);
                 setIsPrimary(e.target.checked);
+                window.dispatchEvent(new Event("bpos:primary-device-updated"));
               }}
             />
             <span>
-              <b>Caja principal.</b> Descuenta el inventario de las ventas.
-              Déjalo activo solo en la computadora de la caja.
+              <b>Caja principal.</b> Procesa sola los pedidos de Uber, DiDi y Rappi
+              y descuenta el inventario. Déjalo activo solo en la computadora de la caja.
             </span>
           </label>
 

@@ -199,7 +199,10 @@ export async function processBridgeOrders(orders: ProcessorOrder[], aliases: unk
         } else {
           try {
             const { tickets } = await buildOrderTickets(order, { products: catalog.products, recipes: getAdminRecipes() }, getBusinessSettings());
-            const result = await printDeliveryTickets({ platform: order.platform!, orderId: order.orderId!, tickets });
+            let result = await printDeliveryTickets({ platform: order.platform!, orderId: order.orderId!, tickets });
+            // El Agent ya sacó algo de este pedido (el original de respaldo, o el mismo número de otro día):
+            // las estaciones y la bolsa todavía no tienen su ticket, así que se mandan de todos modos
+            if (result.alreadyPrinted && !result.results?.length) result = await printDeliveryTickets({ platform: order.platform!, orderId: order.orderId!, tickets, force: true });
             const printers = (result.results || []).filter((r) => r.ok && r.printer).map((r) => r.printer as string);
             const failures = (result.results || []).filter((r) => !r.ok);
             let give = true;
