@@ -28,6 +28,19 @@ export type BridgeStore = {
   orders(): Promise<StoredBridgeOrder[]>;
   /** Solo los que siguen en proceso (sin Finalizado ni Error): para las alertas de pendientes, sin bajar todo */
   activeOrders(): Promise<StoredBridgeOrder[]>;
+  /** Un solo pedido (para cambiarlo sin bajar todos) */
+  order(key: string): Promise<StoredBridgeOrder | null>;
+  /**
+   * Lo que el procesador en segundo plano tiene que revisar: los que siguen en
+   * proceso y los finalizados de las últimas horas que aún no salieron a estaciones.
+   */
+  workOrders(sinceMs: number): Promise<StoredBridgeOrder[]>;
+  /**
+   * Aparta el pedido para un equipo (processingBy/processingAt) para que dos
+   * pantallas no creen la misma venta ni impriman dos veces. true si quedó
+   * apartado para este equipo (estaba libre, ya era suyo o el otro dejó de responder).
+   */
+  claimOrder(key: string, device: string, staleMs: number): Promise<boolean>;
   /** Huella de pedidos y equivalencias (cuántos y el último cambio): si no cambió, no hay que volver a bajarlos */
   version(): Promise<string>;
   /** false si ya existía (misma plataforma y número) */
@@ -72,6 +85,41 @@ function cloudStore(ctx: Extract<BridgeContext, { mode: "cloud" }>): BridgeStore
         .limit(300);
       fail(error);
       return (data ?? []).map((row) => row.data as StoredBridgeOrder);
+    },
+    async order(key) {
+      const { data, error } = await db.from("bpos_bridge_orders").select("data").eq("branch_id", branchId).eq("order_key", key).maybeSingle();
+      fail(error);
+      return (data?.data as StoredBridgeOrder | undefined) ?? null;
+    },
+    async workOrders(sinceMs) {
+      const since = new Date(Date.now() - sinceMs).toISOString();
+      const [active, unprinted] = await Promise.all([
+        db.from("bpos_bridge_orders").select("data").eq("branch_id", branchId).not("status", "in", "(Finalizado,Error)").order("received_at", { ascending: false }).limit(100),
+        db.from("bpos_bridge_orders").select("data").eq("branch_id", branchId).eq("status", "Finalizado").gt("received_at", since).is("data->stationPrint", null).limit(50),
+      ]);
+      fail(active.error);
+      fail(unprinted.error);
+      return [...(active.data ?? []), ...(unprinted.data ?? [])].map((row) => row.data as StoredBridgeOrder);
+    },
+    async claimOrder(key, device, staleMs) {
+      const cutoff = new Date(Date.now() - staleMs).toISOString();
+      const { data: row, error } = await db.from("bpos_bridge_orders").select("data").eq("branch_id", branchId).eq("order_key", key).maybeSingle();
+      fail(error);
+      const current = row?.data as StoredBridgeOrder | undefined;
+      if (!current) return false;
+      const by = String(current.processingBy || "");
+      if (by && by !== device && String(current.processingAt || "") > cutoff) return false;
+      // La condición se vuelve a revisar al escribir: si otro equipo lo apartó en ese instante, no se pisa.
+      // Sin tocar updated_at: apartar no cambia la huella (no hace que todos vuelvan a bajar los pedidos)
+      const { data: claimed, error: claimError } = await db
+        .from("bpos_bridge_orders")
+        .update({ data: { ...current, processingBy: device, processingAt: new Date().toISOString() } })
+        .eq("branch_id", branchId)
+        .eq("order_key", key)
+        .or(`data->>processingBy.is.null,data->>processingBy.eq."${device}",data->>processingAt.lt."${cutoff}"`)
+        .select("order_key");
+      fail(claimError);
+      return (claimed ?? []).length > 0;
     },
     async version() {
       const [orders, aliases] = await Promise.all([
@@ -191,6 +239,24 @@ const diskStore: BridgeStore = {
   },
   async activeOrders() {
     return bridgeOrders<StoredBridgeOrder>().filter((o) => o.status !== "Finalizado" && o.status !== "Error");
+  },
+  async order(key) {
+    return bridgeOrders<StoredBridgeOrder>().find((o) => orderKey(o) === key) ?? null;
+  },
+  async workOrders(sinceMs) {
+    return bridgeOrders<StoredBridgeOrder>().filter(
+      (o) => (o.status !== "Finalizado" && o.status !== "Error") || (o.status === "Finalizado" && !o.stationPrint && Date.now() - (Date.parse(String(o.bridgeReceivedAt || "")) || 0) < sinceMs)
+    );
+  },
+  async claimOrder(key, device, staleMs) {
+    const order = bridgeOrders<StoredBridgeOrder>().find((o) => orderKey(o) === key);
+    if (!order) return false;
+    const by = String(order.processingBy || "");
+    if (by && by !== device && Date.now() - (Date.parse(String(order.processingAt || "")) || 0) < staleMs) return false;
+    order.processingBy = device;
+    order.processingAt = new Date().toISOString();
+    saveBridgeOrders();
+    return true;
   },
   async version() {
     // Sin nube (pruebas en esta PC): leer el archivo es barato, siempre "cambió"

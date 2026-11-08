@@ -14,7 +14,10 @@ import {
   syncLowStockAlert,
   OPERATIONS_ALERT_EVENT,
 } from "@/lib/notifications/operationsCenter";
-import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
+import { bridgeFetch, bridgeVersion as fetchBridgeVersion } from "@/lib/bridge/bridge-fetch";
+import { BridgeProcessor, bridgeProcessorActive } from "@/components/bridge/BridgeProcessor";
+import { readCachedPlan } from "@/components/cloud/PlanGate";
+import { planIncludes } from "@/lib/plans";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { runDailyBackup } from "@/lib/cloud/backup";
 import { flushDrawerSuspects } from "@/lib/cash-drawer";
@@ -149,8 +152,15 @@ export function Sidebar() {
       syncCriticalInventoryAlerts();
       syncLowStockAlert();
 
-      const versionResponse = await bridgeFetch("/api/bridge/version", { cache: "no-store" }).catch(() => null);
-      const version = versionResponse?.ok ? String(((await versionResponse.json().catch(() => ({}))) as { version?: string }).version || "") : "";
+      // El aviso de equivalencias y la revisión del Bridge solo en el equipo que procesa los pedidos
+      // (el principal, o quien tenga abierto el Bridge); nunca en cocina ni en planes sin delivery
+      if (!planIncludes(readCachedPlan(), "delivery") || !bridgeProcessorActive(window.location.pathname)) {
+        setPendingCount(0);
+        setPendingItems([]);
+        refreshLocal();
+        return;
+      }
+      const version = await fetchBridgeVersion();
       // Sin huella (falló la consulta) no se baja todo en cada vuelta: como máximo cada 30 s
       const changed = version ? version !== bridgeVersion.current || Date.now() - lastFullCheck.current > FULL_EVERY_MS : Date.now() - lastFullCheck.current > 30_000;
       const response = changed ? await bridgeFetch("/api/bridge/pending", { cache: "no-store" }) : null;
@@ -381,6 +391,7 @@ export function Sidebar() {
       )}
     </aside>
     <UpdateNotice />
+    <BridgeProcessor />
     <EquivalencePrompt items={pendingItems} signature={signature} canEquivalate={hasPermission(currentUser, "bridge.aliases")} />
     </>
   );
