@@ -66,14 +66,16 @@ async function call<T>(method: string, query = "", body?: unknown): Promise<T> {
   return payload;
 }
 export type WaiterDeviceRow = { id: string; name: string; created_at: string; last_seen_at: string | null };
-export const listWaiterDevices = (branchId: string) => call<{ devices: WaiterDeviceRow[] }>("GET", `?branch=${encodeURIComponent(branchId)}`).then((r) => r.devices);
-export const newWaiterCode = (branchId: string) => call<{ code: string; expiresAt: string }>("POST", "", { accion: "codigo", branchId });
+/** "mesero": celulares de la app de meseros · "kds": tablets de cocina (bpos.com.mx/kds/<liga>) */
+export type LinkedDeviceKind = "mesero" | "kds";
+export const listWaiterDevices = (branchId: string, tipo: LinkedDeviceKind = "mesero") => call<{ devices: WaiterDeviceRow[] }>("GET", `?branch=${encodeURIComponent(branchId)}&tipo=${tipo}`).then((r) => r.devices);
+export const newWaiterCode = (branchId: string, tipo: LinkedDeviceKind = "mesero") => call<{ code: string; expiresAt: string }>("POST", "", { accion: "codigo", branchId, tipo });
 export const revokeWaiterDevice = (id: string) => call<unknown>("DELETE", `?id=${encodeURIComponent(id)}`);
 /** El celular avisa que sigue en uso (Configuración → Meseros muestra "última vez") */
 export const waiterDeviceSeen = () => call<unknown>("PATCH", "", { accion: "visto" }).catch(() => undefined);
 /** Desde el celular (sin sesión): vincula y regresa con qué entrar */
-export const linkWaiterDevice = (slug: string, code: string, name: string) =>
-  call<{ email: string; password: string; deviceId: string; branchId: string; name: string }>("POST", "", { accion: "vincular", slug, code, name });
+export const linkWaiterDevice = (slug: string, code: string, name: string, tipo: LinkedDeviceKind = "mesero") =>
+  call<{ email: string; password: string; deviceId: string; branchId: string; name: string }>("POST", "", { accion: "vincular", slug, code, name, tipo });
 
 // ------------------------------------------------------------ quién puede
 

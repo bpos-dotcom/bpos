@@ -23,6 +23,7 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_current_user",
   "bpos_session_alive",
   "bpos_waiter_device",
+  "bpos_kds_device", // tablet de cocina vinculada (/kds/<liga>)
   "bpos_local_agent",
   "bpos_offline_warm",
   "bpos_license",

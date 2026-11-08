@@ -59,6 +59,12 @@ const adminModules = [
     description: "App de meseros en el celular: vincula sus teléfonos con un código, toman la orden en la mesa y la mandan a cocina. Se corta por turno (checador) y fuera de horario.",
   },
   {
+    title: "Tablets de cocina",
+    href: "/configuracion/kds",
+    icon: "👨‍🍳",
+    description: "La pantalla de cocina (KDS) en tablets: se vinculan con un código, cada quien entra con su PIN y solo ven sus pedidos, sin el resto de B-POS.",
+  },
+  {
     title: "Reparto",
     href: "/configuracion/reparto",
     icon: "🛵",

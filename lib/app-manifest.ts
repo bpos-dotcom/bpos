@@ -6,6 +6,7 @@
  *   App del dueño           → /dueno                                         app/dueno/manifest.webmanifest
  *   Cocina (KDS)            → /cocina                                        app/cocina/manifest.webmanifest
  *   Meseros                 → /meseros/<liga>                                app/meseros/[slug]/manifest
+ *   Tablets de cocina       → /kds/<liga>                                    app/kds/[slug]/manifest
  * Chrome ofrece instalar la app de la página donde estás.
  */
 export type AppManifestInput = {
