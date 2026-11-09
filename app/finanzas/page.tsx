@@ -21,7 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { FinanceChart, type ChartSeries } from "@/components/finance/FinanceChart";
 import { AppsPanel } from "@/components/finance/AppsPanel";
-import { ProfitBreakdown, type AppIncome } from "@/components/finance/ProfitBreakdown";
+import { ProfitBreakdown, type AppIncome, type FixedPart, type FoodCostInfo } from "@/components/finance/ProfitBreakdown";
 import {
   EXPENSE_CATEGORIES,
   FINANCE_EVENT,
@@ -358,6 +358,20 @@ export default function FinanzasPage() {
   const periodName = FINANCE_PERIODS.find(([k]) => k === period)?.[1].toLowerCase() || "periodo";
   const word = period === "semana" || period === "semana-pasada" ? "semana" : period === "rango" ? "periodo" : "mes";
   const coverage = cur?.all.kpis.costCoverage ?? 100;
+  // Detalle de los renglones del desglose: cada gasto fijo con su parte del periodo, y el food cost
+  const fixedParts: FixedPart[] = fixed
+    .filter((f) => (Number(f.amount) || 0) > 0)
+    .map((f) => ({ name: f.name, category: f.category, monthly: Number(f.amount) || 0, amount: fixedTotal > 0 ? ((Number(f.amount) || 0) * fixedPeriod) / fixedTotal : 0 }));
+  const foodInfo: FoodCostInfo = {
+    pct: foodCost,
+    itemsSold: cur?.all.kpis.itemsSold || 0,
+    orders: cur?.all.kpis.orders || 0,
+    localCost: cur?.local.kpis.cost || 0,
+    appCost: Math.max(0, cost - (cur?.local.kpis.cost || 0)),
+    coverage: sales > 0 ? coverage : 100,
+    top: [...(cur?.all.byProduct || [])].sort((a, b) => b.cost - a.cost).filter((p) => p.cost > 0).slice(0, 5).map((p) => ({ label: p.label, quantity: p.quantity, cost: p.cost, sales: p.sales })),
+    noCost: (cur?.all.byProduct || []).filter((p) => p.sales > 0 && p.cost <= 0).map((p) => p.label),
+  };
 
   // Gráfica: acumulado día por día; el periodo anterior en los mismos días
   // Ingresos: locales (verde) y de apps (naranja); utilidad: una sola línea
@@ -499,7 +513,25 @@ export default function FinanzasPage() {
             <span className={`ml-1 font-black ${estimated ? "text-sky-300" : "text-emerald-400"}`}>{estimated ? "(estimada)" : hasApps ? "real ✓" : ""}</span>
           </p>
           <p className={`text-5xl font-black ${net >= 0 ? "text-emerald-400" : "text-red-400"}`}>{money(net)}</p>
-          <ProfitBreakdown local={localParts} apps={appIncome} appsTotal={appsIncome} cost={cost} expenses={expensesTotal} cashDiff={cashDiff} cuts={cur?.cutsWithDiff || []} net={net} netMargin={netMargin} periodName={periodName} money={money} pct={pct} />
+          <ProfitBreakdown
+            local={localParts}
+            apps={appIncome}
+            appsTotal={appsIncome}
+            cost={cost}
+            food={foodInfo}
+            fixed={fixedParts}
+            fixedTotal={fixedPeriod}
+            extraTotal={extraTotal}
+            cashSpent={cashSpent}
+            cashDiff={cashDiff}
+            cuts={cur?.cutsWithDiff || []}
+            net={net}
+            netMargin={netMargin}
+            periodName={periodName}
+            money={money}
+            pct={pct}
+            onWhyCost={(cur?.costByIngredient.length || 0) > 0 ? () => setWhyOpen(true) : undefined}
+          />
           {estimated && (
             <p className="mt-1 text-xs text-sky-300">
               {(cur?.estimateTotal || 0) > 0
@@ -513,17 +545,6 @@ export default function FinanzasPage() {
               Si sigues al mismo ritmo, cierras {word === "mes" ? "el mes" : word === "semana" ? "la semana" : "el periodo"} con <b>{money(projection)}</b> de ingresos y una utilidad de{" "}
               <b className={projectedNet >= 0 ? "text-emerald-400" : "text-red-400"}>{money(projectedNet)}</b>.
             </p>
-          )}
-          {coverage < 90 && sales > 0 && (
-            <p className="mt-3 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-100">
-              ⚠️ Solo el {pct(coverage)} de lo vendido tiene receta con costo. Lo que no tiene receta cuenta como costo $0 y la utilidad se ve más alta de lo real.
-              Completa tus recetas en Configuración → Recetas.
-            </p>
-          )}
-          {foodCost > 45 && (cur?.costByIngredient.length || 0) > 0 && (
-            <button type="button" onClick={() => setWhyOpen(true)} className="mt-3 block text-left text-xs font-bold text-zinc-400 underline-offset-2 hover:text-orange-400 hover:underline">
-              🔎 ¿Por qué el food cost está en {pct(foodCost)}? Ver detalle
-            </button>
           )}
           </div>
 
