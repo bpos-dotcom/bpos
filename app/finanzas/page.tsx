@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { FinanceChart, type ChartSeries } from "@/components/finance/FinanceChart";
 import { AppsPanel } from "@/components/finance/AppsPanel";
+import { ProfitBreakdown, type AppIncome } from "@/components/finance/ProfitBreakdown";
 import {
   EXPENSE_CATEGORIES,
   FINANCE_EVENT,
@@ -332,6 +333,21 @@ export default function FinanzasPage() {
   const toCover = expensesTotal - cashDiff;
   const net = gross - toCover;
   const netMargin = sales > 0 ? (net / sales) * 100 : 0;
+  // Desglose de ingresos: locales por forma de pago y apps (estimado por comisiones contra depósito real)
+  const localParts = (() => {
+    const map = new Map<string, number>();
+    (cur?.days || []).flatMap((d) => d.localBreakdown).forEach((p) => map.set(p.label, (map.get(p.label) || 0) + p.amount));
+    return [...map.entries()].filter(([, amount]) => amount > 0.5).map(([label, amount]) => ({ label, amount }));
+  })();
+  const appsIncome = sales - localParts.reduce((s, p) => s + p.amount, 0);
+  const pendingByApp = new Map(cur?.estimateByApp || []);
+  const appRows = (cur?.byApp || []).map((r) => ({ ...r, pending: pendingByApp.get(r.name) || 0 }));
+  const appIncome: AppIncome[] = appRows.map((r) => {
+    const c = commissions[r.name];
+    // Lo esperado solo de las semanas que ya tienen depósito real
+    const expected = r.deposited > 0 && isConfigured(c) ? Math.max(0, r.sales * netFactor(c) - r.pending) : null;
+    return { name: r.name, deposited: r.deposited, expected, pending: r.pending };
+  });
   const equilibrium = breakEven(Math.max(0, toCover), grossMargin);
   const dailyNeeded = equilibrium ? equilibrium / totalDays : 0;
   const projection = isCurrent ? (sales / daysSoFar) * totalDays : sales;
@@ -483,10 +499,7 @@ export default function FinanzasPage() {
             <span className={`ml-1 font-black ${estimated ? "text-sky-300" : "text-emerald-400"}`}>{estimated ? "(estimada)" : hasApps ? "real ✓" : ""}</span>
           </p>
           <p className={`text-5xl font-black ${net >= 0 ? "text-emerald-400" : "text-red-400"}`}>{money(net)}</p>
-          <p className="mt-1 text-sm text-zinc-400">
-            Margen neto {pct(netMargin)} · ingresos {money(sales)} − costo {money(cost)} − gastos {money(expensesTotal)}
-            {cashDiff < 0 ? ` − faltantes de caja ${money(-cashDiff)}` : cashDiff > 0 ? ` + sobrantes de caja ${money(cashDiff)}` : ""}
-          </p>
+          <ProfitBreakdown local={localParts} apps={appIncome} appsTotal={appsIncome} cost={cost} expenses={expensesTotal} cashDiff={cashDiff} cuts={cur?.cutsWithDiff || []} net={net} netMargin={netMargin} periodName={periodName} money={money} pct={pct} />
           {estimated && (
             <p className="mt-1 text-xs text-sky-300">
               {(cur?.estimateTotal || 0) > 0
@@ -500,21 +513,6 @@ export default function FinanzasPage() {
               Si sigues al mismo ritmo, cierras {word === "mes" ? "el mes" : word === "semana" ? "la semana" : "el periodo"} con <b>{money(projection)}</b> de ingresos y una utilidad de{" "}
               <b className={projectedNet >= 0 ? "text-emerald-400" : "text-red-400"}>{money(projectedNet)}</b>.
             </p>
-          )}
-          {(cur?.cutsWithDiff.length || 0) > 0 && (
-            <div className={`mt-3 rounded-2xl border p-3 text-xs ${cashDiff < 0 ? "border-red-500/40 bg-red-500/10 text-red-100" : "border-emerald-500/40 bg-emerald-500/10 text-emerald-100"}`}>
-              <p className="font-black">
-                💵 Caja: {cashDiff < 0 ? `faltaron ${money(-cashDiff)}` : cashDiff > 0 ? `sobraron ${money(cashDiff)}` : "las diferencias se compensan"} en los cortes de {periodName} (ya está en la utilidad).
-              </p>
-              <ul className="mt-1 space-y-0.5">
-                {cur!.cutsWithDiff.map((c) => (
-                  <li key={c.folio}>
-                    {new Date(c.closedAt).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" })} · {c.folio}: {c.difference < 0 ? "faltante" : "sobrante"} {money(Math.abs(c.difference))}
-                    {c.reason ? ` (${c.reason})` : ""}
-                  </li>
-                ))}
-              </ul>
-            </div>
           )}
           {coverage < 90 && sales > 0 && (
             <p className="mt-3 rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-100">
@@ -724,7 +722,7 @@ export default function FinanzasPage() {
               </div>
             </section>
 
-            <AppsPanel rows={cur?.byApp || []} periodName={periodName} money={money} pct={pct} commissions={commissions} />
+            <AppsPanel rows={appRows} periodName={periodName} money={money} pct={pct} commissions={commissions} />
             <section className={card}>
               <h2 className="text-lg font-black">💵 Otros ingresos (depósitos de delivery)</h2>
               <button type="button" onClick={() => setCommissionsOpen(true)} className="mt-1 text-xs font-bold text-zinc-400 underline-offset-2 hover:text-orange-400 hover:underline">
