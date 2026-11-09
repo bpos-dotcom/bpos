@@ -29,7 +29,8 @@ Con eso escribe:
 - alertas: de 2 a 4 problemas o riesgos que veas en los números (título corto y explicación de 1 a 2 frases con cifras).
 - consejos: de 2 a 4 acciones concretas para esta semana (título corto y qué hacer, con cifras).`;
 
-export const ANALYZE = `Con estos datos, escribe:
-- resumen: un párrafo (3 a 5 frases) de cómo va la semana contra la anterior: ventas, pedidos, ticket promedio, utilidad y punto de equilibrio si hay datos.
+export const ANALYZE = `Si los datos traen "periodo", el dueño eligió ese periodo: todo tu análisis es SOLO de ese periodo (dilo por su nombre y fechas, por ejemplo "La semana pasada, del 2 al 8 de noviembre") comparado con "periodoAnterior" si viene. No hables de "los últimos 7 días" ni de otros periodos. Si el periodo todavía no termina, toma en cuenta los días transcurridos.
+Con estos datos, escribe:
+- resumen: un párrafo (3 a 5 frases) de cómo va el periodo (o la semana, si no viene periodo) contra el anterior: ventas, pedidos, ticket promedio, utilidad y punto de equilibrio si hay datos.
 - alertas: de 2 a 4 problemas o riesgos que veas en los números (título corto y explicación de 1 a 2 frases con cifras).
 - consejos: de 2 a 4 acciones para esta semana (título corto y qué hacer, con cifras).`;
