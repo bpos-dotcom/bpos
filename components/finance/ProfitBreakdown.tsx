@@ -6,7 +6,8 @@
  * los faltantes o sobrantes de caja. El detalle del food cost, de los gastos
  * fijos y de los cortes se abre en una ventanita a un lado.
  */
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 
 type Part = { label: string; amount: number };
 export type AppIncome = { name: string; deposited: number; expected: number | null; pending: number };
@@ -26,38 +27,36 @@ export type FoodCostInfo = {
   noCost: string[];
 };
 
-/** Botoncito que abre una ventanita a un lado (abajo en pantallas chicas); se cierra al tocar fuera o con Esc */
+/** Botoncito que abre una ventanita centrada en la pantalla; se cierra al tocar fuera, con ✕ o con Esc */
 function Popover({ label, title, children, tone = "text-zinc-400" }: { label: ReactNode; title: string; children: ReactNode; tone?: string }) {
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLSpanElement>(null);
   useEffect(() => {
     if (!open) return;
-    const away = (e: MouseEvent) => ref.current && !ref.current.contains(e.target as Node) && setOpen(false);
     const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", away);
     document.addEventListener("keydown", esc);
-    return () => {
-      document.removeEventListener("mousedown", away);
-      document.removeEventListener("keydown", esc);
-    };
+    return () => document.removeEventListener("keydown", esc);
   }, [open]);
   return (
-    <span ref={ref} className="relative ml-2 inline-block">
-      <button type="button" onClick={() => setOpen((o) => !o)} aria-expanded={open} className={`rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] font-black hover:border-orange-500 hover:text-orange-300 ${open ? "border-orange-500 text-orange-300" : tone}`}>
+    <>
+      <button type="button" onClick={() => setOpen(true)} aria-expanded={open} className={`ml-2 inline-block rounded-full border border-zinc-700 px-2 py-0.5 text-[11px] font-black hover:border-orange-500 hover:text-orange-300 ${open ? "border-orange-500 text-orange-300" : tone}`}>
         {label}
       </button>
-      {open && (
-        <div role="dialog" aria-label={title} className="absolute left-0 top-full z-40 mt-2 w-[min(22rem,80vw)] rounded-2xl border border-zinc-700 bg-zinc-950 p-4 text-left text-xs font-normal text-zinc-300 shadow-2xl shadow-black lg:left-full lg:top-0 lg:ml-3 lg:mt-0">
-          <div className="flex items-start justify-between gap-2">
-            <p className="text-sm font-black text-white">{title}</p>
-            <button type="button" onClick={() => setOpen(false)} className="rounded-lg px-1.5 font-black text-zinc-500 hover:text-white" aria-label="Cerrar">
-              ✕
-            </button>
-          </div>
-          <div className="mt-2 space-y-2">{children}</div>
-        </div>
-      )}
-    </span>
+      {open &&
+        createPortal(
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm" onClick={() => setOpen(false)}>
+            <div role="dialog" aria-label={title} className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-3xl border border-zinc-700 bg-zinc-950 p-5 text-left text-sm font-normal text-zinc-300 shadow-2xl shadow-black" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-lg font-black text-white">{title}</p>
+                <button type="button" onClick={() => setOpen(false)} className="rounded-xl border border-zinc-800 px-3 py-1 font-black text-zinc-400 hover:text-white" aria-label="Cerrar">
+                  ✕
+                </button>
+              </div>
+              <div className="mt-3 space-y-3">{children}</div>
+            </div>
+          </div>,
+          document.body
+        )}
+    </>
   );
 }
 
@@ -99,6 +98,7 @@ export function ProfitBreakdown({
   net,
   netMargin,
   periodName,
+  periodDays,
   money,
   pct,
   onWhyCost,
@@ -117,6 +117,8 @@ export function ProfitBreakdown({
   net: number;
   netMargin: number;
   periodName: string;
+  /** Días del periodo (para la parte de los gastos fijos) */
+  periodDays: number;
   money: (n: number) => string;
   pct: (n: number) => string;
   onWhyCost?: () => void;
@@ -203,17 +205,19 @@ export function ProfitBreakdown({
         extra={
           fixed.length > 0 && (
             <Popover label="Ver detalle" title={`🏠 Gastos fijos de ${periodName}`}>
-              <p className="text-zinc-400">Cada gasto es por mes; a {periodName} le toca su parte según los días.</p>
-              <div className="space-y-1 rounded-xl bg-black p-3">
+              <p className="text-zinc-400">
+                Lo que le toca a {periodName} ({periodDays} día{periodDays === 1 ? "" : "s"}) de cada gasto fijo.
+              </p>
+              <div className="space-y-1.5 rounded-2xl bg-black p-3">
                 {fixed.map((f) => (
                   <Row
                     key={`${f.name}-${f.category}`}
                     left={
                       <>
-                        <b className="text-zinc-200">{f.name}</b> <span className="text-zinc-500">{f.category} · {money(f.monthly)}/mes</span>
+                        <b className="text-zinc-200">{f.name}</b> <span className="text-xs text-zinc-500">{f.category}</span>
                       </>
                     }
-                    right={money(f.amount)}
+                    right={<b className="text-white">{money(f.amount)}</b>}
                   />
                 ))}
                 <div className="border-t border-zinc-800 pt-1">
