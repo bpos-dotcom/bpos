@@ -7,9 +7,13 @@
  * depósito).
  */
 import { useState } from "react";
+import { isConfigured, netFactor, type AppCommission } from "@/lib/app-commissions";
 
 type Row = { name: string; orders: number; sales: number; ticket: number; deposited: number };
 type Metric = "orders" | "sales" | "ticket";
+
+/** Hasta cuántos puntos de diferencia contra lo esperado se considera correcto */
+const TOLERANCE = 3;
 
 const METRICS: [Metric, string][] = [
   ["orders", "Pedidos"],
@@ -17,11 +21,11 @@ const METRICS: [Metric, string][] = [
   ["ticket", "Ticket"],
 ];
 
-export function AppsPanel({ rows, periodName, money, pct }: { rows: Row[]; periodName: string; money: (n: number) => string; pct: (n: number) => string }) {
+export function AppsPanel({ rows, periodName, money, pct, commissions }: { rows: Row[]; periodName: string; money: (n: number) => string; pct: (n: number) => string; commissions: Record<string, AppCommission> }) {
   const [metric, setMetric] = useState<Metric>("orders");
   const total = rows.reduce((s, r) => s + r.orders, 0);
   const sales = rows.reduce((s, r) => s + r.sales, 0);
-  const deposited = rows.reduce((s, r) => s + r.deposited, 0);
+  const paid = rows.filter((r) => r.deposited > 0 && r.sales > 0);
   const sorted = [...rows].sort((a, b) => b[metric] - a[metric]);
   const max = Math.max(1, ...rows.map((r) => r[metric]));
   const most = [...rows].sort((a, b) => b.orders - a.orders)[0];
@@ -56,23 +60,32 @@ export function AppsPanel({ rows, periodName, money, pct }: { rows: Row[]; perio
 
       {total > 0 && (
         <div className="mt-4 grid gap-4 md:grid-cols-[1fr_13rem]">
-          <ul className="space-y-3">
-            {sorted.map((r) => (
-              <li key={r.name} title={`${r.name}: ${r.orders} pedidos · ${money(r.sales)} · ticket ${money(r.ticket)}`}>
-                <div className="flex items-baseline justify-between gap-2 text-sm">
-                  <span className="font-black">{r.name}</span>
-                  <span className="font-bold text-zinc-300">{value(r)}</span>
-                </div>
-                <div className="mt-1 h-3 overflow-hidden rounded-full bg-zinc-900">
-                  <div className="h-full rounded-full bg-orange-500" style={{ width: `${Math.max(3, (r[metric] / max) * 100)}%` }} />
-                </div>
-                <p className="mt-0.5 text-xs text-zinc-500">
-                  {pct((r.orders / total) * 100)} de los pedidos · ticket {money(r.ticket)}
-                  {r.deposited > 0 && r.sales > 0 ? ` · te depositó ${money(r.deposited)} (${pct((r.deposited / r.sales) * 100)})` : ""}
-                </p>
-              </li>
-            ))}
-          </ul>
+          <div className="space-y-4">
+            <ul className="space-y-3">
+              {sorted.map((r) => (
+                <li key={r.name} title={`${r.name}: ${r.orders} pedidos · ${money(r.sales)} · ticket ${money(r.ticket)}`}>
+                  <div className="flex items-baseline justify-between gap-2 text-sm">
+                    <span className="font-black">{r.name}</span>
+                    <span className="font-bold text-zinc-300">{value(r)}</span>
+                  </div>
+                  <div className="mt-1 h-3 overflow-hidden rounded-full bg-zinc-900">
+                    <div className="h-full rounded-full bg-orange-500" style={{ width: `${Math.max(3, (r[metric] / max) * 100)}%` }} />
+                  </div>
+                  <p className="mt-0.5 text-xs text-zinc-500">
+                    {pct((r.orders / total) * 100)} de los pedidos · ticket {money(r.ticket)}
+                    {r.deposited > 0 && r.sales > 0 ? ` · te depositó ${money(r.deposited)} (${pct((r.deposited / r.sales) * 100)})` : ""}
+                  </p>
+                </li>
+              ))}
+            </ul>
+            {paid.length > 0 && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {paid.map((r) => (
+                  <DepositCheck key={r.name} row={r} commission={commissions[r.name]} money={money} pct={pct} />
+                ))}
+              </div>
+            )}
+          </div>
           <div className="space-y-2 text-sm">
             {most && (
               <div className="rounded-2xl border border-zinc-800 bg-black p-3">
@@ -90,16 +103,44 @@ export function AppsPanel({ rows, periodName, money, pct }: { rows: Row[]; perio
                 <p className="text-xs text-zinc-400">{money(best.ticket)} por pedido</p>
               </div>
             )}
-            {deposited > 0 && sales > 0 && (
-              <div className="rounded-2xl border border-zinc-800 bg-black p-3">
-                <p className="text-xs text-zinc-500">💵 Te llega</p>
-                <p className="text-lg font-black">{pct((deposited / sales) * 100)}</p>
-                <p className="text-xs text-zinc-400">de lo vendido en apps</p>
-              </div>
-            )}
           </div>
         </div>
       )}
     </section>
+  );
+}
+
+/** Lo que te depositó una app contra lo esperado por su comisión e impuestos, con un foquito verde o rojo */
+function DepositCheck({ row, commission, money, pct }: { row: Row; commission?: AppCommission; money: (n: number) => string; pct: (n: number) => string }) {
+  const got = (row.deposited / row.sales) * 100;
+  const configured = isConfigured(commission);
+  const expected = configured ? netFactor(commission) * 100 : 0;
+  const ok = configured && Math.abs(got - expected) <= TOLERANCE;
+  const diff = configured ? row.deposited - (row.sales * expected) / 100 : 0;
+  const light = !configured ? "bg-zinc-600" : ok ? "bg-emerald-400 shadow-[0_0_12px_#34d399]" : "bg-red-500 shadow-[0_0_12px_#ef4444]";
+  const basis = configured ? `${commission.commission || 0}% de comisión, ${commission.taxes || 0}% de impuestos` : "";
+  return (
+    <div className={`rounded-2xl border bg-black p-3 ${!configured ? "border-zinc-800" : ok ? "border-emerald-500/40" : "border-red-500/50"}`}>
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-lg font-black">{row.name}</p>
+          <p className="text-xs text-zinc-400">
+            Recibes <b className="text-base text-white">{pct(got)}</b> de lo que vendiste en {row.name}
+          </p>
+        </div>
+        <span className={`mt-1 h-4 w-4 shrink-0 rounded-full ${light}`} aria-hidden />
+      </div>
+      <p className="mt-2 text-xs text-zinc-500">
+        {money(row.deposited)} de {money(row.sales)} vendidos
+      </p>
+      {configured ? (
+        <p className={`mt-1 text-xs font-bold ${ok ? "text-emerald-300" : "text-red-300"}`}>
+          {ok ? "Correcto" : "Incorrecto"} al aproximado según: {basis} ({pct(expected)} esperado)
+          {!ok && <span className="block font-normal text-zinc-400">{diff < 0 ? `Te faltan aprox. ${money(-diff)}` : `Te llegaron aprox. ${money(diff)} de más`}</span>}
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-zinc-500">Configura sus comisiones (⚙️ Comisiones de apps) para saber si está bien.</p>
+      )}
+    </div>
   );
 }
