@@ -102,6 +102,11 @@ function AlertEditor({ kind, pref, canUpload }: { kind: AlertKind; pref: AlertPr
           <input type="checkbox" checked={pref.blink} onChange={(e) => set({ blink: e.target.checked })} className="h-5 w-5 accent-orange-500" />
           <span className="font-black">Parpadear hasta que se atienda</span>
         </label>
+        {ALERT_LABELS[kind].fixedRepeat ? (
+          <p className="rounded-2xl border border-zinc-800 bg-black p-4 text-sm text-zinc-400">
+            Cada cuánto vuelve a sonar hasta que lo atiendan se elige en la <b className="text-zinc-200">App del dueño → Productividad</b>, en cada recordatorio.
+          </p>
+        ) : (
         <div className="rounded-2xl border border-zinc-800 bg-black p-4">
           <label className="flex cursor-pointer items-center gap-3">
             <input type="checkbox" checked={pref.repeat} onChange={(e) => set({ repeat: e.target.checked })} className="h-5 w-5 accent-orange-500" />
@@ -120,6 +125,7 @@ function AlertEditor({ kind, pref, canUpload }: { kind: AlertKind; pref: AlertPr
             </label>
           )}
         </div>
+        )}
       </div>
       {error && <p className="mt-3 text-sm font-bold text-red-300">{error}</p>}
       <button onClick={() => saveAlertPref(kind, DEFAULT_ALERTS[kind])} className="mt-4 text-xs text-zinc-500 underline">

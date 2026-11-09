@@ -421,6 +421,8 @@ export function ProductivityOwner() {
   const [form, setForm] = useState<Draft | null>(null);
   const [text, setText] = useState("");
   const [voice, setVoice] = useState(true);
+  // Cada cuánto vuelve a sonar este mensaje hasta que den Enterado (de fábrica, el de Ajustes)
+  const [sendRepeat, setSendRepeat] = useState(data.settings.messageRepeatMinutes);
   const [photo, setPhoto] = useState("");
   const [email, setEmail] = useState(data.settings.email);
   const [msgRepeat, setMsgRepeat] = useState(data.settings.messageRepeatMinutes);
@@ -430,7 +432,7 @@ export function ProductivityOwner() {
 
   function send() {
     if (!text.trim()) return;
-    sendShiftMessage(text, { voice, repeatMinutes: data.settings.messageRepeatMinutes });
+    sendShiftMessage(text, { voice, repeatMinutes: sendRepeat });
     setText("");
     notify("Mensaje mandado al turno.");
   }
@@ -470,6 +472,7 @@ export function ProductivityOwner() {
               <input type="checkbox" checked={voice} onChange={(e) => setVoice(e.target.checked)} className="h-5 w-5 accent-sky-500" />
               Que la voz lo lea
             </label>
+            <RepeatPicker value={sendRepeat} onChange={setSendRepeat} label="Si nadie da Enterado, que el sonido y el mensaje vuelvan a sonar" />
             <button onClick={send} disabled={!text.trim()} className="w-full rounded-2xl bg-sky-500 px-4 py-3 font-black text-black disabled:opacity-40">
               Mandar a la caja
             </button>
@@ -478,7 +481,7 @@ export function ProductivityOwner() {
                 <div>
                   <p className="font-bold">{m.text}</p>
                   <p className="mt-1 text-xs text-zinc-500">
-                    {hour(m.createdAt)} · {m.acks.length ? <span className="text-emerald-400">✓ Enterado: {m.acks.map((a) => `${a.name} ${hour(a.at)}`).join(", ")}</span> : <span className="text-orange-300">Sin leer</span>}
+                    {hour(m.createdAt)}{m.repeatMinutes > 0 && !m.acks.length ? ` · suena cada ${m.repeatMinutes} min` : ""} · {m.acks.length ? <span className="text-emerald-400">✓ Enterado: {m.acks.map((a) => `${a.name} ${hour(a.at)}`).join(", ")}</span> : <span className="text-orange-300">Sin leer</span>}
                   </p>
                 </div>
                 <button onClick={() => deleteMessage(m.id)} className="text-xs text-zinc-500">
@@ -601,7 +604,7 @@ export function ProductivityOwner() {
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder={blindEmail() || "tu@correo.com"} className={`mt-1 ${inputCls}`} />
             <span className="mt-1 block text-xs text-zinc-500">Vacío: se usa el correo del corte de caja o el del negocio{blindEmail() ? ` (${blindEmail()})` : ""}.</span>
           </label>
-          <RepeatPicker value={msgRepeat} onChange={setMsgRepeat} label="Mensajes al turno: si nadie da Enterado, que vuelvan a sonar" />
+          <RepeatPicker value={msgRepeat} onChange={setMsgRepeat} label="Mensajes al turno: cada cuánto vuelven a sonar (lo que sale de fábrica al mandar uno)" />
           <button
             onClick={() => {
               const clean = email.trim().toLowerCase();
