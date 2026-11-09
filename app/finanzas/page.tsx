@@ -724,7 +724,7 @@ export default function FinanzasPage() {
               </div>
             </section>
 
-            <AppsPanel rows={cur?.byApp || []} periodName={periodName} money={money} pct={pct} />
+            <AppsPanel rows={cur?.byApp || []} periodName={periodName} money={money} pct={pct} commissions={commissions} />
             <section className={card}>
               <h2 className="text-lg font-black">💵 Otros ingresos (depósitos de delivery)</h2>
               <button type="button" onClick={() => setCommissionsOpen(true)} className="mt-1 text-xs font-bold text-zinc-400 underline-offset-2 hover:text-orange-400 hover:underline">
