@@ -16,6 +16,7 @@ import {
 } from "@/lib/notifications/operationsCenter";
 import { bridgeFetch, bridgeVersion as fetchBridgeVersion } from "@/lib/bridge/bridge-fetch";
 import { BridgeProcessor, bridgeProcessorActive } from "@/components/bridge/BridgeProcessor";
+import { ProductivityAlarm, useProductivityState } from "@/components/productivity/ProductivityAlarm";
 import { readCachedPlan } from "@/components/cloud/PlanGate";
 import { planIncludes } from "@/lib/plans";
 import { getBusinessSettings } from "@/lib/business-settings";
@@ -39,6 +40,8 @@ const AUTO_CLOSE_MS = 10_000;
 // (unos bytes); los pendientes completos se bajan cuando cambia o cada 5 minutos
 const POLL_MS = 3000;
 const FULL_EVERY_MS = 5 * 60_000;
+// Recordatorios, mensajes del turno e inventario ciego
+const PRODUCTIVITY_ALERT = { color: "#8b5cf6", blink: true };
 
 type PendingResponse = {
   success?: boolean;
@@ -220,10 +223,16 @@ export function Sidebar() {
   useAlertSound("inventory-warning", alerts["inventory-warning"], Boolean(warningSignature), warningSignature);
   useAlertSound("critical-error", alerts["critical-error"], Boolean(criticalSignature), criticalSignature);
 
+  const productivity = useProductivityState();
+
   function openOperationsCenter() {
     // Un pedido del menú en línea esperando va primero: se abre directo
     if (onlineWaiting > 0) {
       router.push("/pedidos-en-linea");
+      return;
+    }
+    if (productivity.count > 0) {
+      router.push("/productividad");
       return;
     }
     if (signature) {
@@ -239,12 +248,13 @@ export function Sidebar() {
   const hasWarning = lowStockCount > 0;
 
   const hasOnline = onlineWaiting > 0;
+  const hasProductivity = productivity.count > 0;
   // Color y parpadeo del aviso que se está mostrando
-  const activeAlert = hasCritical ? alerts["critical-error"] : hasOnline ? alerts["online-order"] : hasPending ? alerts["delivery-equivalences"] : hasWarning ? alerts["inventory-warning"] : null;
+  const activeAlert = hasCritical ? alerts["critical-error"] : hasOnline ? alerts["online-order"] : hasProductivity ? PRODUCTIVITY_ALERT : hasPending ? alerts["delivery-equivalences"] : hasWarning ? alerts["inventory-warning"] : null;
   const alertStyle = activeAlert
     ? { borderColor: activeAlert.color, background: `${activeAlert.color}33`, boxShadow: `0 0 28px ${activeAlert.color}8c` }
     : undefined;
-  const badgeCount = hasCritical ? criticalCount : hasOnline ? onlineWaiting : hasPending ? pendingCount : hasWarning ? lowStockCount : 0;
+  const badgeCount = hasCritical ? criticalCount : hasOnline ? onlineWaiting : hasProductivity ? productivity.count : hasPending ? pendingCount : hasWarning ? lowStockCount : 0;
 
   // Secciones (algunas juntan varias pantallas en subpestañas); cada una lleva a la primera que puede abrir
   // Cuenta de solo servicios: el menú lleva solo sus servicios vigentes
@@ -335,7 +345,12 @@ export function Sidebar() {
 
         {hasCritical && <p className="mt-2 text-xs font-bold text-white">Error crítico · abrir para revisar</p>}
         {!hasCritical && hasOnline && <p className="mt-2 text-xs font-bold text-white">🔔 Nuevo pedido del menú en línea · abrir ahora</p>}
-        {!hasCritical && !hasOnline && hasPending && <p className="mt-2 text-xs font-bold text-white">Equivalencias por enlazar · abrir ahora</p>}
+        {!hasCritical && !hasOnline && hasProductivity && (
+          <p className="mt-2 text-xs font-bold text-white">
+            {productivity.messages.length ? "💬 Mensaje del turno" : productivity.blind ? "📦 Inventario ciego" : "⏰ Recordatorio pendiente"} · abrir ahora
+          </p>
+        )}
+        {!hasCritical && !hasOnline && !hasProductivity && hasPending && <p className="mt-2 text-xs font-bold text-white">Equivalencias por enlazar · abrir ahora</p>}
         {!hasCritical && !hasPending && !hasOnline && hasWarning && <p className="mt-2 text-xs font-bold text-white">Insumos por reponer</p>}
         </>
         )}
@@ -392,6 +407,7 @@ export function Sidebar() {
     </aside>
     <UpdateNotice />
     <BridgeProcessor />
+    <ProductivityAlarm />
     <EquivalencePrompt items={pendingItems} signature={signature} canEquivalate={hasPermission(currentUser, "bridge.aliases")} />
     </>
   );

@@ -10,7 +10,8 @@ import { getSupabase } from "@/lib/supabase/client";
 
 const BUCKET = "bpos-media";
 
-async function toWebp(file: File, maxSide: number): Promise<Blob> {
+/** Reduce la foto y la pasa a WEBP (también la usa el celular al subir evidencias) */
+export async function toWebp(file: File, maxSide: number): Promise<Blob> {
   const url = URL.createObjectURL(file);
   try {
     const img = await new Promise<HTMLImageElement>((resolve, reject) => {

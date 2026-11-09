@@ -18,6 +18,7 @@ export type PushPrefs = {
   caja: boolean; // cortes de caja
   seguridad: boolean; // respaldos restaurados, usuarios y permisos
   opiniones: boolean; // opiniones de 1 a 3 estrellas del menú digital
+  productividad: boolean; // recordatorios atendidos o sin atender e inventario ciego
 };
 
 export const DEFAULT_PUSH_PREFS: PushPrefs = {
@@ -28,6 +29,7 @@ export const DEFAULT_PUSH_PREFS: PushPrefs = {
   caja: true,
   seguridad: true,
   opiniones: true,
+  productividad: true,
 };
 
 /** Acciones de la bitácora que pueden generar aviso. */
@@ -45,6 +47,9 @@ export const PUSH_ACTIONS = new Set([
   "sale.combo_incomplete",
   "inventory.manual_edit",
   "print.reprinted",
+  "task.done",
+  "task.overdue",
+  "blind.submitted",
 ]);
 
 export type PushEvent = {
@@ -107,6 +112,18 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
     case "print.reprinted":
       if (!prefs.seguridad) return null;
       return { title: "🖨️ Reimpresión de pedido", body: event.description, tag, url: "/historial" };
+    // Productividad: recordatorios (los que el dueño pidió que le avisaran) e inventario ciego
+    case "task.done":
+      if (!prefs.productividad) return null;
+      return { title: "✅ Recordatorio atendido", body: event.description, tag, url: "/dueno?vista=productividad" };
+    case "task.overdue":
+      if (!prefs.productividad) return null;
+      return { title: "⏰ Recordatorio sin atender", body: event.description, tag, url: "/dueno?vista=productividad" };
+    case "blind.submitted": {
+      if (!prefs.productividad) return null;
+      const faltante = Number(meta.faltante) || 0;
+      return { title: faltante > 0 ? `📦 Inventario ciego · faltante ${money(faltante)}` : "📦 Inventario ciego listo", body: event.description, tag, url: "/dueno?vista=productividad" };
+    }
     case "backup.restored":
     case "user.created":
     case "permissions.updated":
