@@ -13,7 +13,9 @@ import {
   adjustInventory,
   getInventory,
   getKardex,
+  isPurchase,
   kardexWithGaps,
+  movementLabel,
   InventoryMovement,
   MERMA_REASONS,
   type AdjustmentType,
@@ -23,6 +25,7 @@ import { canViewCosts } from "@/lib/auth";
 import { addAuditEvent } from "@/lib/audit";
 import { downloadXlsx } from "@/lib/xlsx";
 import { exportInventory, exportKardex } from "@/lib/exports";
+import { CheckChips, MoveCard, MovesList, StockBadge, checkItems, isLow, isMovesCheck, isOut, qty, stockMoves, type StockCheck } from "@/components/inventory/StockCheck";
 
 export default function InventarioPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -175,45 +178,7 @@ export default function InventarioPage() {
 
       <WasteSection kardex={kardex} />
 
-      <ListPanel
-        title="Inventario real"
-        items={ingredients}
-        searchText={(ingredient) => `${ingredient.name} ${ingredient.category || ""}`}
-        searchPlaceholder="Buscar insumo"
-        empty="Todavía no hay insumos."
-        filters={INVENTORY_FILTERS}
-        actions={
-          ingredients.length > 0 && (
-            <button onClick={() => exportInventory(ingredients, kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
-              📥 Excel (existencias y kardex)
-            </button>
-          )
-        }
-        render={(ingredient) => {
-          const isLow = ingredient.stock <= ingredient.minimum;
-          // Al tocarlo abre su ficha (Ingredientes o Packaging)
-          const href = `/configuracion/${isPackaging(ingredient) ? "packaging" : "ingredientes"}?insumo=${ingredient.id}`;
-          return (
-            <Link href={href} className={`flex items-center justify-between gap-3 rounded-2xl border bg-black p-4 transition hover:border-orange-500 ${isLow ? "border-red-500/40" : "border-zinc-800"}`}>
-              <div className="min-w-0">
-                <p className="font-black">{ingredient.name}</p>
-                <p className="text-sm text-zinc-400">
-                  Mínimo: {qty(ingredient.minimum)} {ingredient.unit}
-                </p>
-              </div>
-              <div className="shrink-0 text-right">
-                <p className={`text-xl font-black ${isLow ? "text-red-400" : "text-orange-500"}`}>
-                  {qty(ingredient.stock)} {ingredient.unit}
-                </p>
-                {isLow && <p className="text-sm font-bold text-red-400">{ingredient.stock <= 0 ? "Agotado" : "Stock bajo"}</p>}
-              </div>
-              <span className="shrink-0 text-zinc-600" aria-hidden>
-                ›
-              </span>
-            </Link>
-          );
-        }}
-      />
+      <InventoryCheckPanel ingredients={ingredients} kardex={kardex} />
 
       <ListPanel
         title="Kardex de inventario"
@@ -319,17 +284,129 @@ export default function InventarioPage() {
 
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 
-/** 4.959999999999 → "4.96" (hasta 3 decimales, sin ceros de más) */
-const qty = (n: number) => (Number.isFinite(n) ? String(Math.round(n * 1000) / 1000) : String(n));
+/** Al tocar un insumo abre su ficha (Ingredientes o Packaging) */
+const insumoHref = (i: Pick<Ingredient, "id" | "kind">) => `/configuracion/${isPackaging(i) ?"packaging" : "ingredientes"}?insumo=${i.id}`;
 
-/** Las compras se guardan como ajuste positivo con el folio en el motivo ("C-000012 · Proveedor") */
-const isPurchase = (m: InventoryMovement) => m.type === "Ajuste positivo" && /^C-\d{3,}/.test(m.reason || "");
+/** Categoría para revisar: la del insumo; los empaques sin categoría van en "Packaging" */
+const NO_CATEGORY = "Sin categoría";
+const checkCategory = (i: Ingredient) => i.category?.trim() || (isPackaging(i) ? "Packaging" : NO_CATEGORY);
 
-/** Cómo se llama el movimiento en el kardex */
-function movementLabel(m: InventoryMovement) {
-  if (isPurchase(m)) return "Compra";
-  if (m.revertOf) return "Devolución de venta";
-  return m.type;
+/**
+ * Inventario real: primero eliges la categoría y luego qué revisar (Todo,
+ * Bajo, Agotado, Entradas o Salidas). Contraída muestra 2 insumos.
+ */
+function InventoryCheckPanel({ ingredients, kardex }: { ingredients: Ingredient[]; kardex: InventoryMovement[] }) {
+  const [category, setCategory] = useState("");
+  const [check, setCheck] = useState<StockCheck>("");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const categories = useMemo(() => {
+    const map = new Map<string, number>();
+    ingredients.forEach((i) => map.set(checkCategory(i), (map.get(checkCategory(i)) || 0) + 1));
+    return [...map.entries()].sort((a, b) => (a[0] === NO_CATEGORY ? 1 : b[0] === NO_CATEGORY ? -1 : a[0].localeCompare(b[0], "es")));
+  }, [ingredients]);
+  const inCategory = useMemo(() => (category ? ingredients.filter((i) => checkCategory(i) === category) : ingredients), [ingredients, category]);
+  const q = plain(query.trim());
+  const searched = useMemo(() => (q ? inCategory.filter((i) => plain(`${i.name} ${i.category || ""}`).includes(q)) : inCategory), [inCategory, q]);
+  const list = checkItems(searched, check);
+  const moves = useMemo(() => stockMoves(kardex, searched, check), [kardex, searched, check]);
+  const narrowed = Boolean(category || check || q);
+  const expanded = open || narrowed;
+  const shown = expanded ? list : list.slice(0, 2);
+
+  return (
+    <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <button type="button" onClick={() => setOpen(!open)} className="text-left text-xl font-black text-orange-500">
+          Inventario real <span className="text-sm font-bold text-zinc-500">({ingredients.length})</span>
+        </button>
+        {ingredients.length > 0 && (
+          <button onClick={() => exportInventory(ingredients, kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
+            📥 Excel (existencias y kardex)
+          </button>
+        )}
+      </div>
+
+      {ingredients.length === 0 ? (
+        <div className="mt-4 rounded-2xl border border-dashed border-zinc-800 p-6 text-center text-sm text-zinc-500">Todavía no hay insumos.</div>
+      ) : (
+        <>
+          {categories.length > 1 && (
+            <div className="mt-4">
+              <p className="mb-1.5 text-xs font-black uppercase tracking-wider text-zinc-500">1. Categoría</p>
+              <div className="flex flex-wrap gap-1.5">
+                {[["", ingredients.length] as const, ...categories].map(([c, n]) => (
+                  <button
+                    key={c || "todas"}
+                    type="button"
+                    onClick={() => setCategory(c)}
+                    aria-pressed={category === c}
+                    className={`rounded-full border px-3 py-1 text-xs font-black ${category === c ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-800 bg-black text-zinc-300 hover:border-orange-500"}`}
+                  >
+                    {c || "Todas"} · {n}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+          <div className="mt-3">
+            {categories.length > 1 && <p className="mb-1.5 text-xs font-black uppercase tracking-wider text-zinc-500">2. Revisar</p>}
+            <CheckChips items={inCategory} check={check} onChange={setCheck} />
+          </div>
+          <label className="mt-3 flex items-center gap-2 rounded-2xl border border-zinc-800 bg-black px-4 py-2.5">
+            <span aria-hidden>🔍</span>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder={category ? `Buscar en ${category}` : "Buscar insumo"} className="w-full bg-transparent text-white outline-none" />
+            {query && (
+              <button type="button" onClick={() => setQuery("")} className="text-sm font-black text-zinc-500" aria-label="Borrar búsqueda">
+                ✕
+              </button>
+            )}
+          </label>
+
+          {isMovesCheck(check) ? (
+            <div className="mt-4 max-h-[34rem] overflow-y-auto pr-1">
+              <MovesList moves={moves} check={check} scope={category || undefined} renderMove={(m) => <MoveCard move={m} name={ingredients.find((i) => i.id === m.ingredientId)?.name} href={insumoHref({ id: m.ingredientId, kind: ingredients.find((i) => i.id === m.ingredientId)?.kind })} />} />
+            </div>
+          ) : list.length === 0 ? (
+            <p className="mt-4 text-sm text-zinc-500">{check === "bajo" ? "Nada bajo de su mínimo" : check === "agotado" ? "Nada agotado" : "Nada coincide"}{category ? ` en ${category}` : ""}{q ? ` con "${query}"` : ""}.</p>
+          ) : (
+            <div className={`mt-4 space-y-3 ${expanded ? "max-h-[34rem] overflow-y-auto pr-1" : ""}`}>
+              {shown.map((ingredient) => {
+                const low = isLow(ingredient);
+                const out = isOut(ingredient);
+                return (
+                  <Link key={ingredient.id} href={insumoHref(ingredient)} className={`flex items-center justify-between gap-3 rounded-2xl border bg-black p-4 transition hover:border-orange-500 ${out ? "border-red-500/50" : low ? "border-amber-500/50" : "border-zinc-800"}`}>
+                    <div className="min-w-0">
+                      <p className="font-black">{ingredient.name}</p>
+                      <p className="text-sm text-zinc-400">
+                        Mínimo: {qty(ingredient.minimum)} {ingredient.unit}
+                      </p>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <p className={`text-xl font-black ${out ? "text-red-400" : low ? "text-amber-300" : "text-orange-500"}`}>
+                        {qty(ingredient.stock)} {ingredient.unit}
+                      </p>
+                      <StockBadge item={ingredient} />
+                    </div>
+                    <span className="shrink-0 text-zinc-600" aria-hidden>
+                      ›
+                    </span>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
+
+          {!narrowed && !isMovesCheck(check) && list.length > 2 && (
+            <button type="button" onClick={() => setOpen(!open)} className="mt-3 w-full rounded-2xl border border-zinc-800 py-2.5 text-sm font-black text-zinc-300 hover:border-orange-500">
+              {open ? "Ver menos ▴" : `Ver más (${list.length - 2}) ▾`}
+            </button>
+          )}
+          {narrowed && !isMovesCheck(check) && list.length > 0 && <p className="mt-2 text-xs text-zinc-500">{list.length} insumo{list.length === 1 ? "" : "s"}</p>}
+        </>
+      )}
+    </section>
+  );
 }
 
 /** Filtros del kardex: entradas (compras, devoluciones, ajustes +), salidas (ventas y ajustes −), merma */
@@ -339,11 +416,6 @@ const KARDEX_FILTERS: { label: string; test: (m: InventoryMovement) => boolean }
   { label: "⬇️ Salidas", test: (m) => m.type !== "Merma" && m.type !== "Sin registro" && m.finalStock < m.previousStock },
   { label: "🗑️ Merma", test: (m) => m.type === "Merma" },
   { label: "⚠️ Sin registro", test: (m) => m.type === "Sin registro" },
-];
-
-const INVENTORY_FILTERS: { label: string; test: (i: Ingredient) => boolean }[] = [
-  { label: "⚠️ Existencia baja", test: (i) => i.stock <= i.minimum },
-  { label: "⛔ Agotados", test: (i) => i.stock <= 0 },
 ];
 
 /**
