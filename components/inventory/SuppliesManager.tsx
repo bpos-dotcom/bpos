@@ -13,7 +13,8 @@ import { stationLabel } from "@/lib/kds-config";
 import { TicketEquivalences } from "@/components/inventory/TicketEquivalences";
 import { ManualCost } from "@/components/inventory/ManualCost";
 import { ask, askText, notify } from "@/components/layout/Dialogs";
-import { recordStockEdit } from "@/lib/inventory";
+import { getKardex, recordStockEdit, type InventoryMovement } from "@/lib/inventory";
+import { CheckChips, MoveCard, MovesList, StockBadge, checkItems, isLow, isMovesCheck, isOut, qty, stockMoves, type StockCheck } from "@/components/inventory/StockCheck";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import { UNITS, changeIngredientUnit, unitChangeImpact, unitFactor } from "@/lib/units";
@@ -44,6 +45,8 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState(""); // "" = todas
   const [newCategory, setNewCategory] = useState(false);
+  const [check, setCheck] = useState<StockCheck>("");
+  const [kardex, setKardex] = useState<InventoryMovement[]>([]);
 
   /**
    * Cambiar la unidad: entre g y kg (o ml y L) se convierte todo lo que usa el
@@ -81,14 +84,18 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
   }, [ingredients]);
   const grouped = useMemo(() => {
     const q = plain(query.trim());
+    const checked = checkItems(ingredients, check);
     return categories
-      .map(([c]) => [c, ingredients.filter((i) => (i.category?.trim() || NO_CATEGORY) === c && (!q || plain(i.name).includes(q))).sort((a, b) => a.name.localeCompare(b.name, "es"))] as const)
+      .map(([c]) => [c, checked.filter((i) => (i.category?.trim() || NO_CATEGORY) === c && (!q || plain(i.name).includes(q))).sort((a, b) => a.name.localeCompare(b.name, "es"))] as const)
       .filter(([c, list]) => list.length > 0 && (!category || c === category));
-  }, [categories, ingredients, query, category]);
+  }, [categories, ingredients, query, category, check]);
+  // Entradas o salidas de los de la categoría (y la búsqueda) elegida
+  const moves = useMemo(() => stockMoves(kardex, grouped.flatMap(([, list]) => list), check), [kardex, grouped, check]);
 
   useEffect(() => {
     const savedIngredients = getAdminIngredients();
     setIngredients(savedIngredients);
+    setKardex(getKardex());
     // Desde Inventario real (?insumo=ID): abre la ficha de ese insumo
     const wanted = Number(new URLSearchParams(window.location.search).get("insumo"));
     const target = (wanted && savedIngredients.find((i) => i.id === wanted && mineOf(kind)(i))) || savedIngredients.find(mineOf(kind));
@@ -129,7 +136,7 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
     }
 
     const saved: Ingredient = { ...draft, name: draft.name.trim() };
-    if (saved.category?.trim()) saved.category = saved.category.trim().replace(/s+/g, " ").slice(0, 40);
+    if (saved.category?.trim()) saved.category = saved.category.trim().replace(/\s+/g, " ").slice(0, 40);
     else delete saved.category;
     if (!saved.kind) delete saved.kind;
     const nextIngredients = all.map((ingredient) =>
@@ -140,6 +147,7 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
     saveAdminIngredients(nextIngredients);
     if (stockReason) {
       const movement = recordStockEdit(saved, previousStock, stockReason);
+      setKardex(getKardex());
       if (movement) {
         const user = getCurrentUser();
         const sign = movement.type === "Ajuste positivo" ? "+" : "-";
@@ -228,6 +236,25 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
               </div>
             )}
 
+            {ingredients.length > 0 && (
+              <div className="mt-3">
+                <CheckChips items={category ? ingredients.filter((i) => (i.category?.trim() || NO_CATEGORY) === category) : ingredients} check={check} onChange={setCheck} />
+              </div>
+            )}
+
+            {isMovesCheck(check) ? (
+              <div className="bpos-scroll -mr-2 mt-4 max-h-[65vh] overflow-y-auto pr-2">
+                <MovesList
+                  moves={moves}
+                  check={check}
+                  scope={category || undefined}
+                  renderMove={(m) => {
+                    const item = ingredients.find((i) => i.id === m.ingredientId);
+                    return <MoveCard move={m} name={item?.name} selected={selectedId === m.ingredientId} onClick={() => item && selectIngredient(item)} />;
+                  }}
+                />
+              </div>
+            ) : (
             <div className="bpos-scroll -mr-2 mt-4 max-h-[65vh] space-y-4 overflow-y-auto pr-2">
               {grouped.map(([c, list]) => (
                 <div key={c}>
@@ -240,21 +267,29 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
                   className={`w-full rounded-2xl border px-4 py-3 text-left transition ${
                     selectedId === ingredient.id
                       ? "border-orange-500 bg-orange-500/10"
-                      : "border-zinc-800 bg-black hover:border-orange-500"
+                      : isOut(ingredient)
+                        ? "border-red-500/50 bg-black hover:border-orange-500"
+                        : isLow(ingredient)
+                          ? "border-amber-500/50 bg-black hover:border-orange-500"
+                          : "border-zinc-800 bg-black hover:border-orange-500"
                   }`}
                 >
-                  <p className="font-black">{ingredient.name}</p>
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="font-black">{ingredient.name}</p>
+                    <StockBadge item={ingredient} />
+                  </div>
                   <p className="text-sm text-zinc-400">
-                    Stock: {ingredient.stock} {ingredient.unit} · Mínimo:{" "}
-                    {ingredient.minimum} {ingredient.unit}
+                    Stock: {qty(ingredient.stock)} {ingredient.unit} · Mínimo:{" "}
+                    {qty(ingredient.minimum)} {ingredient.unit}
                   </p>
                 </button>
               ))}
                   </div>
                 </div>
               ))}
-              {grouped.length === 0 && <p className="text-sm text-zinc-500">{ingredients.length ? "Nada con esa búsqueda." : kind === "packaging" ? "Sin empaques todavía. Agrégalos con + o desde una compra con foto del ticket." : "Sin ingredientes todavía."}</p>}
+              {grouped.length === 0 && <p className="text-sm text-zinc-500">{ingredients.length ? (check === "bajo" ? "Nada bajo de su mínimo." : check === "agotado" ? "Nada agotado." : "Nada con esa búsqueda.") : kind === "packaging" ? "Sin empaques todavía. Agrégalos con + o desde una compra con foto del ticket." : "Sin ingredientes todavía."}</p>}
             </div>
+            )}
           </section>
 
           <section id="ficha-insumo" className="scroll-mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">

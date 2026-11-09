@@ -587,3 +587,13 @@ export function recordStockEdit(ingredient: Pick<Ingredient, "id" | "name" | "un
   window.dispatchEvent(new Event("bpos:inventory-updated"));
   return movement;
 }
+
+/** Las compras se guardan como ajuste positivo con el folio en el motivo ("C-000012 · Proveedor") */
+export const isPurchase = (m: InventoryMovement) => m.type === "Ajuste positivo" && /^C-\d{3,}/.test(m.reason || "");
+
+/** Cómo se llama el movimiento en el kardex */
+export function movementLabel(m: InventoryMovement) {
+  if (isPurchase(m)) return "Compra";
+  if (m.revertOf) return "Devolución de venta";
+  return m.type;
+}
