@@ -297,6 +297,7 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
           </div>
           <p className="mt-2 text-xs text-zinc-400">
             El análisis de la semana (resumen, alertas y consejos) se puede pedir {REFRESH_OPTIONS.find((o) => o.value === refreshDays)?.text}. El chat con el asesor no tiene este límite (lo cuida el presupuesto de IA del plan).
+            {refreshDays === 0 ? " Sin límite sirve para probar: cada análisis gasta IA, regrésalo a Diario cuando termines." : ""}
           </p>
           {!f.refresh.ready && refreshDays !== 1 && <p className="mt-1 text-xs font-bold text-yellow-300">Para cada 3 días o cada semana falta aplicar la migración 0033 en Supabase.</p>}
         </div>

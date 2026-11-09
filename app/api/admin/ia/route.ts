@@ -147,6 +147,7 @@ export async function POST(request: NextRequest) {
         ({ error } = await db.from(table).upsert(row));
         if (!error && period !== "dia") return reply({ error: "Se guardó todo menos el periodo: falta aplicar la migración 0032 en Supabase. Mientras, los créditos siguen siendo al día." }, 400);
       }
+      if (error && feature === "asesor" && /refresh_days_check/.test(error.message)) return reply({ error: "Para \"Sin límite\" falta aplicar la migración 0037 en Supabase." }, 400);
       // Sin la columna refresh_days (falta la migración 0033) se guarda lo demás; queda "diario"
       if (error && feature === "asesor" && /refresh_days/.test(error.message)) {
         delete row.refresh_days;
