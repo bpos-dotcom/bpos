@@ -9,6 +9,7 @@ import { acknowledgeCriticalErrors } from "@/lib/inventory";
 import {
   getOperationsAlerts,
   markAllOperationsAlertsViewed,
+  visibleAlerts,
   markOperationsAlertViewed,
   reopenOperationsAlert,
   resolveOperationsAlert,
@@ -84,22 +85,25 @@ export default function OperationsCenterPage() {
     };
   }, [refresh, user?.name]);
 
+  // Solo los avisos que su rol puede ver (Usuarios y seguridad → Avisos)
+  const mine = useMemo(() => visibleAlerts(alerts, user), [alerts, user]);
+
   const filtered = useMemo(() => {
     const term = query.trim().toLowerCase();
-    return alerts.filter((alert) => {
+    return mine.filter((alert) => {
       const matchesTab = tab === "all" || alert.status === tab;
       const matchesPriority = priority === "all" || alert.priority === priority;
       const matchesQuery = !term || `${alert.title} ${alert.message} ${alert.source}`.toLowerCase().includes(term);
       return matchesTab && matchesPriority && matchesQuery;
     });
-  }, [alerts, tab, priority, query]);
+  }, [mine, tab, priority, query]);
 
   const counts = useMemo(() => ({
-    pending: alerts.filter((item) => item.status === "pending").length,
-    viewed: alerts.filter((item) => item.status === "viewed").length,
-    resolved: alerts.filter((item) => item.status === "resolved").length,
-    all: alerts.length,
-  }), [alerts]);
+    pending: mine.filter((item) => item.status === "pending").length,
+    viewed: mine.filter((item) => item.status === "viewed").length,
+    resolved: mine.filter((item) => item.status === "resolved").length,
+    all: mine.length,
+  }), [mine]);
 
   /** Las de inventario se resuelven solas con su flujo; las del cajón las resuelve un admin (con nota) */
   function canResolveManually(alert: OperationsAlert) {
