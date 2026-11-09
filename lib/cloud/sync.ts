@@ -51,6 +51,8 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_tables_view", // plano o cuadrícula en la ventana de Mesas de esta caja
   "bpos_pos_view", // productos en cuadrícula o lista en el POS de esta caja
   "bpos_drawer_suspects", // cobros cerrados con el cajón abierto, esperando a ver si se cobran
+  "bpos_productivity_rang", // cuándo sonó en ESTA caja cada recordatorio
+  "bpos_productivity_owner_told", // avisos de "sin atender" que ya mandó esta caja
 ]);
 
 /** Llaves compartidas por todas las sucursales del negocio */
@@ -91,6 +93,7 @@ const APP_EVENTS = [
   "bpos:payment-methods-updated",
   "bpos:permissions-updated",
   "bpos:photo-gallery-updated",
+  "bpos:productivity-updated",
   "bpos:purchase-ticket-templates-updated",
   "bpos:purchases-updated",
   "bpos:shift-updated",

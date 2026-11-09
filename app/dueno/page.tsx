@@ -9,6 +9,7 @@ import Link from "next/link";
 import { ThemeToggle } from "@/components/layout/TopCorner";
 import { Advisor } from "@/components/owner/Advisor";
 import { NotificationsHistory } from "@/components/owner/NotificationsHistory";
+import { ProductivityOwner } from "@/components/owner/ProductivityOwner";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { canViewCosts, getCurrentUser } from "@/lib/auth";
@@ -60,12 +61,15 @@ export default function OwnerPage() {
   );
 }
 
-type Tab = "resumen" | "avisos" | "asesor";
+type Tab = "resumen" | "avisos" | "productividad" | "asesor";
 
 function OwnerApp() {
   const [preset, setPreset] = useState<Preset>("hoy");
   // Al tocar una notificación se abre /dueno?vista=avisos
-  const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && new URLSearchParams(window.location.search).get("vista") === "avisos" ? "avisos" : "resumen"));
+  const [tab, setTab] = useState<Tab>(() => {
+    const vista = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("vista") : "";
+    return vista === "avisos" || vista === "productividad" ? vista : "resumen";
+  });
   const [branch, setBranch] = useState("all");
   const [data, setData] = useState<Data | null>(null);
   const [alerts, setAlerts] = useState<OperationsAlert[]>([]);
@@ -325,9 +329,9 @@ function OwnerApp() {
             )}
           </section>
         )}
-        <Chips items={[["resumen", "📊 Resumen"], ["avisos", "🔔 Avisos"], ["asesor", "✨ Asesor IA"]] as [Tab, string][]} value={tab} onChange={setTab} />
+        <Chips items={[["resumen", "📊 Resumen"], ["avisos", "🔔 Avisos"], ["productividad", "✅ Productividad"], ["asesor", "✨ Asesor IA"]] as [Tab, string][]} value={tab} onChange={setTab} />
         {tab === "resumen" && <Chips items={PRESETS} value={preset} onChange={setPreset} />}
-        {data && data.branches.length > 1 && (
+        {data && data.branches.length > 1 && tab !== "productividad" && (
           <Chips items={[["all", "Todas"], ...data.branches.map((b) => [b.id, b.name] as [string, string])]} value={branch} onChange={setBranch} />
         )}
 
@@ -335,6 +339,8 @@ function OwnerApp() {
 
         {tab === "avisos" ? (
           <NotificationsHistory />
+        ) : tab === "productividad" ? (
+          <ProductivityOwner />
         ) : tab === "asesor" ? (
           data ? (
             <Advisor
@@ -502,6 +508,7 @@ function OwnerApp() {
                         ["caja", "🔒 Cortes de caja"],
                         ["seguridad", "🔐 Respaldos, usuarios y permisos"],
                         ["opiniones", "⭐ Opiniones malas (1 a 3 estrellas)"],
+                        ["productividad", "✅ Productividad: recordatorios e inventario ciego"],
                       ] as [keyof PushPrefs, string][]
                     ).map(([key, label]) => (
                       <label key={key} className="flex items-center justify-between gap-3 text-sm text-zinc-300">
