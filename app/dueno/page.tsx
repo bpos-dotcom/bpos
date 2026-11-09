@@ -118,6 +118,16 @@ function OwnerApp() {
     }
   }, [since]);
 
+  // Asesor IA: pedidos desde el inicio del periodo que eligió el dueño (de la sucursal elegida)
+  const loadAdvisorOrders = useCallback(
+    async (from: Date) => {
+      const cloud = await loadCloudOrders(from);
+      if (!cloud) return null;
+      return (branch === "all" ? cloud.orders : cloud.orders.filter((o) => o.branchId === branch)).map((o) => o.order);
+    },
+    [branch]
+  );
+
   const loadAlerts = useCallback(() => {
     const list = getOperationsAlerts().filter((a) => a.status !== "resolved" && ALERT_PRIORITIES.has(a.priority));
     setAlerts(list);
@@ -346,6 +356,7 @@ function OwnerApp() {
             <Advisor
               orders={(branch === "all" ? data.orders : data.orders.filter((o) => o.branchId === branch)).map((o) => o.order)}
               branchLabel={branch === "all" ? (data.branches.length > 1 ? "Todas las sucursales" : data.branches[0]?.name || "Tu negocio") : data.branches.find((b) => b.id === branch)?.name || "Sucursal"}
+              loadOrders={data.cloud ? loadAdvisorOrders : undefined}
             />
           ) : (
             <p className="py-16 text-center text-zinc-500">Cargando tus números...</p>
