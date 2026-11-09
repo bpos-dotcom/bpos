@@ -13,6 +13,7 @@ import { EvidenceDialog } from "@/components/productivity/EvidenceDialog";
 import { addAuditEvent } from "@/lib/audit";
 import { startBackgroundTicker } from "@/lib/background-ticker";
 import { isPrimaryDevice } from "@/lib/cloud/sync";
+import { getNotificationSettings, playAlert, type AlertKind } from "@/lib/notifications/settings";
 import {
   PRODUCTIVITY_EVENT,
   ackMessage,
@@ -75,31 +76,6 @@ export function openBlindWindow() {
 
 // ------------------------------------------------------------ sonido y voz
 
-function beep(times = 3) {
-  try {
-    const Ctx = window.AudioContext || (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!Ctx) return 0;
-    const ctx = new Ctx();
-    for (let i = 0; i < times; i++) {
-      const start = ctx.currentTime + i * 0.28;
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = "square";
-      osc.frequency.value = 1046;
-      gain.gain.setValueAtTime(0.0001, start);
-      gain.gain.exponentialRampToValueAtTime(0.25, start + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.18);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(start);
-      osc.stop(start + 0.2);
-    }
-    window.setTimeout(() => void ctx.close(), times * 280 + 400);
-    return times * 280 + 150;
-  } catch {
-    return 0;
-  }
-}
-
 /** Voz del navegador (gratis): Chrome y Edge leen en español sin internet ni proveedor */
 export function speak(text: string) {
   try {
@@ -126,14 +102,18 @@ function readMap(key: string): Record<string, number> {
 
 // ------------------------------------------------------------ alarma
 
-type Ring = { key: string; repeat: number; text: string };
+/** La voz lee tal cual lo que escribió el dueño (sin "Mensaje del dueño:" ni "Recordatorio:") */
+type Ring = { key: string; repeat: number; text: string; kind: AlertKind };
+
+// Si suenan varios a la vez, se usa el sonido del más importante
+const KIND_ORDER: AlertKind[] = ["shift-message", "blind-inventory", "productivity-task"];
 
 function rings(state: ProductivityState): Ring[] {
   const settings = getProductivitySettings();
   return [
-    ...state.messages.map((m) => ({ key: `msg|${m.id}`, repeat: m.repeatMinutes, text: m.voice ? `Mensaje del dueño: ${m.text}` : "" })),
-    ...state.tasks.map((p) => ({ key: `task|${p.key}`, repeat: p.task.repeatMinutes, text: p.task.voice ? `${p.task.kind === "lista" ? "Lista de tareas" : "Recordatorio"}: ${p.task.speech?.trim() || p.task.title}` : "" })),
-    ...(state.blind ? [{ key: `blind|${state.blind.slot}`, repeat: settings.blind.repeatMinutes, text: state.blind.count?.status === "en curso" ? "" : settings.blind.speech }] : []),
+    ...state.messages.map((m): Ring => ({ key: `msg|${m.id}`, repeat: m.repeatMinutes, text: m.voice ? m.text : "", kind: "shift-message" })),
+    ...state.tasks.map((p): Ring => ({ key: `task|${p.key}`, repeat: p.task.repeatMinutes, text: p.task.voice ? p.task.speech?.trim() || p.task.title : "", kind: "productivity-task" })),
+    ...(state.blind ? [{ key: `blind|${state.blind.slot}`, repeat: settings.blind.repeatMinutes, text: state.blind.count?.status === "en curso" ? "" : settings.blind.speech, kind: "blind-inventory" as const }] : []),
   ];
 }
 
@@ -167,9 +147,10 @@ export function ProductivityAlarm() {
     try {
       localStorage.setItem(RANG_KEY, JSON.stringify(Object.fromEntries(Object.entries(rang).filter(([, t]) => now - t < 2 * 86_400_000))));
     } catch {}
-    const wait = beep(3);
+    // El sonido de Configuración → Notificaciones y, al terminar, la voz
+    const kind = KIND_ORDER.find((k) => due.some((r) => r.kind === k)) || "productivity-task";
     const text = due.map((r) => r.text).filter(Boolean).join(". ");
-    if (text) window.setTimeout(() => speak(text), wait);
+    void playAlert(getNotificationSettings()[kind]).then(() => text && speak(text));
     setOpen(true);
   }, []);
 

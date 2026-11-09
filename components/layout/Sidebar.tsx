@@ -40,8 +40,6 @@ const AUTO_CLOSE_MS = 10_000;
 // (unos bytes); los pendientes completos se bajan cuando cambia o cada 5 minutos
 const POLL_MS = 3000;
 const FULL_EVERY_MS = 5 * 60_000;
-// Recordatorios, mensajes del turno e inventario ciego
-const PRODUCTIVITY_ALERT = { color: "#8b5cf6", blink: true };
 
 type PendingResponse = {
   success?: boolean;
@@ -250,7 +248,7 @@ export function Sidebar() {
   const hasOnline = onlineWaiting > 0;
   const hasProductivity = productivity.count > 0;
   // Color y parpadeo del aviso que se está mostrando
-  const activeAlert = hasCritical ? alerts["critical-error"] : hasOnline ? alerts["online-order"] : hasProductivity ? PRODUCTIVITY_ALERT : hasPending ? alerts["delivery-equivalences"] : hasWarning ? alerts["inventory-warning"] : null;
+  const activeAlert = hasCritical ? alerts["critical-error"] : hasOnline ? alerts["online-order"] : hasProductivity ? alerts[productivity.messages.length ? "shift-message" : productivity.blind ? "blind-inventory" : "productivity-task"] : hasPending ? alerts["delivery-equivalences"] : hasWarning ? alerts["inventory-warning"] : null;
   const alertStyle = activeAlert
     ? { borderColor: activeAlert.color, background: `${activeAlert.color}33`, boxShadow: `0 0 28px ${activeAlert.color}8c` }
     : undefined;
