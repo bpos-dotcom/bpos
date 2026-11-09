@@ -9,7 +9,8 @@
 import { useState } from "react";
 import { isConfigured, netFactor, type AppCommission } from "@/lib/app-commissions";
 
-type Row = { name: string; orders: number; sales: number; ticket: number; deposited: number };
+/** pending: depósito estimado de las semanas que aún no tienen el real */
+type Row = { name: string; orders: number; sales: number; ticket: number; deposited: number; pending?: number };
 type Metric = "orders" | "sales" | "ticket";
 
 /** Hasta cuántos puntos de diferencia contra lo esperado se considera correcto */
@@ -112,11 +113,13 @@ export function AppsPanel({ rows, periodName, money, pct, commissions }: { rows:
 
 /** Lo que te depositó una app contra lo esperado por su comisión e impuestos, con un foquito verde o rojo */
 function DepositCheck({ row, commission, money, pct }: { row: Row; commission?: AppCommission; money: (n: number) => string; pct: (n: number) => string }) {
-  const got = (row.deposited / row.sales) * 100;
   const configured = isConfigured(commission);
   const expected = configured ? netFactor(commission) * 100 : 0;
+  // Solo lo vendido en semanas que ya tienen depósito real
+  const coveredSales = configured && row.pending && expected > 0 ? Math.max(1, row.sales - row.pending / (expected / 100)) : row.sales;
+  const got = (row.deposited / coveredSales) * 100;
   const ok = configured && Math.abs(got - expected) <= TOLERANCE;
-  const diff = configured ? row.deposited - (row.sales * expected) / 100 : 0;
+  const diff = configured ? row.deposited - (coveredSales * expected) / 100 : 0;
   const light = !configured ? "bg-zinc-600" : ok ? "bg-emerald-400 shadow-[0_0_12px_#34d399]" : "bg-red-500 shadow-[0_0_12px_#ef4444]";
   const basis = configured ? `${commission.commission || 0}% de comisión, ${commission.taxes || 0}% de impuestos` : "";
   return (
@@ -131,7 +134,7 @@ function DepositCheck({ row, commission, money, pct }: { row: Row; commission?: 
         <span className={`mt-1 h-4 w-4 shrink-0 rounded-full ${light}`} aria-hidden />
       </div>
       <p className="mt-2 text-xs text-zinc-500">
-        {money(row.deposited)} de {money(row.sales)} vendidos
+        {money(row.deposited)} de {money(coveredSales)} vendidos
       </p>
       {configured ? (
         <p className={`mt-1 text-xs font-bold ${ok ? "text-emerald-300" : "text-red-300"}`}>
