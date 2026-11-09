@@ -528,6 +528,7 @@ export default function FinanzasPage() {
             net={net}
             netMargin={netMargin}
             periodName={periodName}
+            periodDays={totalDays}
             money={money}
             pct={pct}
             onWhyCost={(cur?.costByIngredient.length || 0) > 0 ? () => setWhyOpen(true) : undefined}
