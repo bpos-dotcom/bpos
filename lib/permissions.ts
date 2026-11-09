@@ -11,7 +11,10 @@ export type PermissionKey =
  | "inventory.view" | "inventory.adjust" | "inventory.costs"
  | "purchases.view" | "purchases.create" | "purchases.cancel" | "purchases.aliases" | "purchases.suppliers" | "bridge.view" | "bridge.aliases"
  | "reports.view" | "settings.view" | "products.manage" | "products.delete" | "photos.manage" | "ingredients.manage" | "recipes.manage" | "prices.manage"
- | "users.manage" | "audit.view" | "owner.view" | "reviews.view" | "customers.view" | "finance.view";
+ | "users.manage" | "audit.view" | "owner.view" | "reviews.view" | "customers.view" | "finance.view"
+ | "alerts.money" | "alerts.security" | "alerts.delivery" | "alerts.inventory" | "alerts.critical"
+ // Marca (no se muestra): sus avisos ya se eligieron en Usuarios y seguridad, aunque los haya quitado todos
+ | "alerts.configured";
 
 export const PERMISSIONS:{key:PermissionKey;label:string;group:string}[]=[
  {key:"dashboard.view",label:"Ver Dashboard",group:"Páginas"},{key:"waiter.view",label:"Tomar órdenes en la app de meseros",group:"Páginas"},{key:"pos.view",label:"Abrir POS",group:"Páginas"},{key:"cash.view",label:"Ver Caja",group:"Páginas"},{key:"kds.view",label:"Ver Cocina KDS",group:"Páginas"},{key:"printing.view",label:"Ver Impresiones",group:"Páginas"},{key:"inventory.view",label:"Ver Inventario",group:"Páginas"},{key:"purchases.view",label:"Ver Compras",group:"Páginas"},{key:"purchases.create",label:"Registrar compras",group:"Compras"},{key:"purchases.cancel",label:"Cancelar compras",group:"Compras"},{key:"purchases.aliases",label:"Administrar equivalencias de compra",group:"Compras"},{key:"purchases.suppliers",label:"Administrar proveedores",group:"Compras"},{key:"bridge.view",label:"Ver Bridge",group:"Páginas"},{key:"reports.view",label:"Ver Reportes",group:"Páginas"},{key:"settings.view",label:"Ver Configuración",group:"Páginas"},{key:"audit.view",label:"Ver Bitácora",group:"Páginas"},{key:"owner.view",label:"Ver App del dueño",group:"Páginas"},{key:"reviews.view",label:"Ver y atender Opiniones",group:"Páginas"},{key:"customers.view",label:"Ver Clientes y Cupones",group:"Páginas"},{key:"finance.view",label:"Ver Finanzas",group:"Páginas"},
@@ -19,6 +22,8 @@ export const PERMISSIONS:{key:PermissionKey;label:string;group:string}[]=[
  {key:"cash.open",label:"Abrir caja",group:"Caja"},{key:"cash.movement",label:"Registrar movimientos",group:"Caja"},{key:"cash.close",label:"Cerrar caja",group:"Caja"},{key:"cash.authorize_difference",label:"Autorizar diferencias",group:"Caja"},{key:"cash.history",label:"Ver historial de cortes",group:"Caja"},
  {key:"printing.reprint",label:"Reimprimir desde Impresiones",group:"Impresiones"},{key:"inventory.adjust",label:"Ajustar inventario",group:"Inventario"},{key:"inventory.costs",label:"Ver costos",group:"Inventario"},
  {key:"bridge.aliases",label:"Administrar equivalencias",group:"Administración"},{key:"products.manage",label:"Dar de alta y editar productos",group:"Administración"},{key:"products.delete",label:"Eliminar productos",group:"Administración"},{key:"photos.manage",label:"Subir fotos al Estudio Fotográfico",group:"Administración"},{key:"ingredients.manage",label:"Administrar ingredientes",group:"Administración"},{key:"recipes.manage",label:"Administrar recetas",group:"Administración"},{key:"prices.manage",label:"Modificar precios",group:"Administración"},{key:"users.manage",label:"Administrar usuarios y permisos",group:"Administración"},
+ // Qué avisos ve en el Centro de Operaciones y en el recuadro del logo
+ {key:"alerts.money",label:"Avisos de dinero (aumentos de costo, cortes anulados)",group:"Avisos"},{key:"alerts.security",label:"Avisos de seguridad (cajón abierto sin venta)",group:"Avisos"},{key:"alerts.delivery",label:"Avisos de delivery (equivalencias, combos sin opción)",group:"Avisos"},{key:"alerts.inventory",label:"Avisos de inventario (insumos por reponer)",group:"Avisos"},{key:"alerts.critical",label:"Errores críticos (pedido que no llegó a cocina...)",group:"Avisos"},
 ];
 const KEY="bpos_user_permissions";
 const all=PERMISSIONS.map(x=>x.key);
@@ -26,9 +31,9 @@ const ROLE_DEFAULTS:Record<UserRole,PermissionKey[]>={
  Admin:all,
  Gerente:all.filter(x=>!["users.manage","prices.manage"].includes(x)),
  // El cajero da de alta productos y sube fotos (sin cambiar precios ni borrar)
- Cajero:["dashboard.view","pos.view","pos.reprint","cash.view","cash.history","kds.view","products.manage","photos.manage"],
+ Cajero:["dashboard.view","pos.view","pos.reprint","cash.view","cash.history","kds.view","products.manage","photos.manage","alerts.delivery","alerts.inventory","alerts.critical"],
  Cocina:["kds.view","printing.view"],
- Inventario:["dashboard.view","inventory.view","inventory.adjust","purchases.view","purchases.create","purchases.aliases","purchases.suppliers"],
+ Inventario:["dashboard.view","inventory.view","inventory.adjust","purchases.view","purchases.create","purchases.aliases","purchases.suppliers","alerts.inventory","alerts.critical"],
  Consulta:["dashboard.view","reports.view"],
  Mesero:["waiter.view"],
 };
@@ -37,6 +42,11 @@ export function getUserPermissions(userId:number,role:UserRole):PermissionKey[]{
 export function saveUserPermissions(userId:number,items:PermissionKey[]){const saved=JSON.parse(localStorage.getItem(KEY)||"{}");saved[userId]=Array.from(new Set(items));localStorage.setItem(KEY,JSON.stringify(saved));window.dispatchEvent(new Event("bpos:permissions-updated"));}
 export function resetUserPermissions(userId:number){const saved=JSON.parse(localStorage.getItem(KEY)||"{}");delete saved[userId];localStorage.setItem(KEY,JSON.stringify(saved));window.dispatchEvent(new Event("bpos:permissions-updated"));}
 // El Admin siempre puede todo: así los permisos nuevos (ej. owner.view) no le quedan bloqueados por una lista guardada antes.
+/**
+ * ¿Ve este tipo de aviso? Quien tiene permisos guardados de antes (sin
+ * ningún "alerts.*") ve los avisos que trae su rol de fábrica.
+ */
+export function hasAlertPermission(user:Pick<CurrentUser,"id"|"role">|null|undefined,key:PermissionKey){if(!user||user.id<=0)return false;if(user.role==="Admin")return true;const saved=getUserPermissions(user.id,user.role);return saved.some(x=>x.startsWith("alerts."))?saved.includes(key):ROLE_DEFAULTS[user.role].includes(key);}
 export function hasPermission(user:Pick<CurrentUser,"id"|"role">|null|undefined,key:PermissionKey){return !!user&&user.id>0&&(user.role==="Admin"||getUserPermissions(user.id,user.role).includes(key));}
 // El PIN se revisa contra su hash (lib/pin-hash.ts): por eso esperan (async)
 export async function authorizeWithAdminPin(action:string, requestedBy?:CurrentUser|null):Promise<boolean>{return Boolean(await authorizeAdmin(action,requestedBy));}

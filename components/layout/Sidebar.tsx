@@ -9,6 +9,7 @@ import { hasPermission } from "@/lib/permissions";
 import {
   getOperationsAlerts,
   markAllOperationsAlertsViewed,
+  visibleAlerts,
   syncCriticalInventoryAlerts,
   syncDeliveryPendingAlert,
   syncLowStockAlert,
@@ -136,7 +137,8 @@ export function Sidebar() {
 
   /** Solo lo de este equipo (alertas guardadas): sin consultar la nube. Es lo que corre con cada aviso de cambio. */
   const refreshLocal = useCallback(() => {
-    const alerts = getOperationsAlerts();
+    // Solo los avisos que su rol puede ver (un cajero no ve aumentos de costo)
+    const alerts = visibleAlerts(getOperationsAlerts(), getCurrentUser());
     const critical = alerts.filter((item) => item.priority === "critical" && item.status === "pending");
     const warnings = alerts.filter((item) => item.priority === "warning" && item.status !== "resolved");
     setCriticalCount(critical.length);

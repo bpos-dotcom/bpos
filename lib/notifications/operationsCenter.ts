@@ -1,5 +1,27 @@
 "use client";
+import type { CurrentUser } from "@/lib/auth";
 import { getPendingLowStock } from "@/lib/inventory";
+import { hasAlertPermission, type PermissionKey } from "@/lib/permissions";
+
+/**
+ * Qué permiso hace falta para ver cada aviso (Usuarios y seguridad → Avisos).
+ * Un cajero no debe ver aumentos de costo ni avisos sobre el cajón.
+ */
+export function alertPermission(alert: Pick<OperationsAlert, "id" | "priority" | "source">): PermissionKey {
+  const id = alert.id;
+  if (id.startsWith("purchase-cost:") || id.startsWith("manual-cost:") || id.startsWith("cash:")) return "alerts.money";
+  if (id.startsWith("drawer:")) return "alerts.security";
+  if (alert.priority === "critical") return "alerts.critical";
+  if (alert.priority === "delivery" || id.startsWith("bridge-") || /bridge/i.test(alert.source)) return "alerts.delivery";
+  if (alert.source === "Inventario") return "alerts.inventory";
+  // Lo que no tenga tipo conocido, solo quien ve los avisos de dinero (dueño y gerente)
+  return "alerts.money";
+}
+
+/** Avisos que este usuario puede ver */
+export function visibleAlerts(alerts: OperationsAlert[], user: Pick<CurrentUser, "id" | "role"> | null | undefined) {
+  return alerts.filter((alert) => hasAlertPermission(user, alertPermission(alert)));
+}
 
 export type OperationsAlertPriority = "critical" | "delivery" | "warning" | "info";
 export type OperationsAlertStatus = "pending" | "viewed" | "resolved";
