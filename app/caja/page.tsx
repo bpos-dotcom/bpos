@@ -13,6 +13,8 @@ import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { saveCashCloseRecord } from "@/lib/cash-history";
 import { formatHours, shiftStaffHours } from "@/lib/timeclock";
 import { isCancelled } from "@/lib/sale-cancel";
+import { moneyShiftOf } from "@/lib/cash-register";
+import { formatOrderNumber } from "@/lib/order-sequence";
 import { paidWith, tipOf, tipPaidWith } from "@/lib/sale-payments";
 import { deliveryApp, estimatedDeposit, getAppCommissions } from "@/lib/app-commissions";
 import { openWhatsapp, whatsappLink, whatsappTarget } from "@/lib/whatsapp";
@@ -40,6 +42,8 @@ type SavedOrder = {
   id: number;
   localOrderNumber?: number;
   shiftSessionId?: string;
+  paidShiftSessionId?: string;
+  pendingPayment?: boolean;
   createdAt: string;
   total: number;
   tip?: number;
@@ -53,6 +57,15 @@ type SavedOrder = {
 
 const SHIFT_KEY = "bpos_active_shift";
 const ORDERS_KEY = "bpos_orders";
+
+function heldOrders(): (SavedOrder & { localOrderNumber?: number })[] {
+  try {
+    const orders: SavedOrder[] = JSON.parse(localStorage.getItem(ORDERS_KEY) || "[]");
+    return orders.filter((order) => order.pendingPayment && !isCancelled(order));
+  } catch {
+    return [];
+  }
+}
 const PLATFORM_METHODS = new Set(["Didi Food", "Uber Eats", "Rappi", "Plataforma"]);
 
 export default function CajaPage() {
@@ -122,14 +135,18 @@ export default function CajaPage() {
 
     return orders.filter((order) => {
       if (isCancelled(order)) return false; // canceladas no cuentan en el corte
-      if ((order as { pendingPayment?: boolean }).pendingPayment) return false; // en espera: hasta que pague
+      if (order.pendingPayment) return false; // en espera: hasta que pague
+      // Cuenta en espera cobrada: cuenta en el turno donde se cobró
       if (order.shiftSessionId) {
-        return order.shiftSessionId === shift.sessionId;
+        return moneyShiftOf(order) === shift.sessionId;
       }
 
       return new Date(order.createdAt) >= new Date(shift.openedAt);
     });
   }, [shift, ordersVersion]);
+
+  // Cuentas en espera de cualquier turno: mientras haya, no se cierra caja
+  const heldCount = useMemo(() => heldOrders().length, [ordersVersion, shift]);
 
   const totalSales = shiftOrders.reduce((sum, order) => sum + order.total, 0);
 
@@ -279,6 +296,16 @@ export default function CajaPage() {
   // No se cierra caja con pedidos de delivery sin equivalencia: se quedarían sin venta ni inventario
   async function closeShift() {
     if (!shift) return;
+    // Ni el Admin cierra con cuentas en espera: ese dinero no quedaría en ningún corte
+    const held = heldOrders();
+    if (held.length > 0) {
+      const list = held.slice(0, 8).map((o) => `• Pedido #${formatOrderNumber(o)} · $${o.total.toFixed(2)}`).join("\n");
+      alert(
+        `No puedes cerrar caja: hay ${held.length} cuenta(s) en espera sin cobrar.\n\n${list}\n\n` +
+          "Cóbralas o cancélalas en el punto de venta (Cuentas en espera) y luego cierra caja."
+      );
+      return;
+    }
     try {
       const response = await bridgeFetch("/api/bridge/pending", { cache: "no-store" });
       const payload = (await response.json()) as { success?: boolean; pending?: { platform: string; orderId: string; externalName: string }[] };
@@ -736,6 +763,12 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
                   className="min-h-24 w-full rounded-2xl border border-yellow-500/30 bg-black px-4 py-3 text-white"
                 />
               </label>
+            )}
+
+            {heldCount > 0 && (
+              <a href="/pos#cuentas-en-espera" className="mt-6 block rounded-2xl border border-yellow-500/50 bg-yellow-500/10 p-4 text-sm text-yellow-100">
+                <b className="text-yellow-300">⏳ Hay {heldCount} cuenta(s) en espera sin cobrar.</b> No se puede cerrar caja hasta cobrarlas o cancelarlas. Ir a cobrarlas →
+              </a>
             )}
 
             <button
