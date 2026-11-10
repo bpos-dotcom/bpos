@@ -27,6 +27,7 @@ import { getCurrentUser, CurrentUser } from "@/lib/auth";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
 import { clearDrawerSuspect, drawerShouldOpen } from "@/lib/cash-drawer";
+import { paidShiftTag } from "@/lib/cash-register";
 import { openCashDrawer } from "@/lib/localService";
 import { discountInventoryByOrder } from "@/lib/inventory";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
@@ -573,6 +574,7 @@ function PosScreen() {
       ...order,
       pendingPayment: false,
       paidAt: new Date().toISOString(),
+      ...paidShiftTag(),
       ...(currentUser?.name ? { paidBy: currentUser.name } : {}),
       tip: pay.tip,
       tipPayments: pay.tipPayments,
@@ -1130,7 +1132,7 @@ function PosScreen() {
                             {order.details.table ? `🍽️ ${tableLabel(order.details.table, order.details.diners)}` : order.details.orderType}
                             {order.details.customerName && order.details.customerName !== `Mesa ${order.details.table?.name}` ? ` · ${order.details.customerName}` : ""}
                             {" · "}
-                            {minutes < 1 ? "ahora" : `hace ${minutes} min`}
+                            {minutes < 1 ? "ahora" : minutes < 60 ? `hace ${minutes} min` : minutes < 1440 ? `hace ${Math.floor(minutes / 60)} h` : `hace ${Math.floor(minutes / 1440)} día${minutes < 2880 ? "" : "s"}`}
                           </p>
                           <p className="truncate text-xs text-zinc-500">{order.items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</p>
                         </div>

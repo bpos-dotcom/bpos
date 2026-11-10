@@ -5,6 +5,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { OrderHistoryPanel, saleSource, type SavedOrder } from "@/components/OrderHistoryPanel";
 import { getCurrentUser, type CurrentUser } from "@/lib/auth";
 import { getCashCloseHistory } from "@/lib/cash-history";
+import { moneyShiftOf } from "@/lib/cash-register";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { exportOrders } from "@/lib/exports";
 import { cancelSavedOrder, changeSavedOrderPayment, loadSavedOrders, markSavedOrderPaid, sendSaleWhatsapp } from "@/lib/sale-actions";
@@ -32,9 +33,9 @@ function readActiveShift(): { sessionId: string; openedAt: string } | null {
   }
 }
 
-function inPeriod(order: SavedOrder & { shiftSessionId?: string }, period: Period, openedAt?: string) {
+function inPeriod(order: SavedOrder & { shiftSessionId?: string; paidShiftSessionId?: string }, period: Period, openedAt?: string) {
   if (period.sessionId) {
-    if (order.shiftSessionId) return order.shiftSessionId === period.sessionId;
+    if (order.shiftSessionId) return moneyShiftOf(order) === period.sessionId;
     // Ventas viejas sin turno: por la hora de apertura del turno abierto
     return Boolean(openedAt) && period.key === "actual" && new Date(order.createdAt) >= new Date(openedAt as string);
   }

@@ -6,6 +6,7 @@ import { ask, askText, notify } from "@/components/layout/Dialogs";
  */
 import type { SavedOrder } from "@/components/OrderHistoryPanel";
 import { addAuditEvent } from "@/lib/audit";
+import { paidShiftTag } from "@/lib/cash-register";
 import type { CurrentUser } from "@/lib/auth";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { earnLoyalty } from "@/lib/loyalty-pos";
@@ -252,7 +253,7 @@ export async function cancelSavedOrder(order: SavedOrder, user: CurrentUser | nu
 /** Cuenta en espera: ya pagó (el repartidor trajo el dinero, o pasó a recoger) */
 export async function markSavedOrderPaid(order: SavedOrder, method: string, user: CurrentUser | null) {
   if (!(await ask(`¿Pedido #${formatOrderNumber(order)} pagado con ${method.toLowerCase()} por ${order.total.toFixed(2)}?`))) return;
-  const paid: SavedOrder = { ...order, pendingPayment: false, paidAt: new Date().toISOString(), details: { ...order.details, paymentMethod: method, payments: { [method]: order.total } } };
+  const paid: SavedOrder = { ...order, pendingPayment: false, paidAt: new Date().toISOString(), ...paidShiftTag(), details: { ...order.details, paymentMethod: method, payments: { [method]: order.total } } };
   replaceOrder(paid);
   if (order.clubAccountId) {
     void earnLoyalty(order.clubAccountId, order.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, user?.name || "").catch((e) =>
