@@ -7,6 +7,7 @@
  * las cajas avisan igual.
  */
 import { SUPABASE_URL } from "@/lib/supabase/client";
+import { SYNTH_SOUNDS, isSynthSound, playSynth } from "./synth";
 
 /** Audios subidos por el administrador de B-POS (nube de B-POS) */
 const MEDIA_PREFIX = `${SUPABASE_URL}/storage/v1/object/public/bpos-media/`;
@@ -16,8 +17,10 @@ export type AlertKind = "online-order" | "delivery-equivalences" | "inventory-wa
 export type AlertPref = {
   /** Dirección del audio (de B-POS o subido por el negocio) */
   sound: string;
-  /** Cuántas veces suena seguido (1 a 5); 0 = sin sonido */
+  /** Cuántas veces suena (1 a 10); 0 = sin sonido */
   times: number;
+  /** Segundos de espera entre una vez y la siguiente (0 = seguido) */
+  gap: number;
   /** Color del recuadro del logo */
   color: string;
   /** El recuadro parpadea */
@@ -46,6 +49,7 @@ export const BEEP_SOUND = "beep";
 
 export const BUILTIN_SOUNDS = [
   { src: BEEP_SOUND, name: "Pip pip pip" },
+  ...SYNTH_SOUNDS,
   { src: "/sounds/BPOS_Recordatorio_Menu_Digital.mp3", name: "Voz: Recordatorio de B-POS" },
   { src: "/sounds/BPOS_Official_Delivery_Equivalences.wav", name: "Tono de equivalencias" },
   { src: "/sounds/BPOS_Official_Inventory_Warning.wav", name: "Tono de inventario" },
@@ -53,24 +57,30 @@ export const BUILTIN_SOUNDS = [
 ];
 
 export const DEFAULT_ALERTS: Record<AlertKind, AlertPref> = {
-  "online-order": { sound: BUILTIN_SOUNDS[1].src, times: 1, color: "#22c55e", blink: true, repeat: true, every: 30 },
-  "delivery-equivalences": { sound: BUILTIN_SOUNDS[2].src, times: 1, color: "#22c55e", blink: true, repeat: true, every: 2 },
-  "inventory-warning": { sound: BUILTIN_SOUNDS[3].src, times: 1, color: "#facc15", blink: false, repeat: false, every: 60 },
-  "critical-error": { sound: BUILTIN_SOUNDS[4].src, times: 1, color: "#ef4444", blink: true, repeat: false, every: 60 },
-  "shift-message": { sound: BEEP_SOUND, times: 1, color: "#0ea5e9", blink: true, repeat: false, every: 60 },
-  "productivity-task": { sound: BEEP_SOUND, times: 1, color: "#8b5cf6", blink: true, repeat: false, every: 60 },
-  "blind-inventory": { sound: BEEP_SOUND, times: 1, color: "#f97316", blink: true, repeat: false, every: 60 },
+  "online-order": { sound: "/sounds/BPOS_Recordatorio_Menu_Digital.mp3", times: 1, gap: 0, color: "#22c55e", blink: true, repeat: true, every: 30 },
+  "delivery-equivalences": { sound: "/sounds/BPOS_Official_Delivery_Equivalences.wav", times: 1, gap: 0, color: "#22c55e", blink: true, repeat: true, every: 2 },
+  "inventory-warning": { sound: "/sounds/BPOS_Official_Inventory_Warning.wav", times: 1, gap: 0, color: "#facc15", blink: false, repeat: false, every: 60 },
+  "critical-error": { sound: "/sounds/BPOS_Official_Critical_Error.wav", times: 1, gap: 0, color: "#ef4444", blink: true, repeat: false, every: 60 },
+  "shift-message": { sound: BEEP_SOUND, times: 1, gap: 0, color: "#0ea5e9", blink: true, repeat: false, every: 60 },
+  "productivity-task": { sound: BEEP_SOUND, times: 1, gap: 0, color: "#8b5cf6", blink: true, repeat: false, every: 60 },
+  "blind-inventory": { sound: BEEP_SOUND, times: 1, gap: 0, color: "#f97316", blink: true, repeat: false, every: 60 },
 };
 
 const KINDS = Object.keys(DEFAULT_ALERTS) as AlertKind[];
 
+/** Hasta cuántas veces seguidas puede sonar un aviso */
+export const MAX_TIMES = 10;
+/** Esperas que se pueden elegir entre una vez y otra (segundos) */
+export const GAP_OPTIONS = [0, 1, 2, 3, 5, 10, 15, 20, 30, 60];
+
 function normalizePref(raw: Partial<AlertPref> | undefined, fallback: AlertPref): AlertPref {
   const r = raw || {};
   // Solo audios de B-POS o los que subió el administrador de B-POS a su nube
-  const sound = typeof r.sound === "string" && (r.sound === BEEP_SOUND || /^\/sounds\/[\w.-]+$/.test(r.sound) || (r.sound.startsWith(MEDIA_PREFIX) && !/\s/.test(r.sound))) ? r.sound : fallback.sound;
+  const sound = typeof r.sound === "string" && (r.sound === BEEP_SOUND || isSynthSound(r.sound) || /^\/sounds\/[\w.-]+$/.test(r.sound) || (r.sound.startsWith(MEDIA_PREFIX) && !/\s/.test(r.sound))) ? r.sound : fallback.sound;
   return {
     sound,
-    times: Number.isFinite(Number(r.times)) ? Math.min(5, Math.max(0, Math.round(Number(r.times)))) : fallback.times,
+    times: Number.isFinite(Number(r.times)) ? Math.min(MAX_TIMES, Math.max(0, Math.round(Number(r.times)))) : fallback.times,
+    gap: Number.isFinite(Number(r.gap)) ? Math.min(60, Math.max(0, Math.round(Number(r.gap)))) : fallback.gap,
     color: typeof r.color === "string" && /^#[0-9a-f]{6}$/i.test(r.color) ? r.color : fallback.color,
     blink: typeof r.blink === "boolean" ? r.blink : fallback.blink,
     repeat: typeof r.repeat === "boolean" ? r.repeat : fallback.repeat,
@@ -123,27 +133,34 @@ function beep(times: number) {
   }
 }
 
-/** Suena el aviso las veces configuradas, una tras otra. Se resuelve al terminar. */
-export function playAlert(pref: Pick<AlertPref, "sound" | "times">): Promise<void> {
-  if (!pref.times) return Promise.resolve();
-  if (pref.sound === BEEP_SOUND) {
-    const ms = beep(pref.times);
-    return new Promise((resolve) => window.setTimeout(resolve, ms));
-  }
+const wait = (ms: number) => new Promise<void>((resolve) => window.setTimeout(resolve, ms));
+
+/** Suena el audio una vez; se resuelve al terminar */
+function playOnce(sound: string): Promise<void> {
+  if (sound === BEEP_SOUND) return wait(beep(1));
+  if (isSynthSound(sound)) return wait(playSynth(sound));
   return new Promise((resolve) => {
-    const audio = new Audio(pref.sound);
-    let played = 1;
+    const audio = new Audio(sound);
     // Por si el audio no carga o el navegador no lo deja sonar
     const fallback = window.setTimeout(resolve, 15_000);
     const done = () => {
       window.clearTimeout(fallback);
       resolve();
     };
-    audio.addEventListener("ended", () => {
-      if (played++ < pref.times) void audio.play().catch(done);
-      else done();
-    });
+    audio.addEventListener("ended", done);
     audio.addEventListener("error", done);
     void audio.play().catch(done);
   });
+}
+
+/** Suena el aviso las veces configuradas, esperando `gap` segundos entre cada una. Se resuelve al terminar. */
+export async function playAlert(pref: Pick<AlertPref, "sound" | "times"> & { gap?: number }): Promise<void> {
+  if (!pref.times) return;
+  const gap = Math.max(0, Number(pref.gap) || 0) * 1000;
+  // El pip pip pip seguido conserva su pausa corta de siempre entre cada vez
+  if (pref.sound === BEEP_SOUND && !gap) return wait(beep(pref.times));
+  for (let i = 0; i < pref.times; i++) {
+    if (i) await wait(gap);
+    await playOnce(pref.sound);
+  }
 }

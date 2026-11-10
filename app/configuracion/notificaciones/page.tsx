@@ -9,7 +9,7 @@ import { useState } from "react";
 import RequireRole from "@/components/auth/RequireRole";
 import { AppShell } from "@/components/layout/AppShell";
 import { uploadBusinessAudio } from "@/lib/media";
-import { ALERT_LABELS, BUILTIN_SOUNDS, DEFAULT_ALERTS, playAlert, saveAlertPref, type AlertKind, type AlertPref } from "@/lib/notifications/settings";
+import { ALERT_LABELS, BUILTIN_SOUNDS, DEFAULT_ALERTS, GAP_OPTIONS, MAX_TIMES, playAlert, saveAlertPref, type AlertKind, type AlertPref } from "@/lib/notifications/settings";
 import { useAlertSettings } from "@/lib/notifications/useAlert";
 import { useIsPlatformAdmin } from "@/components/admin/PlatformAdminCard";
 
@@ -83,12 +83,30 @@ function AlertEditor({ kind, pref, canUpload }: { kind: AlertKind; pref: AlertPr
           ¿Cuántas veces suena?
           <select value={pref.times} onChange={(e) => set({ times: Number(e.target.value) })} className="mt-1 w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white">
             <option value={0}>Sin sonido</option>
-            {[1, 2, 3, 4, 5].map((n) => (
+            {Array.from({ length: MAX_TIMES }, (_, i) => i + 1).map((n) => (
               <option key={n} value={n}>
                 {n} {n === 1 ? "vez" : "veces"}
               </option>
             ))}
           </select>
+          {pref.times > 1 && (
+            <span className="mt-2 flex flex-wrap items-center gap-2 font-normal">
+              Esperar
+              <select value={pref.gap} onChange={(e) => set({ gap: Number(e.target.value) })} className="rounded-xl border border-zinc-800 bg-zinc-950 px-2 py-1 text-white">
+                {GAP_OPTIONS.map((s) => (
+                  <option key={s} value={s}>
+                    {s === 0 ? "nada (seguido)" : s < 60 ? `${s} segundo${s === 1 ? "" : "s"}` : "1 minuto"}
+                  </option>
+                ))}
+              </select>
+              entre cada una
+            </span>
+          )}
+          {pref.times > 1 && (
+            <span className="mt-1 block text-xs font-normal text-zinc-500">
+              Suena {pref.times} veces{pref.gap ? `, con ${pref.gap} segundo${pref.gap === 1 ? "" : "s"} de silencio entre cada una` : " seguidas"}. Toca ▶ Probar para oírlo.
+            </span>
+          )}
         </label>
         <label className="block text-sm font-bold text-zinc-300">
           Color del aviso
