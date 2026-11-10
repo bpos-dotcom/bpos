@@ -319,6 +319,83 @@ function notifyApp(keys: string[]) {
   APP_EVENTS.forEach((name) => window.dispatchEvent(new Event(name)));
 }
 
+// ------------------------------------------------------------ pedidos: cobro y cancelación
+
+const ORDERS_COLLECTION = "bpos_orders";
+const PAID_FIELDS = ["pendingPayment", "paidAt", "paidBy", "paidShiftSessionId", "tip", "tipPayments", "partialPayments"];
+const PAID_DETAILS = ["paymentMethod", "payments", "couponCode"];
+const CANCEL_FIELDS = ["cancelled", "cancelledAt", "cancelledBy", "cancelReason"];
+
+type Obj = Record<string, unknown>;
+
+function copyFields(target: Obj, source: Obj, fields: string[]) {
+  fields.forEach((field) => {
+    if (field in source) target[field] = source[field];
+    else delete target[field];
+  });
+}
+
+/**
+ * Un pedido cobrado o cancelado no vuelve atrás. Si un dispositivo tenía una
+ * copia vieja (por ejemplo la pantalla de cocina, que estuvo apagada) y la
+ * cambia, se respeta el cobro o la cancelación que ya está en la nube.
+ */
+export function keepMoneyState(local: Obj, cloud: Obj): Obj {
+  let merged = local;
+  if (local.pendingPayment === true && cloud.pendingPayment !== true && !local.cancelled) {
+    merged = { ...merged, details: { ...((merged.details as Obj) || {}) } };
+    copyFields(merged, cloud, PAID_FIELDS);
+    copyFields(merged.details as Obj, (cloud.details as Obj) || {}, PAID_DETAILS);
+  }
+  if (cloud.cancelled === true && merged.cancelled !== true) {
+    merged = { ...merged };
+    copyFields(merged, cloud, CANCEL_FIELDS);
+  }
+  return merged;
+}
+
+/** Antes de subir pedidos que otro dispositivo cambió, conserva su cobro o cancelación */
+async function keepOrdersMoneyState(rows: Obj[], scope: string, previous: Record<string, string>, nextHashes: Record<string, string>) {
+  const ids = rows.filter((row) => !row.deleted).map((row) => String(row.record_id));
+  const cloud = new Map<string, Obj>();
+  for (let i = 0; i < ids.length; i += UPSERT_BATCH) {
+    const { data, error } = await getSupabase()
+      .from("sync_records")
+      .select("record_id, data")
+      .eq("business_id", account!.businessId)
+      .eq("scope", scope)
+      .eq("collection", ORDERS_COLLECTION)
+      .in("record_id", ids.slice(i, i + UPSERT_BATCH));
+    if (error) throw new Error(friendlyError(error));
+    (data ?? []).forEach((row) => row.data && cloud.set(String(row.record_id), row.data as Obj));
+  }
+
+  // id → [cómo estaba aquí, cómo queda]
+  const fixed = new Map<string, [string, Obj]>();
+  rows.forEach((row) => {
+    const id = String(row.record_id);
+    const remote = cloud.get(id);
+    if (!remote || row.deleted) return;
+    if (hash(JSON.stringify(remote)) === previous[id]) return; // nadie más lo cambió
+    const merged = keepMoneyState(row.data as Obj, remote);
+    if (merged === row.data) return;
+    fixed.set(id, [hash(JSON.stringify(row.data)), merged]);
+    row.data = merged;
+    nextHashes[id] = hash(JSON.stringify(merged));
+  });
+  if (fixed.size === 0) return;
+
+  // Este dispositivo también se queda con el cobro (si no cambió el pedido mientras tanto)
+  const parsed = parseValue(rawGet(ORDERS_COLLECTION));
+  if (parsed.mode !== "records") return;
+  const list = parsed.list.map((item, i) => {
+    const fix = fixed.get(parsed.ids[i]);
+    return fix && hash(JSON.stringify(item)) === fix[0] ? fix[1] : item;
+  });
+  rawSet(ORDERS_COLLECTION, JSON.stringify(list));
+  notifyApp([ORDERS_COLLECTION]);
+}
+
 // ------------------------------------------------------------ subir
 
 function markDirty(key: string) {
@@ -367,6 +444,9 @@ async function pushKey(key: string) {
       });
     }
   });
+
+  // Pedidos: una copia vieja no regresa un cobro ni una cancelación
+  if (key === ORDERS_COLLECTION && rows.length > 0) await keepOrdersMoneyState(rows, scope, previous, nextHashes);
 
   for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
     const { error } = await getSupabase()
