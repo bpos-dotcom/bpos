@@ -40,7 +40,13 @@ export function useAlertSound(kind: AlertKind, pref: AlertPref, active: boolean,
   // Recordatorio mientras no se atienda
   useEffect(() => {
     if (!active || !pref.repeat) return;
-    const timer = window.setInterval(() => playAlert(pref), pref.every * 1000);
+    // Si todavía está sonando (varias veces con espera), no se encima otra
+    let playing = false;
+    const timer = window.setInterval(() => {
+      if (playing) return;
+      playing = true;
+      void playAlert(pref).finally(() => (playing = false));
+    }, pref.every * 1000);
     return () => window.clearInterval(timer);
   }, [active, pref]);
 }
