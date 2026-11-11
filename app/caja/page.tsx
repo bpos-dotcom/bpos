@@ -21,7 +21,8 @@ import { openWhatsapp, whatsappLink, whatsappTarget } from "@/lib/whatsapp";
 
 type CashMovement = {
   id: number;
-  type: "Gasto" | "Retiro" | "Ingreso extra";
+  // "Retiro dueño": dinero que se lleva el dueño; FinancIA lo cuenta solo (vista bpos_movimientos_caja)
+  type: "Gasto" | "Retiro" | "Retiro dueño" | "Ingreso extra";
   amount: number;
   reason: string;
   createdAt: string;
@@ -163,7 +164,7 @@ export default function CajaPage() {
   const tipsCash = shiftOrders.reduce((sum, order) => sum + tipPaidWith(order, "Efectivo"), 0);
 
   const cashOut = (shift?.movements || [])
-    .filter((movement) => movement.type === "Gasto" || movement.type === "Retiro")
+    .filter((movement) => movement.type === "Gasto" || movement.type === "Retiro" || movement.type === "Retiro dueño")
     .reduce((sum, movement) => sum + movement.amount, 0);
 
   const cashIn = (shift?.movements || [])
@@ -631,7 +632,8 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
             <h2 className="text-xl font-black">Movimientos de caja</h2>
             <p className="mt-2 text-zinc-400">
-              Registra gastos, retiros o ingresos extra durante el turno.
+              Registra gastos, retiros o ingresos extra durante el turno. Lo que te llevas tú va como
+              “Retiro dueño” y aparece solo en FinancIA.
             </p>
 
             <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-[180px_1fr_2fr_auto]">
@@ -644,6 +646,7 @@ ${cutDifference !== 0 ? `📝 Motivo: ${differenceReason.trim()}` : ""}
               >
                 <option>Gasto</option>
                 <option>Retiro</option>
+                <option>Retiro dueño</option>
                 <option>Ingreso extra</option>
               </select>
 
