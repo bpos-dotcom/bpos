@@ -9,6 +9,9 @@ import { getAdminProducts, getAdminRecipes } from "@/lib/admin";
 import { getCashCloseHistory, inVoidedShift, voidedShiftIds, type CashCloseRecord } from "@/lib/cash-history";
 import { getInventory, getKardex, type InventoryMovement } from "@/lib/inventory";
 import { getIngredientCostHistory, getPurchases, type IngredientCostRecord, type Purchase } from "@/lib/purchases";
+import { brandName, getBrands, orderBrandId, type Brand } from "@/lib/brands";
+import { deliveryApp } from "@/lib/app-commissions";
+import { platformLabel } from "@/lib/bridge/delivery-ticket";
 
 // ------------------------------------------------------------ tipos
 
@@ -51,8 +54,13 @@ export type ReportData = {
   byHour: Row[];
   byProduct: Row[];
   byCategory: Row[];
+  /** Con varias marcas el canal lleva la marca: "DiDi Food (Supremos)" */
   byChannel: Row[];
   byPayment: Row[];
+  /** Multimarca: ventas, costo y utilidad de cada marca (vacío si el negocio tiene una sola) */
+  byBrand: (Row & { brandId: string; color: string; channels: (Row & { app: string | null })[] })[];
+  /** Pedidos con productos de dos marcas (cuentan en la que más vendió): para revisarlos */
+  mixedBrandOrders: { id: number | string; localOrderNumber?: number; createdAt: string; total: number; channel: string; brands: string[] }[];
   shifts: CashCloseRecord[];
   purchases: Purchase[];
   purchasesBySupplier: Row[];
@@ -210,7 +218,9 @@ function bump(map: Map<string, Row>, label: string, patch: { count?: number; qua
 export type ReportSources = {
   orders: ReportOrder[];
   recipes: { productId: number; ingredientId: number; quantity: number }[];
-  products: { id: number; name: string; category?: string }[];
+  products: { id: number; name: string; category?: string; brandId?: string }[];
+  /** Marcas del negocio (la principal primero); con una sola no se separa nada */
+  brands?: Brand[];
   costHistory: IngredientCostRecord[];
   purchases: Purchase[];
   shifts: CashCloseRecord[];
@@ -229,6 +239,7 @@ export function loadReportSources(): ReportSources {
     orders: Array.isArray(orders) ? orders : [],
     recipes: getAdminRecipes(),
     products: getAdminProducts(),
+    brands: getBrands(),
     costHistory: getIngredientCostHistory(),
     purchases: getPurchases(),
     shifts: getCashCloseHistory(),
@@ -256,6 +267,13 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
   const byCategory = new Map<string, Row>();
   const byChannel = new Map<string, Row>();
   const byPayment = new Map<string, Row>();
+  // Multimarca: la marca de cada pedido sale de sus productos
+  const brands = src.brands && src.brands.length > 1 ? src.brands : null;
+  const byBrand = new Map<string, Row>();
+  brands?.forEach((b) => byBrand.set(b.id, emptyRow(b.name)));
+  // Canales de cada marca; `app` = DiDi, Uber o Rappi (su venta no es lo que depositan)
+  const brandChannels = new Map<string, Map<string, Row & { app: string | null }>>();
+  const mixedBrandOrders: ReportData["mixedBrandOrders"] = [];
 
   // días del rango, aunque no haya ventas
   for (let d = startOfDay(range.from); d < range.to; d = addDays(d, 1)) {
@@ -328,7 +346,27 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
     const day = dayKey(order.createdAt);
     bump(byDay, day, { count: 1, sales: total, cost: orderCost });
     bump(byHour, String(new Date(order.createdAt).getHours()).padStart(2, "0"), { count: 1, sales: total, cost: orderCost });
-    bump(byChannel, orderChannel(order), { count: 1, sales: total, cost: orderCost });
+    if (brands) {
+      const brand = orderBrandId(items, productById, brands);
+      const name = brandName(brand.brandId, brands);
+      // Apps con su nombre completo ("didi" → "DiDi Food"): "DiDi Food (Supremos)"
+      const app = order.source === "B-POS Bridge" || order.externalPlatform ? deliveryApp(order) : null;
+      const channel = app ? platformLabel(order.externalPlatform || order.details?.orderType) : orderChannel(order);
+      bump(byChannel, `${channel} (${name})`, { count: 1, sales: total, cost: orderCost });
+      const row = byBrand.get(brand.brandId) ?? emptyRow(name);
+      row.count += 1;
+      row.sales += total;
+      row.cost += orderCost;
+      byBrand.set(brand.brandId, row);
+      const channels = brandChannels.get(brand.brandId) ?? new Map();
+      const ch = channels.get(channel) ?? { ...emptyRow(channel), app };
+      ch.count += 1;
+      ch.sales += total;
+      ch.cost += orderCost;
+      channels.set(channel, ch);
+      brandChannels.set(brand.brandId, channels);
+      if (brand.mixed) mixedBrandOrders.push({ id: order.id, localOrderNumber: order.localOrderNumber, createdAt: order.createdAt, total, channel, brands: brand.brandIds.map((id) => brandName(id, brands)) });
+    } else bump(byChannel, orderChannel(order), { count: 1, sales: total, cost: orderCost });
     bump(byPayment, orderPayment(order), { count: 1, sales: total, cost: orderCost });
   });
 
@@ -394,6 +432,17 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
     byCategory: finish(byCategory),
     byChannel: finish(byChannel),
     byPayment: finish(byPayment),
+    byBrand: [...byBrand.entries()].map(([brandId, r]) => ({
+      ...r,
+      brandId,
+      color: brands?.find((b) => b.id === brandId)?.color || "#71717a",
+      profit: r.sales - r.cost,
+      margin: r.sales > 0 ? ((r.sales - r.cost) / r.sales) * 100 : 0,
+      channels: [...(brandChannels.get(brandId)?.values() || [])]
+        .map((c) => ({ ...c, profit: c.sales - c.cost, margin: c.sales > 0 ? ((c.sales - c.cost) / c.sales) * 100 : 0 }))
+        .sort((a, b) => b.sales - a.sales),
+    })),
+    mixedBrandOrders,
     shifts,
     purchases,
     purchasesBySupplier: finish(bySupplier),

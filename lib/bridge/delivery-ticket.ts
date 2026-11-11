@@ -46,6 +46,8 @@ export type DeliveryTicket = {
   waiter?: string;
   /** Renglones informativos al pie del ticket del cliente (precuenta: propina sugerida, por persona) */
   footerRows?: { label: string; value: string }[];
+  /** Multimarca: el pedido es de otra marca (no la principal); va su nombre en lugar del logo */
+  brand?: string;
 };
 
 const QUANTIFIED = /^\s*\[?\s*(\d{1,4})\s*[xX×]\s*\]?\s*(.+?)\s*$/;

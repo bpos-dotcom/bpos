@@ -52,6 +52,7 @@ import {
   getNextShiftOrderNumberPreview,
 } from "@/lib/order-sequence";
 import { openWhatsapp } from "@/lib/whatsapp";
+import { BRANDS_EVENT, getBrands, isAppsOnly, type Brand } from "@/lib/brands";
 
 const STORAGE_KEY = "bpos_orders";
 /** Pedido en curso (carrito y datos) para que no se pierda al cambiar de página */
@@ -207,10 +208,18 @@ function PosScreen() {
     [clock, menuCfg]
   );
 
-  // Lo que no se vende por separado no aparece en el menú (sí sirve dentro de combos)
+  // Lo que no se vende por separado no aparece en el menú (sí sirve dentro de combos),
+  // ni lo de una marca que solo vende en apps (Configuración → Marcas)
+  const [brands, setBrands] = useState<Brand[]>([]);
+  useEffect(() => {
+    const sync = () => setBrands(getBrands());
+    sync();
+    window.addEventListener(BRANDS_EVENT, sync);
+    return () => window.removeEventListener(BRANDS_EVENT, sync);
+  }, []);
   const sellable = useMemo(
-    () => sortProducts(products.filter((product) => !product.notSoldAlone), menuCfg.categoryOrder, menuCfg.productOrder),
-    [products, menuCfg.categoryOrder, menuCfg.productOrder]
+    () => sortProducts(products.filter((product) => !product.notSoldAlone && !isAppsOnly(product, brands)), menuCfg.categoryOrder, menuCfg.productOrder),
+    [products, brands, menuCfg.categoryOrder, menuCfg.productOrder]
   );
 
   // Barra de favoritos (en el orden en que se marcaron) y vista en cuadrícula o lista (de esta caja)

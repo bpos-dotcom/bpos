@@ -30,6 +30,7 @@ import { verifyPin } from "@/lib/pin-hash";
 import { isOnSale } from "@/lib/sale-schedule";
 import { getTables, openTableOrder, tableLabel, tableZones, type Table } from "@/lib/tables";
 import { getUsers, type SystemUser } from "@/lib/users";
+import { getBrands, isAppsOnly } from "@/lib/brands";
 import { changeDiners, linkWaiterDevice, moveTable, openTableOrders, printTablePrecuenta, readWaiterDevice, readyItems, removeSentItem, reportBlockedAttempt, saveWaiterDevice, sendToKitchen, setOverride, waiterBlock, waiterDeviceSeen, waiterUsers } from "@/lib/waiter";
 
 type Step = { kind: "loading"; text: string } | { kind: "pair" } | { kind: "login" } | { kind: "app"; user: CurrentUser };
@@ -274,7 +275,11 @@ function WaiterApp({ user, onLogout }: { user: CurrentUser; onLogout: () => void
   const block = useMemo(() => waiterBlock(me), [me, tick]); // eslint-disable-line react-hooks/exhaustive-deps
   const zones = useMemo(() => tableZones(tables), [tables]);
   const menu = useMemo(() => getDigitalMenu(), [tick]); // eslint-disable-line react-hooks/exhaustive-deps
-  const available = useMemo(() => sortProducts(products.filter((p) => isAvailableOnline(menu, p) && isOnSale(p.saleSchedule)), menu.categoryOrder, menu.productOrder), [products, menu]);
+  // Sin lo de una marca que solo vende en apps (Configuración → Marcas)
+  const available = useMemo(() => {
+    const brands = getBrands();
+    return sortProducts(products.filter((p) => isAvailableOnline(menu, p) && isOnSale(p.saleSchedule) && !isAppsOnly(p, brands)), menu.categoryOrder, menu.productOrder);
+  }, [products, menu]);
   const categories = useMemo(() => sortCategories(Array.from(new Set(available.map((p) => p.category))), menu.categoryOrder), [available, menu]);
   const open = table ? openTableOrder(orders, table.id) : undefined;
   const cartTotal = cart.reduce((s, i) => s + i.price * i.quantity, 0);

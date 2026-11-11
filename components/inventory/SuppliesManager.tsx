@@ -18,6 +18,7 @@ import { CheckChips, MoveCard, MovesList, StockBadge, checkItems, isLow, isMoves
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import { UNITS, changeIngredientUnit, unitChangeImpact, unitFactor } from "@/lib/units";
+import { brandInventoryCategories } from "@/lib/brands";
 
 const NO_CATEGORY = "Sin categoría";
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
@@ -383,7 +384,7 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
                         className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
                       >
                         <option value="">Sin categoría</option>
-                        {[...new Set([...categories.map(([c]) => c).filter((c) => c !== NO_CATEGORY), ...(draft.category?.trim() ? [draft.category.trim()] : []), ...SUGGESTED])].map((c) => (
+                        {[...new Set([...categories.map(([c]) => c).filter((c) => c !== NO_CATEGORY), ...(draft.category?.trim() ? [draft.category.trim()] : []), ...brandInventoryCategories(), ...SUGGESTED])].map((c) => (
                           <option key={c} value={c}>
                             {c}
                           </option>

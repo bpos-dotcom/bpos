@@ -77,9 +77,12 @@ function page(settings: BusinessSettings, paper: PaperWidth, body: string) {
 }
 
 function header(ticket: DeliveryTicket, settings: BusinessSettings) {
-  const logo = settings.ticketLogo
-    ? `<img class="logo" src="${settings.ticketLogo}">`
-    : `<div class="center platform">${esc(settings.businessName)}</div>`;
+  // Pedido de otra marca (multimarca): su nombre en lugar del logo del negocio, para empacarlo con su marca
+  const logo = ticket.brand
+    ? `<div class="center order">${esc(ticket.brand.toUpperCase())}</div>`
+    : settings.ticketLogo
+      ? `<img class="logo" src="${settings.ticketLogo}">`
+      : `<div class="center platform">${esc(settings.businessName)}</div>`;
   const customer = settings.ticketShowCustomer && ticket.customer ? ticket.customer : "";
   // Debajo del logo (el logo queda tapado por la impresora; esto sale a la vista):
   // - Plataforma: "DiDi Food / 4", abajo "Delivery · Cliente" y nuestro número
@@ -169,7 +172,7 @@ export function stationTicketHtml(ticket: DeliveryTicket, station: KitchenStatio
 export function noticeText(ticket: DeliveryTicket, settings: BusinessSettings) {
   return settings.ticketNotice
     .replace(/\{plataforma\}/gi, ticket.platform)
-    .replace(/\{negocio\}/gi, settings.businessName)
+    .replace(/\{negocio\}/gi, ticket.brand || settings.businessName)
     .replace(/\{telefono\}/gi, settings.ticketPhone || "");
 }
 

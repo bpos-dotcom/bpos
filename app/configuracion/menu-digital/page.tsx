@@ -36,6 +36,7 @@ import { ServiceGate } from "@/components/cloud/ServiceGate";
 import { MenuDesignEditor } from "@/components/menu/MenuDesignEditor";
 import { HolidaysEditor, TimedMenusEditor } from "@/components/menu/MenuSchedulesEditor";
 import { SortableList } from "@/components/menu/SortableList";
+import { getBrands, isAppsOnly } from "@/lib/brands";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white";
@@ -73,8 +74,10 @@ export default function MenuDigitalPage() {
 
   useEffect(() => {
     const sync = () => setMenu(getDigitalMenu());
+    // Lo de una marca que solo vende en apps no va en el menú (Configuración → Marcas)
+    const brands = getBrands();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- datos del navegador: solo después de montar
-    setProducts(getAdminProducts().filter((p) => !p.notSoldAlone));
+    setProducts(getAdminProducts().filter((p) => !p.notSoldAlone && !isAppsOnly(p, brands)));
     const m = getDigitalMenu();
     setSlugDraft(m.slug || suggestSlug(getBusinessSettings().businessName));
     window.addEventListener(DIGITAL_MENU_EVENT, sync);

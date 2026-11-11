@@ -23,6 +23,7 @@ import { DeleteProductModal, type DeliveryAlias } from "@/components/products/De
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { ImportProductsModal } from "@/components/products/ImportProductsModal";
 import Link from "next/link";
+import { ALL_BRANDS, BRANDS_EVENT, MAIN_BRAND, getBrands, productBrandId, type Brand } from "@/lib/brands";
 
 /** Precios que ya tenía el producto (el suyo y los de sus opciones); lo nuevo sin permiso de precios va en $0 */
 function keepPrices(next: Product, stored: Product) {
@@ -78,6 +79,14 @@ export default function ProductosAdminPage() {
 
   const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
   const [category, setCategory] = useState(""); // "" = todas
+  // Multimarca: solo se pide la marca si el negocio tiene más de una
+  const [brands, setBrands] = useState<Brand[]>([]);
+  useEffect(() => {
+    const sync = () => setBrands(getBrands());
+    sync();
+    window.addEventListener(BRANDS_EVENT, sync);
+    return () => window.removeEventListener(BRANDS_EVENT, sync);
+  }, []);
   const [pickingCategory, setPickingCategory] = useState(false);
   const [newCategory, setNewCategory] = useState("");
   const categories = [...products.reduce((map, p) => map.set(p.category, (map.get(p.category) || 0) + 1), new Map<string, number>())].sort((a, b) =>
@@ -175,6 +184,7 @@ export default function ProductosAdminPage() {
     if (!saved.noOwnTicket) delete saved.noOwnTicket;
     if (!saved.notSoldAlone) delete saved.notSoldAlone;
     if (!saved.noPackaging) delete saved.noPackaging;
+    if (!saved.brandId || saved.brandId === MAIN_BRAND) delete saved.brandId;
     if (!saved.image) delete saved.image;
     if (saved.description?.trim()) saved.description = saved.description.trim().slice(0, 160);
     else delete saved.description;
@@ -492,6 +502,10 @@ export default function ProductosAdminPage() {
                         {product.noOwnTicket ? "🍱 Combo · sale por sus opciones" : `👨‍🍳 ${product.station || "Cocina"}`}
                         {product.modifierGroups?.length ? ` · 🎛️ ${product.modifierGroups.length}` : ""}
                         {product.notSoldAlone ? " · 🚫 no se vende solo" : ""}
+                        {(() => {
+                          const id = brands.length > 1 ? productBrandId(product, brands) : MAIN_BRAND;
+                          return id === MAIN_BRAND ? "" : ` · 🏷️ ${id === ALL_BRANDS ? "Todas las marcas" : brands.find((b) => b.id === id)?.name}`;
+                        })()}
                         {product.saleSchedule ? ` · 🕒 ${scheduleLabel(product.saleSchedule)}` : ""}
                       </p>
                     </div>
@@ -622,6 +636,27 @@ export default function ProductosAdminPage() {
                     </datalist>
                     <span className="mt-1 block text-xs text-zinc-500">Elige una de la lista o escribe una nueva para crearla.</span>
                   </Field>
+
+                  {brands.length > 1 && (
+                    <Field label="🏷️ Marca">
+                      <select
+                        value={productBrandId(draft, brands)}
+                        onChange={(event) => setDraft({ ...draft, brandId: event.target.value })}
+                        className="w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white"
+                      >
+                        {brands.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.name}
+                            {b.appsOnly ? " (solo apps)" : ""}
+                          </option>
+                        ))}
+                        <option value={ALL_BRANDS}>Todas las marcas</option>
+                      </select>
+                      <span className="mt-1 block text-xs text-zinc-500">
+                        Cada venta de este producto (también por DiDi, Uber o Rappi) cuenta para esta marca en Finanzas y Reportes. &quot;Todas las marcas&quot;: toma la marca del pedido (ej. un refresco).
+                      </span>
+                    </Field>
+                  )}
 
                   <Field label="Estación de preparación">
                     <select

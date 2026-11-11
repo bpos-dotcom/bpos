@@ -59,6 +59,7 @@ const DEVICE_LOCAL_KEYS = new Set([
 const BUSINESS_KEYS = new Set([
   "bpos_app_commissions",
   "bpos_products",
+  "bpos_brands",
   "bpos_recipes",
   "bpos_users",
   "bpos_user_permissions",
@@ -81,6 +82,7 @@ const BUSINESS_KEYS = new Set([
 /** Eventos que ya escuchan las pantallas de B-POS */
 const APP_EVENTS = [
   "bpos:audit-updated",
+  "bpos:brands-updated",
   "bpos:business-settings-updated",
   "bpos:cash-history-updated",
   "bpos:critical-errors-updated",

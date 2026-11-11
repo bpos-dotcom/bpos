@@ -135,6 +135,7 @@ export default function ReportesPage() {
       { name: "Productos", rows: rowsTable(report.byProduct, "Producto", { qty: true }) },
       { name: "Categorías", rows: rowsTable(report.byCategory, "Categoría", { qty: true }) },
       { name: "Canales", rows: rowsTable(report.byChannel, "Canal / plataforma", { count: true }) },
+      ...(report.byBrand.length > 1 ? [{ name: "Marcas", rows: rowsTable(report.byBrand, "Marca", { count: true }) }] : []),
       { name: "Métodos de pago", rows: rowsTable(report.byPayment, "Método", { count: true }) },
       {
         name: "Empleados",
@@ -386,6 +387,14 @@ export default function ReportesPage() {
 
             {tab === "canales" && (
               <div className="grid gap-6 xl:grid-cols-2">
+                {report.byBrand.length > 1 && (
+                  <Panel title="Por marca">
+                    <Bars rows={report.byBrand} />
+                    <div className="mt-4">
+                      <Table rows={report.byBrand} first="Marca" showCosts={showCosts} count />
+                    </div>
+                  </Panel>
+                )}
                 <Panel title="Por canal / plataforma">
                   <Bars rows={report.byChannel} />
                   <div className="mt-4">

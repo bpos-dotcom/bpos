@@ -29,6 +29,12 @@ const adminModules = [
     description: "Alta, edición, precios, categorías y estaciones.",
   },
   {
+    title: "Marcas",
+    href: "/configuracion/marcas",
+    icon: "🏷️",
+    description: "Multimarca: vende con otra marca (ej. solo en DiDi y Uber) con los mismos productos e inventario; Finanzas separa ventas y food cost por marca.",
+  },
+  {
     title: "Menú digital",
     href: "/configuracion/menu-digital",
     icon: "🌐",
