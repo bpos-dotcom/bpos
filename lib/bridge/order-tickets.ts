@@ -6,6 +6,7 @@ import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import { buildDeliveryTicket, ticketStations, type DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { stationsByLine } from "@/lib/bridge/station-routing";
 import { bagTicketHtml, stationTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
+import { ticketBrandName } from "@/lib/brands";
 
 export type OrderTicket = { target: KitchenStation | "Caja"; html: string; /** Cobro en efectivo: el Agent abre el cajón de dinero de la impresora de Caja */ drawer?: boolean };
 
@@ -46,6 +47,8 @@ export async function buildOrderTickets(
 ): Promise<{ ticket: DeliveryTicket; tickets: OrderTicket[] }> {
   const routing = stationsByLine(order.interpretation, catalog.products as { id: number | string; station?: KitchenStation }[], catalog.recipes, fallback);
   const ticket = buildDeliveryTicket(order, routing);
+  const brand = ticketBrandName((order.interpretation?.products || []).map((p) => ({ id: p.productId, quantity: p.quantity })));
+  if (brand) ticket.brand = brand;
   const paper = paperWidth();
   const tickets: OrderTicket[] = ticketStations(ticket).map((station) => ({
     target: station,

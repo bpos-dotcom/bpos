@@ -10,7 +10,9 @@ import { kitchenItems, modifiersText } from "@/lib/compound";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { SavedOrder } from "@/components/OrderHistoryPanel";
-import { KitchenStation } from "@/data/products";
+import { KitchenStation, type Product } from "@/data/products";
+import { getAdminProducts } from "@/lib/admin";
+import { BRANDS_EVENT, BRANDS_KEY, getBrands, orderBrandId, type Brand } from "@/lib/brands";
 import { KDS_ORDERS_KEY, KdsStatus } from "@/lib/kds";
 import {
   DEFAULT_KDS_STATIONS,
@@ -120,6 +122,28 @@ export function KitchenScreen({ bare = false, extra }: { bare?: boolean; /** Bot
   const [expandedOrders, setExpandedOrders] = useState<Set<number>>(new Set());
   const previousVisibleOrderIds = useRef<Set<number>>(new Set());
   const initialLoadDone = useRef(false);
+  // Multimarca: de qué marca es cada pedido, para empacarlo en la bolsa correcta
+  const [brandData, setBrandData] = useState<{ brands: Brand[]; products: Product[] }>({ brands: [], products: [] });
+  useEffect(() => {
+    const sync = () => setBrandData({ brands: getBrands(), products: getAdminProducts() });
+    sync();
+    const onStorage = (e: StorageEvent) => (!e.key || e.key === "bpos_products" || e.key === BRANDS_KEY) && sync();
+    window.addEventListener(BRANDS_EVENT, sync);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener(BRANDS_EVENT, sync);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, []);
+  const orderBrand = useCallback(
+    (order: KdsOrder) => {
+      if (brandData.brands.length < 2) return null;
+      const byId = new Map(brandData.products.map((p) => [Number(p.id), p]));
+      const id = orderBrandId(order.items, byId, brandData.brands).brandId;
+      return brandData.brands.find((b) => b.id === id) || null;
+    },
+    [brandData]
+  );
 
   const enabledStations = useMemo(
     () => stationConfig.filter((station) => station.enabled),
@@ -412,6 +436,14 @@ export function KitchenScreen({ bare = false, extra }: { bare?: boolean; /** Bot
                 .toString()
                 .padStart(6, "0")}
             </p>
+            {(() => {
+              const brand = orderBrand(order);
+              return brand ? (
+                <p className="mt-1 inline-flex items-center gap-2 rounded-lg px-2 py-0.5 text-sm font-black text-black" style={{ background: brand.color }}>
+                  🏷️ {brand.name}
+                </p>
+              ) : null;
+            })()}
             {external && (
               <p className="mt-1 text-sm font-black text-orange-400">
                 Plataforma: {platformLabel(order.externalPlatform)} · #

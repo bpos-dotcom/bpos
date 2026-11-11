@@ -21,6 +21,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { FinanceChart, type ChartSeries } from "@/components/finance/FinanceChart";
 import { AppsPanel } from "@/components/finance/AppsPanel";
+import { BrandsPanel } from "@/components/finance/BrandsPanel";
 import { ProfitBreakdown, type AppIncome, type FixedPart, type FoodCostInfo } from "@/components/finance/ProfitBreakdown";
 import {
   EXPENSE_CATEGORIES,
@@ -285,10 +286,12 @@ export default function FinanzasPage() {
     window.addEventListener(FINANCE_EVENT, load);
     window.addEventListener(COMMISSIONS_EVENT, load);
     window.addEventListener("bpos:orders-updated", load);
+    window.addEventListener("bpos:brands-updated", load);
     return () => {
       window.removeEventListener(FINANCE_EVENT, load);
       window.removeEventListener(COMMISSIONS_EVENT, load);
       window.removeEventListener("bpos:orders-updated", load);
+      window.removeEventListener("bpos:brands-updated", load);
     };
   }, []);
 
@@ -585,6 +588,7 @@ export default function FinanzasPage() {
 
         {/* Izquierda: gráfica con punto de equilibrio y gastos fijos. Derecha: gastos sueltos, pedidos de apps y depósitos */}
         {error && <p className="text-sm font-bold text-red-300">{error}</p>}
+        {(cur?.all.byBrand.length || 0) > 1 && <BrandsPanel rows={cur!.all.byBrand} mixed={cur!.all.mixedBrandOrders} periodName={periodName} money={money} pct={pct} commissions={commissions} />}
         <div className="grid items-start gap-6 xl:grid-cols-2">
           <div className="space-y-6">
         <section className={card}>

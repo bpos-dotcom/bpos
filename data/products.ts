@@ -92,6 +92,8 @@ export type Product = {
   fromBridge?: { platform: string; at: string; withOptions?: boolean };
   /** No lleva empaque (ej. un extra que va en la misma caja): cuenta como completo sin packaging */
   noPackaging?: boolean;
+  /** Multimarca (Configuración → Marcas): de qué marca es; sin marca = la principal, "all" = todas las marcas */
+  brandId?: string;
 };
 
 export const products: Product[] = [

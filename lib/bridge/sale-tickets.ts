@@ -6,6 +6,7 @@ import { paperWidth, qrSvg, type OrderTicket } from "@/lib/bridge/order-tickets"
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
 import { formatOrderNumber } from "@/lib/order-sequence";
+import { ticketBrandName } from "@/lib/brands";
 import { extrasPrice, groupedPicks, modifiersText, type SoldModifier, type SoldPart } from "@/lib/compound";
 
 /**
@@ -20,7 +21,7 @@ export type SaleForTickets = {
   id: number;
   localOrderNumber?: number;
   createdAt: string;
-  items: { name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean; comment?: string; extraStations?: ExtraStation[] }[];
+  items: { id?: number | string; name: string; price: number; quantity: number; station?: string; externalName?: string; parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket?: boolean; comment?: string; extraStations?: ExtraStation[] }[];
   details?: { orderType?: string; customerName?: string; paymentMethod?: string; discount?: number; payments?: Record<string, number>; table?: { name: string }; diners?: number; precuenta?: boolean; waiter?: string; /** precuenta dividida entre N personas */ precuentaSplit?: number };
   /** En espera (por cobrar): todavía no entra dinero */
   pendingPayment?: boolean;
@@ -43,7 +44,9 @@ export function isDeliverySale(sale: SaleForTickets) {
 /** Datos del ticket de una venta (el del Bridge si es delivery). */
 export function saleTicket(sale: SaleForTickets): DeliveryTicket {
   const localNumber = sale.localOrderNumber ? formatOrderNumber(sale) : undefined;
-  if (sale.deliveryTicket) return { ...sale.deliveryTicket, customer: realCustomerName(sale.deliveryTicket.customer), ...(localNumber ? { localNumber } : {}) };
+  // Multimarca: un pedido de otra marca lleva su nombre en lugar del logo
+  const brand = ticketBrandName(sale.items);
+  if (sale.deliveryTicket) return { ...sale.deliveryTicket, customer: realCustomerName(sale.deliveryTicket.customer), ...(localNumber ? { localNumber } : {}), ...(brand ? { brand } : {}) };
   const delivery = isDeliverySale(sale);
   const discount = Number(sale.details?.discount || 0);
   const subtotal = Number(sale.subtotal ?? sale.items.reduce((s, i) => s + i.price * i.quantity, 0));
@@ -101,6 +104,7 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
     total: Number(sale.total),
     payment: delivery ? undefined : sale.details?.paymentMethod,
     ...(sale.details?.waiter ? { waiter: sale.details.waiter } : {}),
+    ...(brand ? { brand } : {}),
   };
 }
 
