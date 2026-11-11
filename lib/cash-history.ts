@@ -1,6 +1,6 @@
 export type CashMovementHistory = {
   id: number;
-  type: "Gasto" | "Retiro" | "Ingreso extra";
+  type: "Gasto" | "Retiro" | "Retiro dueño" | "Ingreso extra";
   amount: number;
   reason: string;
   createdAt: string;
