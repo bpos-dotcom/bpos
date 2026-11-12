@@ -226,5 +226,32 @@ check("KDS: las salchipapas solo la del combo", kdsF[1].comment === "Para llevar
 const reparto = compoundRouting(favorito, catalog).map((r) => `${r.station}: ${r.items.join(" + ")}`).join(" | ");
 check("editor: así se reparte", reparto === "Parrilla: Hamburguesa (a elegir: Hamburguesa Polaca, Hamburguesa Sriracha) | Freidora: Salchipapas | Barra: Refresco", reparto);
 
+// 11. Producto elegido DENTRO de una parte del combo (pedido #000026): la Carne Extra
+// ($25, Parrilla) en las opciones de la hamburguesa. Se cobraba pero no salía en la
+// comanda ni en el ticket del cliente ni descontaba su receta.
+const extrasBurger: ModifierGroup = { key: "ex", name: "Extras", min: 0, included: 0, extraPrice: 0, max: 0, options: [{ key: "ce", name: "Carne Extra", productId: 51, extraPrice: 25 }] };
+const cat2: Product[] = [
+  { id: 50, name: "Hamburguesa Kansas City", category: "Burgers", price: 139, emoji: "🍔", station: "Parrilla", modifierGroups: [extrasBurger] },
+  { id: 51, name: "Carne Extra", category: "Extras", price: 25, emoji: "🥩", station: "Parrilla" },
+  { id: 52, name: "Mountain dew", category: "Bebidas", price: 35, emoji: "🥤", station: "Barra" },
+];
+const fav2: Product = { id: 60, name: "Combo Favorito", category: "Combos", price: 139, emoji: "🍱", station: "Cocina", noOwnTicket: true, modifierGroups: [fixed("h", "Hamburguesa", 50), fixed("r", "Refresco", 52)] };
+cat2.push(fav2);
+const sel2 = buildSelection(fav2, cat2, { [linkedOwner(50)]: { ex: ["ce"] } });
+const carne = sel2.parts?.find((p) => p.productId === 51);
+check("Carne Extra: queda como parte en Parrilla", carne?.station === "Parrilla" && carne.quantity === 1, sel2.parts);
+check("Carne Extra: va junto después de su hamburguesa", sel2.parts?.map((p) => p.productId).join(",") === "50,51,52", sel2.parts);
+check("Carne Extra: se cobra $25 una vez", extrasPrice(sel2.modifiers, sel2.parts) === 25, extrasPrice(sel2.modifiers, sel2.parts));
+const used2 = itemConsumption({ id: 60, quantity: 2, parts: sel2.parts, modifiers: sel2.modifiers }, (id) => (id === 51 ? [{ ingredientId: 900, quantity: 1 }] : []));
+check("Carne Extra: 2 combos descuentan 2 carnes", used2.get(900) === 2, [...used2]);
+const t2 = saleTicket({ id: 26, createdAt: new Date().toISOString(), items: [{ name: "Combo Favorito", price: 164, quantity: 1, station: "Cocina", parts: sel2.parts, modifiers: sel2.modifiers, ownTicket: false }], total: 164 });
+const parr2 = stationTicketHtml(t2, "Parrilla", settings, 80);
+check("comanda Parrilla: sale la Carne Extra", parr2.includes("1x Carne Extra"), parr2.slice(-600));
+check("comanda Parrilla: sin el renglón de cobro", !parr2.includes("+25"));
+const bag2 = bagTicketHtml(t2, settings, "", 80);
+check("ticket cliente: sale la Carne Extra con sus $25", bag2.includes("1x Carne Extra") && bag2.includes("Carne Extra +25") && bag2.includes("$25.00"), bag2.slice(-900));
+check("ticket cliente: el combo a $139", bag2.includes("$139.00"));
+check("ticket cliente: la Barra no ve la carne", !stationTicketHtml(t2, "Barra", settings, 80).includes("Carne Extra"));
+
 console.log(`\n${ok} bien, ${bad} mal`);
 process.exit(bad ? 1 : 0);

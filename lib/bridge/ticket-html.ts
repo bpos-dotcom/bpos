@@ -111,16 +111,16 @@ function itemBlock(item: TicketItem, settings: BusinessSettings, withPrices: boo
     .filter((p) => !station || p.station === station)
     .map((p) => `<div class="sub">» ${p.qty}x ${esc(p.name)}</div>${(p.extras || []).map((x) => `<div class="sub">&nbsp;&nbsp;* ${esc(x)}</div>`).join("")}`)
     .join("");
-  const details = settings.ticketShowChoices
-    ? item.choices
-        .map(
-          (c) =>
-            `<div class="sub row"><span class="name">${c.question ? `${esc(c.question)} ` : ""}» ${c.qty > 1 ? `${c.qty}x ` : ""}${esc(c.name)}</span>${
-              withPrices && c.price ? `<span class="price">${money(c.price)}</span>` : ""
-            }</div>`
-        )
-        .join("")
-    : "";
+  // Lo que se cobró aparte siempre sale en el del cliente (cuadra con el total) y nunca en la comanda
+  const details = item.choices
+    .filter((c) => (c.charge ? withPrices : settings.ticketShowChoices))
+    .map(
+      (c) =>
+        `<div class="sub row"><span class="name">${c.question ? `${esc(c.question)} ` : ""}» ${c.qty > 1 ? `${c.qty}x ` : ""}${esc(c.name)}</span>${
+          withPrices && c.price ? `<span class="price">${money(c.price)}</span>` : ""
+        }</div>`
+    )
+    .join("");
   // Notas y comentarios ("sin cebolla") siempre salen, aunque las opciones estén ocultas
   const notes = item.notes.map((n) => `<div class="sub">* ${esc(n)}</div>`).join("");
   const warn = !withPrices && item.pending ? `<div class="sub">!! SIN EQUIVALENCIA: revisar en el Bridge</div>` : "";

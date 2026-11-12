@@ -186,6 +186,18 @@ export function linkedWithOptions(product: Product, products: Product[], ownPick
   return [...ids].map((id) => byId.get(id)!);
 }
 
+/** Productos enlazados elegidos en las opciones de una parte: también son partes, por cada pieza de esa parte. */
+export function nestedParts(parent: SoldPart, linked: SoldModifier[] = []): SoldPart[] {
+  const out: SoldPart[] = [];
+  for (const m of linked) {
+    if (!m.productId) continue;
+    const existing = out.find((p) => p.productId === m.productId && p.label === m.group);
+    if (existing) existing.quantity += parent.quantity;
+    else out.push({ productId: m.productId, name: m.name, quantity: parent.quantity, station: m.station || "Cocina", label: m.group });
+  }
+  return out;
+}
+
 /**
  * Lo que se vende de un producto con las elecciones hechas
  * (`picks`: dueño → grupo → opciones). Sin elección en un grupo que se
@@ -194,11 +206,18 @@ export function linkedWithOptions(product: Product, products: Product[], ownPick
 export function buildSelection(product: Product, products: Product[], picks: Record<string, Picks> = {}) {
   const own = { ...autoPicks(product.modifierGroups), ...(picks[OWN_OPTIONS] || {}) };
   const partModifiers: Record<number, SoldModifier[]> = {};
+  const partLinked: Record<number, SoldModifier[]> = {};
   for (const linked of linkedWithOptions(product, products, own)) {
     const chosen = { ...autoPicks(linked.modifierGroups), ...(picks[linkedOwner(linked.id)] || {}) };
-    partModifiers[linked.id] = soldModifiers(linked.modifierGroups, chosen, products).filter((m) => !m.productId);
+    const sold = soldModifiers(linked.modifierGroups, chosen, products);
+    partModifiers[linked.id] = sold.filter((m) => !m.productId);
+    partLinked[linked.id] = sold.filter((m) => m.productId);
   }
-  const { parts, modifiers } = splitLinked(soldModifiers(product.modifierGroups, own, products), partModifiers);
+  const split = splitLinked(soldModifiers(product.modifierGroups, own, products), partModifiers);
+  const { modifiers } = split;
+  // Producto elegido dentro de una parte (la Carne Extra de la hamburguesa del combo):
+  // también es parte, para que salga en la comanda de su estación y descuente su receta
+  const parts = split.parts.flatMap((p) => [p, ...nestedParts(p, partLinked[p.productId])]);
   return {
     parts: parts.length ? parts : undefined,
     modifiers: modifiers.length ? modifiers : undefined,

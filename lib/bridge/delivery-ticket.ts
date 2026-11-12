@@ -10,7 +10,8 @@ import { fixOcrQuantity } from "@/lib/bridge/ocr-quantity";
  * Se arma del texto del ticket original (renglones "1x Producto MX$129.99")
  * y de las equivalencias del Bridge (qué estación lleva cada renglón).
  */
-export type TicketChoice = { qty: number; name: string; price: number | null; question?: string; alsoAt?: KitchenStation[] };
+/** charge: solo el cobro de una opción (la Carne Extra de una parte del combo): sale en el ticket del cliente, no en la comanda */
+export type TicketChoice = { qty: number; name: string; price: number | null; question?: string; alsoAt?: KitchenStation[]; charge?: boolean };
 
 export type TicketItem = {
   index: number; // renglón en el texto del ticket (el mismo sourceIndex del Bridge)
