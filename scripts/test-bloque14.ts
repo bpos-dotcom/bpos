@@ -9,6 +9,7 @@ import os from "node:os";
 import path from "node:path";
 import { buildDeliveryTicket, realCustomerName } from "@/lib/bridge/delivery-ticket";
 import { interpretOrder, optionNameMatches } from "@/lib/bridge/interpret-order";
+import { pickOptions } from "@/lib/bridge/create-automatic-sale";
 import { stationsByLine } from "@/lib/bridge/station-routing";
 import { saleTicket } from "@/lib/bridge/sale-tickets";
 import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
@@ -68,6 +69,11 @@ check("reimpresión de venta guardada sin 'Usuario'", venta.customer === null);
   check("'Si' no elige la hamburguesa 'Si Racha'", !optionNameMatches("Si", "Hamburguesa Si Racha"));
   check("'Polaca' elige 'Hamburguesa Polaca'", optionNameMatches("Polaca", "Hamburguesa Polaca"));
   check("'Kansas city' elige 'Hamburguesa Kansas City'", optionNameMatches("Kansas city", "Hamburguesa Kansas City"));
+  check("'Dr. Pepper' elige Dr Pepper y no el Strawberry Cream", pickOptions(["Dr. Pepper"], [{ key: "a", name: "Dr Pepper Strawberry Cream" }, { key: "b", name: "Dr Pepper" }, { key: "c", name: "Coca Cola" }]).join() === "b");
+  check("'Strawberry Cream' sigue eligiendo el Strawberry Cream", pickOptions(["Strawberry Cream"], [{ key: "a", name: "Dr Pepper Strawberry Cream" }, { key: "b", name: "Dr Pepper" }, { key: "c", name: "Coca Cola" }]).join() === "a");
+  check("'Ranch No, Gracias' no elige Ranch", pickOptions(["Ranch No, Gracias"], [{ key: "r", name: "Ranch" }]).length === 0);
+  check("'Sin cebolla' no elige Cebolla", pickOptions(["Sin cebolla"], [{ key: "c", name: "Cebolla" }]).length === 0);
+  check("'Queso amarillo' elige Queso Amarillo", pickOptions(["Queso amarillo"], [{ key: "q", name: "Queso Amarillo" }, { key: "r", name: "Ranch" }]).join() === "q");
 }
 
 // Espacio para cortar: 8 px por mm al final del ticket
