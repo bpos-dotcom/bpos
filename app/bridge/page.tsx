@@ -1093,7 +1093,7 @@ function FinalizedSheet({
                   </span>
                   <span>{money(item.price * item.quantity)}</span>
                 </p>
-                {(item.parts || []).length > 0 && <p className="text-xs text-zinc-500">{(item.parts || []).map((p) => `${p.quantity}× ${p.name}`).join(" · ")}</p>}
+                {(item.parts || []).length > 0 && <p className="text-xs text-zinc-500">{(item.parts || []).map((p) => `${(Number(p.quantity) || 1) * (Number(item.quantity) || 1)}× ${p.name}`).join(" · ")}</p>}
                 {(item.modifiers || []).length > 0 && <p className="text-xs text-zinc-500">{(item.modifiers || []).map((m) => m.name).join(" · ")}</p>}
                 {(item.missingChoices || []).length > 0 && (
                   <p className="mt-1 rounded-lg border border-yellow-500/60 bg-yellow-500/10 px-2 py-1 text-xs font-bold text-yellow-200">
