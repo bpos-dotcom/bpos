@@ -29,6 +29,7 @@ import {
   getTasks,
   listProgress,
   pendingTasks,
+  productivityHistory,
   recentMessages,
   repeatText,
   requestBlindNow,
@@ -40,9 +41,10 @@ import {
   type ProductivitySettings,
   type ProductivityTask,
   type Schedule,
+  type TaskRecord,
 } from "@/lib/productivity";
 
-type View = "hoy" | "recordatorios" | "ciego" | "ajustes";
+type View = "hoy" | "recordatorios" | "ciego" | "historial" | "ajustes";
 const hour = (iso: string) => new Date(iso).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
 const money = (n: number) => `$${Math.abs(n).toFixed(2)}`;
 const inputCls = "w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-white";
@@ -291,6 +293,89 @@ function TaskForm({ initial, onClose }: { initial: Draft; onClose: () => void })
   );
 }
 
+// ------------------------------------------------------------ historial
+
+/** Un recordatorio o lista atendido (o empezado), con su foto y las de cada tarea */
+function RecordCard({ record: r, onOpen }: { record: TaskRecord; onOpen: (url: string) => void }) {
+  const unfinished = r.status !== "hecho";
+  return (
+    <div className={`flex items-center gap-3 rounded-xl border p-3 text-sm ${unfinished ? "border-orange-500/40 bg-orange-500/5" : "border-zinc-800 bg-zinc-950"}`}>
+      {r.photo ? (
+        <button onClick={() => onOpen(r.photo || "")} className="shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element -- foto de evidencia */}
+          <img src={r.photo} alt="Evidencia" className="h-14 w-14 rounded-lg object-cover" />
+        </button>
+      ) : (
+        <span className={`flex h-14 w-14 shrink-0 items-center justify-center rounded-lg text-xl ${unfinished ? "bg-orange-500/15" : "bg-emerald-500/15"}`}>{unfinished ? "…" : "✓"}</span>
+      )}
+      <div className="min-w-0">
+        <p className="truncate font-black">{r.title}</p>
+        <p className="text-xs text-zinc-400">
+          {unfinished ? `Sin terminar · ${r.checked?.length || 0} tareas hechas` : `${r.doneBy || ""} · ${r.doneAt ? hour(r.doneAt) : ""}`} (tocaba {hour(r.slot)})
+        </p>
+        <ItemPhotos record={r} onOpen={onOpen} />
+      </div>
+    </div>
+  );
+}
+
+const dayTitle = (day: string) => {
+  const [y, m, d] = day.split("-").map(Number);
+  const date = new Date(y, m - 1, d);
+  const diff = Math.round((new Date(new Date().toDateString()).getTime() - date.getTime()) / 86_400_000);
+  const label = date.toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long" });
+  return diff === 0 ? `Hoy · ${label}` : diff === 1 ? `Ayer · ${label}` : label.charAt(0).toUpperCase() + label.slice(1);
+};
+
+function HistoryView({ onOpen, tick }: { onOpen: (url: string) => void; tick: unknown }) {
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- se vuelve a leer con cada cambio
+  const days = useMemo(() => productivityHistory(), [tick]);
+  // Abierto de fábrica: el día más reciente que no sea hoy (ayer, casi siempre)
+  const [open, setOpen] = useState<string | null>(() => days.find((d) => dayTitle(d.day).startsWith("Hoy") === false)?.day || days[0]?.day || null);
+  if (!days.length) return <p className="py-8 text-center text-sm text-zinc-500">Todavía no hay historial. Aquí salen los días con lo que se atendió y sus fotos.</p>;
+  return (
+    <div className="space-y-2">
+      <p className="text-xs text-zinc-500">Últimos 60 días. Toca un día para ver lo que se hizo y sus fotos (los mensajes al turno se guardan 7 días).</p>
+      {days.map((d) => {
+        const photos = d.done.concat(d.unfinished).reduce((n, r) => n + (r.photo ? 1 : 0) + Object.keys(r.photos || {}).length, 0);
+        const isOpen = open === d.day;
+        return (
+          <div key={d.day} className="rounded-2xl border border-zinc-800 bg-black">
+            <button onClick={() => setOpen(isOpen ? null : d.day)} className="flex w-full items-center justify-between gap-2 p-3 text-left">
+              <span className="font-black">{dayTitle(d.day)}</span>
+              <span className="shrink-0 text-xs text-zinc-400">
+                ✓ {d.done.length}
+                {d.unfinished.length ? ` · ⚠️ ${d.unfinished.length}` : ""}
+                {photos ? ` · 📷 ${photos}` : ""} {isOpen ? "▲" : "▼"}
+              </span>
+            </button>
+            {isOpen && (
+              <div className="space-y-2 border-t border-zinc-800 p-3">
+                {d.done.length === 0 && d.unfinished.length === 0 && <p className="text-sm text-zinc-500">No se atendió ningún recordatorio.</p>}
+                {d.done.map((r) => (
+                  <RecordCard key={r.id} record={r} onOpen={onOpen} />
+                ))}
+                {d.unfinished.map((r) => (
+                  <RecordCard key={r.id} record={r} onOpen={onOpen} />
+                ))}
+                {d.messages.length > 0 && <p className="pt-1 text-xs font-black text-sky-300">💬 Mensajes al turno</p>}
+                {d.messages.map((m) => (
+                  <div key={m.id} className="rounded-xl border border-zinc-800 p-2 text-xs">
+                    <p className="font-bold">{m.text}</p>
+                    <p className="text-zinc-500">
+                      {hour(m.createdAt)} · {m.acks.length ? <span className="text-emerald-400">✓ {m.acks.map((a) => `${a.name} ${hour(a.at)}`).join(", ")}</span> : <span className="text-orange-300">Nadie dio Enterado</span>}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ------------------------------------------------------------ inventario ciego
 
 function BlindReport({ count }: { count: BlindCount }) {
@@ -482,7 +567,8 @@ export function ProductivityOwner() {
           ["hoy", "Hoy"],
           ["recordatorios", "Recordatorios y listas"],
           ["ciego", `Inventario ciego${toReview ? ` (${toReview})` : ""}`],
-          ["ajustes", "Ajustes"],
+          ["historial", "📅 Historial"],
+          ["ajustes", "⚙️ Ajustes"],
         ]}
         value={view}
         onChange={setView}
@@ -542,27 +628,13 @@ export function ProductivityOwner() {
             <p className="font-black text-emerald-300">✓ Atendidos hoy ({data.done.length})</p>
             {data.done.length === 0 && <p className="text-sm text-zinc-500">Todavía nada.</p>}
             {data.done.map((r) => (
-              <div key={r.id} className="flex items-center gap-3 rounded-xl border border-zinc-800 bg-zinc-950 p-3 text-sm">
-                {r.photo ? (
-                  <button onClick={() => setPhoto(r.photo || "")} className="shrink-0">
-                    {/* eslint-disable-next-line @next/next/no-img-element -- foto de evidencia */}
-                    <img src={r.photo} alt="Evidencia" className="h-14 w-14 rounded-lg object-cover" />
-                  </button>
-                ) : (
-                  <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg bg-emerald-500/15 text-xl">✓</span>
-                )}
-                <div className="min-w-0">
-                  <p className="truncate font-black">{r.title}</p>
-                  <p className="text-xs text-zinc-400">
-                    {r.doneBy} · {r.doneAt ? hour(r.doneAt) : ""} (tocaba {hour(r.slot)})
-                  </p>
-                  <ItemPhotos record={r} onOpen={setPhoto} />
-                </div>
-              </div>
+              <RecordCard key={r.id} record={r} onOpen={setPhoto} />
             ))}
           </section>
         </>
       )}
+
+      {view === "historial" && <HistoryView onOpen={setPhoto} tick={data} />}
 
       {view === "recordatorios" && (
         <>
