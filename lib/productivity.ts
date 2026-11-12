@@ -36,6 +36,8 @@ export type ProductivityTask = {
   /** Lo que lee la voz (vacío = el título) */
   speech?: string;
   items?: string[];
+  /** Tareas de la lista que piden su propia foto (las demás solo se palomean) */
+  photoItems?: string[];
   schedule: Schedule;
   /** Si no lo atienden, vuelve a sonar cada N minutos (0 = suena una vez) */
   repeatMinutes: number;
@@ -63,6 +65,13 @@ export type TaskRecord = {
   doneAt?: string;
   doneBy?: string;
   photo?: string;
+  /** Lista: la foto de cada tarea que la pide */
+  photos?: Record<string, string>;
+  /** Lista: quién palomeó cada tarea y a qué hora */
+  itemBy?: Record<string, { by: string; at: string }>;
+  /** Lista: folio del QR para hacerla en los celulares (sirve 12 h) */
+  token?: string;
+  tokenAt?: string;
 };
 
 export type ShiftMessage = {
@@ -268,41 +277,134 @@ function saveRecord(record: TaskRecord) {
   write(LOG_KEY, [...list.filter((r) => Date.parse(r.slot) > cutoff), record]);
 }
 
-/** Palomita de una tarea de una lista (sin terminarla todavía) */
-export function toggleListItem(p: PendingTask, item: string) {
-  const checked = new Set(p.record?.checked || []);
-  if (checked.has(item)) checked.delete(item);
-  else checked.add(item);
-  saveRecord({ id: p.key, taskId: p.task.id, title: p.task.title, kind: p.task.kind, slot: p.slot, status: "en curso", checked: [...checked] });
+/** ¿Esta tarea de la lista pide su propia foto? */
+export const itemNeedsPhoto = (task: ProductivityTask, item: string) => task.kind === "lista" && (task.photoItems || []).includes(item);
+
+/** El registro de hoy de esa lista tal como está guardado (el de `p` puede ser de hace unos segundos) */
+function currentRecord(p: PendingTask): TaskRecord {
+  return getLog().find((r) => r.id === p.key) || p.record || { id: p.key, taskId: p.task.id, title: p.task.title, kind: p.task.kind, slot: p.slot, status: "en curso" };
+}
+
+/** Avance de una lista: cuántas tareas van y cuáles faltan */
+export function listProgress(p: PendingTask, record: TaskRecord | undefined = p.record) {
+  const items = p.task.items || [];
+  const checked = new Set(record?.checked || []);
+  const missing = items.filter((i) => !checked.has(i) || (itemNeedsPhoto(p.task, i) && !record?.photos?.[i]));
+  return { total: items.length, done: items.length - missing.length, missing };
+}
+
+/**
+ * Palomita de una tarea de una lista (sin terminarla todavía). Una tarea que
+ * pide foto solo se palomea con su foto; quitar la palomita quita la foto.
+ */
+export function toggleListItem(p: PendingTask, item: string, photo?: string) {
+  const record = currentRecord(p);
+  const checked = new Set(record.checked || []);
+  const photos = { ...(record.photos || {}) };
+  const itemBy = { ...(record.itemBy || {}) };
+  const done = photo ? true : !checked.has(item);
+  if (done && itemNeedsPhoto(p.task, item) && !photo && !photos[item]) throw new Error(`"${item}" necesita foto.`);
+  if (done) {
+    checked.add(item);
+    if (photo) photos[item] = photo;
+    itemBy[item] = { by: who(), at: new Date().toISOString() };
+  } else {
+    checked.delete(item);
+    delete photos[item];
+    delete itemBy[item];
+  }
+  saveRecord({ ...record, status: "en curso", checked: [...checked], photos, itemBy });
+  return { done, by: who() };
+}
+
+/** Guarda el folio del QR de la lista (para que la caja y otros dispositivos lean su avance) */
+export function setListToken(p: PendingTask, token: string | null) {
+  const record = currentRecord(p);
+  const next: TaskRecord = { ...record, status: record.status === "hecho" ? "hecho" : "en curso" };
+  if (token) Object.assign(next, { token, tokenAt: new Date().toISOString() });
+  else {
+    delete next.token;
+    delete next.tokenAt;
+  }
+  saveRecord(next);
+}
+
+export type RemoteListItem = { name: string; photo: boolean; url: string | null; done: boolean; by: string | null; at: string | null };
+
+/**
+ * Lo que llevan en los celulares (el QR de la lista) pasa al registro de la
+ * caja. Si ya están todas, la lista queda terminada. Regresa true si cambió algo.
+ */
+export function mergeRemoteList(p: PendingTask, remote: RemoteListItem[]) {
+  const record = currentRecord(p);
+  if (record.status === "hecho") return false;
+  const items = p.task.items || [];
+  const byName = new Map(remote.map((r) => [r.name, r]));
+  const checked = new Set<string>();
+  const photos: Record<string, string> = {};
+  const itemBy: Record<string, { by: string; at: string }> = {};
+  for (const item of items) {
+    const r = byName.get(item);
+    // Una tarea que no venía en el QR (la agregaron después) se queda como estaba en la caja
+    if (!r) {
+      if (record.checked?.includes(item)) checked.add(item);
+      if (record.photos?.[item]) photos[item] = record.photos[item];
+      if (record.itemBy?.[item]) itemBy[item] = record.itemBy[item];
+      continue;
+    }
+    if (!r.done) continue;
+    checked.add(item);
+    if (r.url) photos[item] = r.url;
+    itemBy[item] = { by: r.by || "Celular", at: r.at || new Date().toISOString() };
+  }
+  const next: TaskRecord = { ...record, status: "en curso", checked: [...checked], photos, itemBy };
+  const same = JSON.stringify([...(record.checked || [])].sort()) === JSON.stringify([...checked].sort()) && JSON.stringify(record.photos || {}) === JSON.stringify(photos);
+  if (!same) saveRecord(next);
+  // Con "una foto al terminar toda la lista" la terminan en la caja con esa foto
+  const finished = items.length > 0 && !p.task.evidence && listProgress(p, next).missing.length === 0;
+  if (finished) completeTask({ ...p, record: next });
+  return !same || finished;
 }
 
 export function completeTask(p: PendingTask, photo?: string) {
+  const isList = p.task.kind === "lista";
+  const record = isList ? currentRecord(p) : undefined;
+  if (isList) {
+    const { missing } = listProgress(p, record);
+    if (missing.length) throw new Error(`Faltan ${missing.length} tarea(s): ${missing.join(", ")}.`);
+  }
   if (p.task.evidence && !photo) throw new Error("Este recordatorio necesita foto de evidencia.");
-  const by = who();
-  const record: TaskRecord = {
+  const photos = record?.photos || {};
+  const firstPhoto = photo || Object.values(photos)[0];
+  // La lista la terminan entre varios: quedan todos los que palomearon algo
+  const people = [...new Set(Object.values(record?.itemBy || {}).map((x) => x.by).filter(Boolean))];
+  const by = people.length ? people.join(", ") : who();
+  const saved: TaskRecord = {
+    ...(record || {}),
     id: p.key,
     taskId: p.task.id,
     title: p.task.title,
     kind: p.task.kind,
     slot: p.slot,
     status: "hecho",
-    checked: p.task.kind === "lista" ? p.task.items || [] : undefined,
+    checked: isList ? p.task.items || [] : undefined,
     doneAt: new Date().toISOString(),
     doneBy: by,
-    ...(photo ? { photo } : {}),
+    ...(firstPhoto ? { photo: firstPhoto } : {}),
   };
-  saveRecord(record);
+  saveRecord(saved);
   if (p.task.notifyDone) {
+    const count = Object.keys(photos).length + (photo ? 1 : 0);
     addAuditEvent({
       category: "Productividad",
       action: "task.done",
-      description: `${by} atendió "${p.task.title}"${photo ? " (con foto)" : ""}`,
+      description: `${by} ${isList ? "terminó la lista" : "atendió"} "${p.task.title}"${count === 1 ? " (con foto)" : count > 1 ? ` (${count} fotos)` : ""}`,
       userName: by,
       entityId: p.task.id,
-      metadata: { photo: photo || null, slot: p.slot },
+      metadata: { photo: firstPhoto || null, photos: Object.keys(photos).length ? photos : null, slot: p.slot },
     });
   }
-  return record;
+  return saved;
 }
 
 // ------------------------------------------------------------ mensajes del turno

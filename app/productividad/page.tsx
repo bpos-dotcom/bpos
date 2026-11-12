@@ -8,12 +8,17 @@ import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { notify } from "@/components/layout/Dialogs";
 import { EvidenceDialog } from "@/components/productivity/EvidenceDialog";
+import { ItemPhotos } from "@/components/productivity/ItemPhotos";
+import { ListQrDialog } from "@/components/productivity/ListQrDialog";
 import { openBlindWindow, useProductivityState } from "@/components/productivity/ProductivityAlarm";
+import { pushListItem } from "@/lib/productivity-remote";
 import {
   PRODUCTIVITY_EVENT,
   ackMessage,
   completeTask,
   doneToday,
+  itemNeedsPhoto,
+  listProgress,
   recentMessages,
   toggleListItem,
   type PendingTask,
@@ -29,6 +34,8 @@ export default function ProductividadPage() {
   const [done, setDone] = useState<TaskRecord[]>([]);
   const [evidenceFor, setEvidenceFor] = useState<PendingTask | null>(null);
   const [photo, setPhoto] = useState("");
+  const [qrFor, setQrFor] = useState<PendingTask | null>(null);
+  const [itemPhotoFor, setItemPhotoFor] = useState<{ p: PendingTask; item: string } | null>(null);
 
   useEffect(() => {
     const sync = () => {
@@ -48,6 +55,16 @@ export default function ProductividadPage() {
     try {
       completeTask(p, photoUrl);
       notify(`✅ "${p.task.title}" quedó atendido.`);
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "No se pudo.", "error");
+    }
+  }
+
+  /** Palomita en la caja (también se ve en los celulares si la lista tiene QR) */
+  function toggleItem(p: PendingTask, item: string, url?: string) {
+    try {
+      const { done, by } = toggleListItem(p, item, url);
+      void pushListItem(p, item, done, by, url);
     } catch (e) {
       notify(e instanceof Error ? e.message : "No se pudo.", "error");
     }
@@ -109,30 +126,56 @@ export default function ProductividadPage() {
             {state.tasks.map((p) => {
               const checked = new Set(p.record?.checked || []);
               const items = p.task.items || [];
-              const allChecked = items.every((i) => checked.has(i));
+              const progress = listProgress(p);
+              const allChecked = progress.missing.length === 0;
               return (
                 <div key={p.key} className="rounded-2xl border border-violet-500/50 bg-violet-500/10 p-4">
                   <p className="text-xs font-bold text-violet-300">
-                    {p.task.kind === "lista" ? "📝 Lista de tareas" : "⏰ Recordatorio"} · tocaba a las {hour(p.slot)}
+                    {p.task.kind === "lista" ? `📝 Lista de tareas · ${progress.done} de ${progress.total}` : "⏰ Recordatorio"} · tocaba a las {hour(p.slot)}
                     {p.task.evidence ? " · pide foto 📸" : ""}
                   </p>
                   <p className="mt-1 text-xl font-black">{p.task.title}</p>
                   {p.task.kind === "lista" && (
-                    <div className="mt-3 space-y-2">
-                      {items.map((item) => (
-                        <label key={item} className={`flex cursor-pointer items-center gap-3 rounded-xl border px-3 py-3 text-base font-bold ${checked.has(item) ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200 line-through" : "border-zinc-700 bg-black"}`}>
-                          <input type="checkbox" className="h-6 w-6 accent-emerald-500" checked={checked.has(item)} onChange={() => toggleListItem(p, item)} />
-                          {item}
-                        </label>
-                      ))}
-                    </div>
+                    <>
+                      <button onClick={() => setQrFor(p)} className="mt-3 w-full rounded-xl border border-violet-400 bg-black px-4 py-3 font-black text-violet-200">
+                        📱 Hacerla en el celular (QR)
+                      </button>
+                      <div className="mt-3 space-y-2">
+                        {items.map((item) => {
+                          const needsPhoto = itemNeedsPhoto(p.task, item);
+                          const url = p.record?.photos?.[item];
+                          const isDone = checked.has(item) && (!needsPhoto || Boolean(url));
+                          const by = p.record?.itemBy?.[item]?.by;
+                          return (
+                            <div key={item} className={`flex items-center gap-3 rounded-xl border px-3 py-2 text-base font-bold ${isDone ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-200" : "border-zinc-700 bg-black"}`}>
+                              <input type="checkbox" className="h-6 w-6 shrink-0 accent-emerald-500" checked={isDone} onChange={() => (needsPhoto && !isDone ? setItemPhotoFor({ p, item }) : toggleItem(p, item))} aria-label={item} />
+                              {url && (
+                                <button onClick={() => setPhoto(url)} className="shrink-0">
+                                  {/* eslint-disable-next-line @next/next/no-img-element -- foto de evidencia */}
+                                  <img src={url} alt={item} className="h-10 w-10 rounded-lg object-cover" />
+                                </button>
+                              )}
+                              <span className={`min-w-0 flex-1 ${isDone ? "line-through" : ""}`}>
+                                {item}
+                                {by && isDone && <span className="ml-2 text-xs font-normal text-zinc-400 no-underline">· {by}</span>}
+                              </span>
+                              {needsPhoto && !isDone && (
+                                <button onClick={() => setItemPhotoFor({ p, item })} className="shrink-0 rounded-lg bg-violet-500 px-3 py-1.5 text-sm font-black text-black">
+                                  📷 Foto
+                                </button>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
                   )}
                   <button
                     disabled={p.task.kind === "lista" && !allChecked}
                     onClick={() => (p.task.evidence ? setEvidenceFor(p) : finish(p))}
                     className="mt-3 w-full rounded-xl bg-violet-500 px-4 py-3 font-black text-black disabled:opacity-40"
                   >
-                    {p.task.kind === "lista" ? (allChecked ? (p.task.evidence ? "📸 Terminar (subir foto)" : "✅ Terminar lista") : `Faltan ${items.filter((i) => !checked.has(i)).length} por palomear`) : p.task.evidence ? "📸 Ya lo hice (subir foto)" : "✅ Ya lo hice"}
+                    {p.task.kind === "lista" ? (allChecked ? (p.task.evidence ? "📸 Terminar (subir foto)" : "✅ Terminar lista") : `Faltan ${progress.missing.length} de ${progress.total}`) : p.task.evidence ? "📸 Ya lo hice (subir foto)" : "✅ Ya lo hice"}
                   </button>
                 </div>
               );
@@ -159,6 +202,7 @@ export default function ProductividadPage() {
                   <p className="text-xs text-zinc-400">
                     {r.doneBy} · {r.doneAt ? hour(r.doneAt) : ""} (tocaba a las {hour(r.slot)})
                   </p>
+                  <ItemPhotos record={r} onOpen={setPhoto} />
                 </div>
               </div>
             ))}
@@ -176,6 +220,17 @@ export default function ProductividadPage() {
           }}
         />
       )}
+      {itemPhotoFor && (
+        <EvidenceDialog
+          title={`${itemPhotoFor.p.task.title} · ${itemPhotoFor.item}`}
+          onClose={() => setItemPhotoFor(null)}
+          onDone={(url) => {
+            toggleItem(itemPhotoFor.p, itemPhotoFor.item, url);
+            setItemPhotoFor(null);
+          }}
+        />
+      )}
+      {qrFor && <ListQrDialog pending={qrFor} onClose={() => setQrFor(null)} />}
       {photo && (
         <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/85 p-4" onClick={() => setPhoto("")}>
           {/* eslint-disable-next-line @next/next/no-img-element -- foto de evidencia */}

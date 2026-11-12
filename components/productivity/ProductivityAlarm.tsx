@@ -10,15 +10,18 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { notify } from "@/components/layout/Dialogs";
 import { EvidenceDialog } from "@/components/productivity/EvidenceDialog";
+import { ListQrDialog } from "@/components/productivity/ListQrDialog";
 import { addAuditEvent } from "@/lib/audit";
 import { startBackgroundTicker } from "@/lib/background-ticker";
 import { isPrimaryDevice } from "@/lib/cloud/sync";
 import { getNotificationSettings, playAlert, type AlertKind } from "@/lib/notifications/settings";
+import { syncRemoteList } from "@/lib/productivity-remote";
 import {
   PRODUCTIVITY_EVENT,
   ackMessage,
   completeTask,
   getProductivitySettings,
+  listProgress,
   pendingBlind,
   pendingTasks,
   startBlind,
@@ -122,11 +125,14 @@ export function ProductivityAlarm() {
   const state = useProductivityState();
   const [open, setOpen] = useState(false);
   const [evidenceFor, setEvidenceFor] = useState<PendingTask | null>(null);
+  const [qrFor, setQrFor] = useState<PendingTask | null>(null);
 
   const tick = useCallback(() => {
     if (!isPrimaryDevice() || window.location.pathname.startsWith("/productividad/inventario-ciego")) return;
     const current = readState();
     if (!current.count) return;
+    // Las listas que están haciendo en los celulares (QR): su avance pasa a la caja aunque nadie tenga el QR abierto
+    current.tasks.filter((p) => p.task.kind === "lista" && p.record?.token).forEach((p) => void syncRemoteList(p));
     const now = Date.now();
     const rang = readMap(RANG_KEY);
     const due = rings(current).filter((r) => !rang[r.key] || (r.repeat > 0 && now - rang[r.key] >= r.repeat * 60_000));
@@ -136,7 +142,13 @@ export function ProductivityAlarm() {
       const after = Number(p.task.ownerAfterMinutes) || 0;
       if (after > 0 && !told[p.key] && now - Date.parse(p.slot) >= after * 60_000) {
         told[p.key] = now;
-        addAuditEvent({ category: "Productividad", action: "task.overdue", description: `Nadie ha atendido "${p.task.title}" (tocaba a las ${new Date(p.slot).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" })})`, entityId: p.task.id, metadata: { slot: p.slot } });
+        const when = new Date(p.slot).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
+        const progress = p.task.kind === "lista" ? listProgress(p) : null;
+        const description =
+          progress && progress.done > 0
+            ? `La lista "${p.task.title}" no se ha terminado (tocaba a las ${when}): van ${progress.done} de ${progress.total}, faltan ${progress.missing.join(", ")}`
+            : `Nadie ha atendido "${p.task.title}" (tocaba a las ${when})`;
+        addAuditEvent({ category: "Productividad", action: "task.overdue", description, entityId: p.task.id, metadata: { slot: p.slot } });
       }
     }
     try {
@@ -216,9 +228,19 @@ export function ProductivityAlarm() {
                   </p>
                   <p className="mt-1 text-lg font-black">{p.task.title}</p>
                   {p.task.kind === "lista" ? (
-                    <button onClick={() => { setOpen(false); router.push("/productividad"); }} className="mt-3 w-full rounded-xl bg-violet-500 px-4 py-2 font-black text-black">
-                      Abrir la lista
-                    </button>
+                    <>
+                      <p className="mt-1 text-xs font-bold text-violet-200">
+                        {listProgress(p).done} de {listProgress(p).total} tareas
+                      </p>
+                      <div className="mt-3 grid grid-cols-2 gap-2">
+                        <button onClick={() => { setOpen(false); setQrFor(p); }} className="rounded-xl border border-violet-400 px-3 py-2 text-sm font-black text-violet-200">
+                          📱 QR celular
+                        </button>
+                        <button onClick={() => { setOpen(false); router.push("/productividad"); }} className="rounded-xl bg-violet-500 px-3 py-2 text-sm font-black text-black">
+                          Abrir la lista
+                        </button>
+                      </div>
+                    </>
                   ) : (
                     <button onClick={() => (p.task.evidence ? setEvidenceFor(p) : done(p))} className="mt-3 w-full rounded-xl bg-violet-500 px-4 py-2 font-black text-black">
                       {p.task.evidence ? "📸 Ya lo hice (subir foto)" : "✅ Ya lo hice"}
@@ -238,6 +260,7 @@ export function ProductivityAlarm() {
           </div>
         </div>
       )}
+      {qrFor && <ListQrDialog pending={qrFor} onClose={() => setQrFor(null)} />}
       {evidenceFor && (
         <EvidenceDialog
           title={evidenceFor.task.title}
