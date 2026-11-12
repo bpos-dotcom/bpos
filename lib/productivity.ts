@@ -270,6 +270,34 @@ export function doneToday(now = new Date()): TaskRecord[] {
     .sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt)));
 }
 
+export type HistoryDay = {
+  /** "2026-11-11" */
+  day: string;
+  /** Lo que se atendió ese día (más reciente primero) */
+  done: TaskRecord[];
+  /** Listas que se empezaron ese día y no se terminaron (con las fotos que sí tomaron) */
+  unfinished: TaskRecord[];
+  /** Mensajes al turno de ese día (se guardan 7 días) */
+  messages: ShiftMessage[];
+};
+
+/** Historial por día, del más reciente al más viejo (se guardan 60 días) */
+export function productivityHistory(log: TaskRecord[] = getLog(), messages: ShiftMessage[] = getMessages()): HistoryDay[] {
+  const days = new Map<string, HistoryDay>();
+  const of = (day: string) => days.get(day) || days.set(day, { day, done: [], unfinished: [], messages: [] }).get(day)!;
+  for (const r of log) {
+    if (r.status === "hecho" && r.doneAt) of(dayKey(new Date(r.doneAt))).done.push(r);
+    else if (r.status === "en curso" && (r.checked?.length || r.photos || r.photo)) of(dayKey(new Date(r.slot))).unfinished.push(r);
+  }
+  for (const m of messages) if (m.createdAt) of(dayKey(new Date(m.createdAt))).messages.push(m);
+  for (const d of days.values()) {
+    d.done.sort((a, b) => String(b.doneAt).localeCompare(String(a.doneAt)));
+    d.unfinished.sort((a, b) => b.slot.localeCompare(a.slot));
+    d.messages.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+  return [...days.values()].sort((a, b) => b.day.localeCompare(a.day));
+}
+
 function saveRecord(record: TaskRecord) {
   const list = getLog().filter((r) => r.id !== record.id);
   // Se guardan los últimos 60 días
