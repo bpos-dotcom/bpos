@@ -55,13 +55,18 @@ function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTic
   const picks: Record<string, string[]> = {};
   for (const group of product.modifierGroups || []) {
     if (isAutoGroup(group)) continue; // ya se llena solo
-    const matched = group.options
-      .filter((o) => {
-        // Palabras completas y al menos 4 letras: "Si" (catsup aparte) no elige "Si Racha"
-        const name = optionName(o, catalog);
-        return said.some((s) => optionNameMatches(s, name));
-      })
-      .map((o) => o.key);
+    // Cada cosa que dice el ticket elige UNA opción: la de nombre igual y, si no
+    // hay, la más parecida. "Dr. Pepper" es el Dr Pepper, no el "Dr Pepper
+    // Strawberry Cream" que también lo contiene y venía antes en el grupo.
+    // Palabras completas y al menos 4 letras: "Si" (catsup aparte) no elige "Si Racha"
+    const names = group.options.map((o) => ({ key: o.key, name: plain(optionName(o, catalog)) }));
+    const matched: string[] = [];
+    for (const s of said) {
+      const best = names
+        .filter((o) => optionNameMatches(s, o.name))
+        .sort((a, b) => Number(b.name === s) - Number(a.name === s) || Math.abs(a.name.length - s.length) - Math.abs(b.name.length - s.length))[0];
+      if (best && !matched.includes(best.key)) matched.push(best.key);
+    }
     const limit = group.max > 0 ? group.max : matched.length;
     if (matched.length) picks[group.key] = matched.slice(0, limit);
   }
