@@ -87,7 +87,7 @@ function OrderSheet({ item, onClose }: { item: Item; onClose: () => void }) {
                     <span>{money(it.price * it.quantity)}</span>
                   </p>
                   {(it.modifiers || []).length > 0 && <p className="text-xs text-zinc-400">{(it.modifiers || []).map((m) => (m.price ? `${m.name} (+${money(m.price)})` : m.name)).join(" · ")}</p>}
-                  {(it.parts || []).length > 0 && <p className="text-xs text-zinc-500">{(it.parts || []).map((p) => `${p.quantity}× ${p.name}`).join(" · ")}</p>}
+                  {(it.parts || []).length > 0 && <p className="text-xs text-zinc-500">{(it.parts || []).map((p) => `${(Number(p.quantity) || 1) * (Number(it.quantity) || 1)}× ${p.name}`).join(" · ")}</p>}
                   {(it.comment || it.notes) && <p className="text-xs text-yellow-300">📝 {it.comment || it.notes}</p>}
                 </li>
               ))}
