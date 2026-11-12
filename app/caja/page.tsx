@@ -17,6 +17,7 @@ import { moneyShiftOf } from "@/lib/cash-register";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { paidWith, tipOf, tipPaidWith } from "@/lib/sale-payments";
 import { deliveryApp, estimatedDeposit, getAppCommissions } from "@/lib/app-commissions";
+import { channelsText, cutTotalsText } from "@/lib/cash-cut";
 import { openWhatsapp, whatsappLink, whatsappTarget } from "@/lib/whatsapp";
 
 type CashMovement = {
@@ -391,10 +392,7 @@ export default function CajaPage() {
   const appsText = appDeposits
     .map((a) => `🛵 ${a.app} (lo cobra la app): $${a.sales.toFixed(2)}${a.deposit === null ? "" : ` → depósito aprox. $${a.deposit.toFixed(2)}`}`)
     .join("\n");
-  const depositTotal = appDeposits.reduce((sum, a) => sum + (a.deposit || 0), 0);
-  const depositsText = appDeposits.some((a) => a.deposit !== null)
-    ? `\n💰 Te queda aprox. (caja + depósitos): $${(totalSales - platformSales + depositTotal).toFixed(2)}${appDeposits.some((a) => a.deposit === null) ? " (sin contar las apps sin comisión configurada)" : ""}`
-    : "";
+  const totalsText = cutTotalsText(totalSales, platformSales, appDeposits);
 
   const cutFolio = `CC-${new Date()
     .toISOString()
@@ -427,15 +425,12 @@ export default function CajaPage() {
 💳 Tarjeta: $${cardSales.toFixed(2)}
 🏦 Transferencia: $${transferSales.toFixed(2)}${mpSales ? `\n📲 Mercado Pago en línea: $${mpSales.toFixed(2)}` : ""}${appsText ? `\n${appsText}` : ""}
 
-📈 Total ventas: $${totalSales.toFixed(2)}${depositsText}${tipsTotal ? `\n💛 Propinas: $${tipsTotal.toFixed(2)} (en efectivo $${tipsCash.toFixed(2)})` : ""}
+${totalsText}${tipsTotal ? `\n💛 Propinas: $${tipsTotal.toFixed(2)} (en efectivo $${tipsCash.toFixed(2)})` : ""}
 
 ──────────────
 *VENTAS POR CANAL*
 
-🏪 Mostrador: $${counterSales.toFixed(2)}
-📱 WhatsApp: $${whatsappSales.toFixed(2)}
-🍔 Uber Eats: $${uberSales.toFixed(2)}
-🛵 Didi Food: $${didiSales.toFixed(2)}
+${channelsText(shiftOrders)}
 
 ──────────────
 *MOVIMIENTOS DE CAJA*
