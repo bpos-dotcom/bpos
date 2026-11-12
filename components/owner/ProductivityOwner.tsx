@@ -10,6 +10,7 @@
  */
 import { useEffect, useMemo, useState } from "react";
 import { ask, notify } from "@/components/layout/Dialogs";
+import { ItemPhotos } from "@/components/productivity/ItemPhotos";
 import { getInventory } from "@/lib/inventory";
 import { blindEmail } from "@/lib/productivity-remote";
 import {
@@ -26,6 +27,7 @@ import {
   getBlindCounts,
   getProductivitySettings,
   getTasks,
+  listProgress,
   pendingTasks,
   recentMessages,
   repeatText,
@@ -144,6 +146,9 @@ function TaskForm({ initial, onClose }: { initial: Draft; onClose: () => void })
   const set = (patch: Partial<Draft>) => setD((x) => ({ ...x, ...patch }));
   const setSchedule = (s: Schedule) => set({ schedule: s });
   const s = d.schedule;
+  const typedItems = [...new Set(itemsText.split("\n").map((t) => t.trim()).filter(Boolean))];
+  // Las que ya no están escritas no cuentan
+  const photoItems = (d.photoItems || []).filter((i) => typedItems.includes(i));
 
   function changeMode(mode: Schedule["mode"]) {
     const days = s.mode === "una" ? [0, 1, 2, 3, 4, 5, 6] : s.days;
@@ -153,12 +158,12 @@ function TaskForm({ initial, onClose }: { initial: Draft; onClose: () => void })
   }
 
   function save() {
-    const items = itemsText.split("\n").map((t) => t.trim()).filter(Boolean);
+    const items = typedItems;
     if (!d.title.trim()) return notify("Escribe el recordatorio.", "error");
     if (d.kind === "lista" && !items.length) return notify("Escribe al menos una tarea de la lista (una por renglón).", "error");
     if (s.mode !== "una" && !s.days.length) return notify("Elige al menos un día.", "error");
     if (s.mode === "dias" && !s.times.length) return notify("Agrega al menos una hora.", "error");
-    saveTask({ ...d, title: d.title.trim(), speech: d.speech?.trim() || "", items: d.kind === "lista" ? items : undefined });
+    saveTask({ ...d, title: d.title.trim(), speech: d.speech?.trim() || "", items: d.kind === "lista" ? items : undefined, photoItems: d.kind === "lista" && photoItems.length ? photoItems : undefined });
     notify(d.id ? "Recordatorio actualizado." : "Recordatorio creado. Ya está en la caja.");
     onClose();
   }
@@ -175,6 +180,26 @@ function TaskForm({ initial, onClose }: { initial: Draft; onClose: () => void })
           <span className="font-bold text-zinc-300">Tareas (una por renglón)</span>
           <textarea value={itemsText} onChange={(e) => setItemsText(e.target.value)} rows={5} placeholder={"Prender freidoras\nRevisar gas\nLimpiar mesas"} className={`mt-1 ${inputCls}`} />
         </label>
+      )}
+      {d.kind === "lista" && typedItems.length > 0 && (
+        <div className="space-y-2 rounded-2xl border border-zinc-800 bg-black p-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm font-bold text-zinc-300">📸 ¿Cuáles piden foto?</p>
+            <button type="button" onClick={() => set({ photoItems: photoItems.length === typedItems.length ? [] : typedItems })} className="text-xs font-bold text-violet-300 underline">
+              {photoItems.length === typedItems.length ? "Ninguna" : "Todas"}
+            </button>
+          </div>
+          <p className="text-xs text-zinc-500">Cada una se hace con su foto y la lista no se termina hasta que estén todas. En la caja sale un QR para hacerla en el celular.</p>
+          {typedItems.map((item) => (
+            <label key={item} className="flex cursor-pointer items-center gap-2 text-sm">
+              <input type="checkbox" checked={photoItems.includes(item)} onChange={(e) => set({ photoItems: e.target.checked ? [...photoItems, item] : photoItems.filter((x) => x !== item) })} className="h-5 w-5 accent-violet-500" />
+              <span className={photoItems.includes(item) ? "font-bold text-white" : "text-zinc-400"}>
+                {item}
+                {photoItems.includes(item) ? " 📷" : ""}
+              </span>
+            </label>
+          ))}
+        </div>
       )}
       <label className="flex items-center gap-2 text-sm font-bold">
         <input type="checkbox" checked={d.voice} onChange={(e) => set({ voice: e.target.checked })} className="h-5 w-5 accent-violet-500" />
@@ -238,7 +263,7 @@ function TaskForm({ initial, onClose }: { initial: Draft; onClose: () => void })
       <RepeatPicker value={d.repeatMinutes} onChange={(repeatMinutes) => set({ repeatMinutes })} />
       <label className="flex items-center gap-2 text-sm font-bold">
         <input type="checkbox" checked={d.evidence} onChange={(e) => set({ evidence: e.target.checked, notifyDone: e.target.checked || d.notifyDone })} className="h-5 w-5 accent-violet-500" />
-        📸 Necesita atención: pedir foto de evidencia
+        {d.kind === "lista" ? "📸 Además, una foto al terminar toda la lista" : "📸 Necesita atención: pedir foto de evidencia"}
       </label>
       <label className="flex items-center gap-2 text-sm font-bold">
         <input type="checkbox" checked={d.notifyDone} onChange={(e) => set({ notifyDone: e.target.checked })} className="h-5 w-5 accent-violet-500" />
@@ -498,6 +523,16 @@ export function ProductivityOwner() {
               <div key={p.key} className="rounded-xl border border-violet-500/40 bg-violet-500/10 p-3 text-sm">
                 <p className="font-black">{p.task.title}</p>
                 <p className="text-xs text-zinc-400">Tocaba a las {hour(p.slot)} · {repeatText(p.task.repeatMinutes)}</p>
+                {p.task.kind === "lista" &&
+                  (() => {
+                    const progress = listProgress(p);
+                    return (
+                      <p className="mt-1 text-xs font-bold text-violet-200">
+                        {progress.done} de {progress.total} tareas{progress.missing.length ? ` · faltan: ${progress.missing.join(", ")}` : ""}
+                      </p>
+                    );
+                  })()}
+                {p.record && <ItemPhotos record={p.record} onOpen={setPhoto} />}
               </div>
             ))}
             {openBlind && <p className="rounded-xl border border-orange-500/40 bg-orange-500/10 p-3 text-sm font-bold">📦 Inventario ciego {openBlind.status === "en curso" ? `en curso (${openBlind.startedBy})` : "pedido, nadie lo ha empezado"}</p>}
@@ -521,6 +556,7 @@ export function ProductivityOwner() {
                   <p className="text-xs text-zinc-400">
                     {r.doneBy} · {r.doneAt ? hour(r.doneAt) : ""} (tocaba {hour(r.slot)})
                   </p>
+                  <ItemPhotos record={r} onOpen={setPhoto} />
                 </div>
               </div>
             ))}
@@ -548,6 +584,7 @@ export function ProductivityOwner() {
               <div key={t.id} className={`rounded-2xl border p-4 ${t.active ? "border-zinc-700 bg-zinc-950" : "border-zinc-900 bg-black opacity-60"}`}>
                 <p className="text-xs font-bold text-violet-300">
                   {t.kind === "lista" ? `📝 Lista · ${t.items?.length || 0} tareas` : "⏰ Recordatorio"}
+                  {t.kind === "lista" && t.photoItems?.length ? ` · 📷 ${t.photoItems.length} con foto` : ""}
                   {t.evidence ? " · 📸 pide foto" : ""}
                   {t.voice ? " · 🔊 voz" : ""}
                 </p>

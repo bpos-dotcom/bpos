@@ -13,6 +13,12 @@ import { emailConfigured, sendEmail } from "@/lib/email/send";
  *   GET  ?ver=<token>                          celular, sin sesión → { title, photo }
  *   PUT  ?token=<token>  (cuerpo: la imagen)   celular, sin sesión → la sube a bpos-media/<negocio>/evidencias
  *
+ * Lista de tareas con foto por tarea (migración 0041): el folio lleva `items`
+ *   POST { accion: "lista", title, items }      caja (sesión) → { token }; GET ?token / ?ver regresan también items
+ *   PUT  ?token=<token>&item=<i>                celular, sin sesión → foto de esa tarea (la palomea)
+ *   PATCH ?token=<token>&item=<i> { done, by }  celular, sin sesión → palomea una tarea sin foto
+ *   POST { accion: "lista-marcar", token, item, done, by, url? }  caja (sesión) → lo que palomearon en la caja
+ *
  * Inventario ciego:
  *   POST { accion: "inventario-ciego", to, ... }  caja (sesión) → manda el reporte por correo
  */
@@ -20,8 +26,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const BUCKET = "bpos-media";
-/** El QR sirve 2 horas */
+/** El QR sirve 2 horas; el de una lista, 12 (un cierre puede tardar) */
 const TOKEN_MS = 2 * 60 * 60 * 1000;
+const LIST_TOKEN_MS = 12 * 60 * 60 * 1000;
+const MAX_ITEMS = 60;
 const MAX_BYTES = 6 * 1024 * 1024;
 
 const json = (body: unknown, status = 200) => NextResponse.json(body, { status });
@@ -29,15 +37,50 @@ const fail = (error: string, status = 400) => json({ success: false, error }, st
 const cleanToken = (value: string | null) => String(value || "").replace(/[^a-f0-9]/g, "").slice(0, 64);
 const esc = (v: unknown) => String(v ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
+type ListItem = { name: string; photo: boolean; url: string | null; done: boolean; by: string | null; at: string | null };
+type EvidenceRow = { token: string; business_id: string; branch_id: string | null; title: string; photo_url: string | null; items: ListItem[] | null; created_at: string };
+
 async function evidence(token: string) {
   if (token.length < 32) return null;
   try {
-    const { data } = await supabaseAdmin().from("bpos_task_evidence").select("token, business_id, branch_id, title, photo_url, created_at").eq("token", token).maybeSingle();
-    if (!data || Date.now() - Date.parse(data.created_at) > TOKEN_MS) return null;
-    return data as { token: string; business_id: string; branch_id: string | null; title: string; photo_url: string | null; created_at: string };
+    const { data } = await supabaseAdmin().from("bpos_task_evidence").select("token, business_id, branch_id, title, photo_url, items, created_at").eq("token", token).maybeSingle();
+    if (!data || Date.now() - Date.parse(data.created_at) > (Array.isArray(data.items) ? LIST_TOKEN_MS : TOKEN_MS)) return null;
+    return data as EvidenceRow;
   } catch {
     return null;
   }
+}
+
+const cleanName = (v: unknown) => String(v ?? "").replace(/\s+/g, " ").trim().slice(0, 40);
+const httpsUrl = (v: unknown) => (typeof v === "string" && /^https:\/\//.test(v) ? v.slice(0, 500) : null);
+
+/** Cambia una tarea de la lista (en la base, así dos celulares a la vez no se pisan) */
+async function patchItem(row: EvidenceRow, index: number, patch: Partial<ListItem>) {
+  const { data, error } = await supabaseAdmin().rpc("bpos_task_evidence_item", { p_token: row.token, p_index: index, p_patch: patch });
+  if (error) throw new Error(error.message);
+  return (data as ListItem[] | null) || row.items || [];
+}
+
+/** Palomear o quitar la palomita (quitarla borra la foto de esa tarea) */
+const itemPatch = (done: boolean, by: unknown, url?: string | null): Partial<ListItem> =>
+  done ? { done, by: cleanName(by) || null, at: new Date().toISOString(), ...(url ? { url } : {}) } : { done: false, url: null, by: null, at: null };
+
+function itemIndex(row: EvidenceRow, value: unknown) {
+  const index = Number(value);
+  return row.items && value !== null && value !== "" && Number.isInteger(index) && index >= 0 && index < row.items.length ? index : -1;
+}
+
+async function uploadPhoto(request: NextRequest, row: EvidenceRow) {
+  const type = (request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (!/^image\/(webp|jpeg|png)$/.test(type)) throw new Error("Sube una foto.");
+  const body = Buffer.from(await request.arrayBuffer());
+  if (!body.length || body.length > MAX_BYTES) throw new Error("La foto pesa demasiado.");
+  const ext = type === "image/jpeg" ? "jpg" : type.slice(6);
+  const path = `${row.business_id}/evidencias/${row.token.slice(0, 16)}-${Date.now().toString(36)}.${ext}`;
+  const admin = supabaseAdmin();
+  const { error } = await admin.storage.from(BUCKET).upload(path, body, { contentType: type, cacheControl: "31536000" });
+  if (error) throw new Error(error.message);
+  return admin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
 }
 
 export async function GET(request: NextRequest) {
@@ -46,32 +89,55 @@ export async function GET(request: NextRequest) {
   if (view) {
     const row = await evidence(view);
     if (!row) return fail("Este QR ya venció. Pide uno nuevo en la caja.", 404);
-    return json({ success: true, title: row.title, photo: row.photo_url });
+    return json({ success: true, title: row.title, photo: row.photo_url, items: row.items });
   }
   const auth = await bridgeAuth(request);
   if ("denied" in auth) return auth.denied;
   if (auth.ctx.mode !== "cloud") return fail("La foto con el celular necesita B-POS en la nube.", 503);
   const row = await evidence(cleanToken(params.get("token")));
   if (!row || row.business_id !== auth.ctx.businessId) return fail("Folio no encontrado.", 404);
-  return json({ success: true, photo: row.photo_url });
+  return json({ success: true, photo: row.photo_url, items: row.items });
 }
 
 export async function PUT(request: NextRequest) {
   const row = await evidence(cleanToken(request.nextUrl.searchParams.get("token")));
   if (!row) return fail("Este QR ya venció. Pide uno nuevo en la caja.", 404);
+  // Foto de una tarea de la lista (quien la tomó viene en x-bpos-nombre)
+  if (row.items) {
+    const index = itemIndex(row, request.nextUrl.searchParams.get("item"));
+    if (index < 0) return fail("Esa tarea ya no está en la lista.", 404);
+    try {
+      const photo = await uploadPhoto(request, row);
+      const items = await patchItem(row, index, itemPatch(true, decodeURIComponent(request.headers.get("x-bpos-nombre") || ""), photo));
+      return json({ success: true, photo, items });
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : "No se pudo subir la foto.", 502);
+    }
+  }
   if (row.photo_url) return fail("Ya se subió la foto de este recordatorio.", 409);
-  const type = (request.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
-  if (!/^image\/(webp|jpeg|png)$/.test(type)) return fail("Sube una foto.");
-  const body = Buffer.from(await request.arrayBuffer());
-  if (!body.length || body.length > MAX_BYTES) return fail("La foto pesa demasiado.");
-  const ext = type === "image/jpeg" ? "jpg" : type.slice(6);
-  const path = `${row.business_id}/evidencias/${row.token.slice(0, 16)}-${Date.now().toString(36)}.${ext}`;
-  const admin = supabaseAdmin();
-  const { error } = await admin.storage.from(BUCKET).upload(path, body, { contentType: type, cacheControl: "31536000" });
-  if (error) return fail(error.message, 502);
-  const photo = admin.storage.from(BUCKET).getPublicUrl(path).data.publicUrl;
-  await admin.from("bpos_task_evidence").update({ photo_url: photo, uploaded_at: new Date().toISOString() }).eq("token", row.token);
+  let photo: string;
+  try {
+    photo = await uploadPhoto(request, row);
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "No se pudo subir la foto.", 502);
+  }
+  await supabaseAdmin().from("bpos_task_evidence").update({ photo_url: photo, uploaded_at: new Date().toISOString() }).eq("token", row.token);
   return json({ success: true, photo });
+}
+
+/** Celular: palomea (o quita) una tarea de la lista; las que piden foto solo se palomean con la foto */
+export async function PATCH(request: NextRequest) {
+  const row = await evidence(cleanToken(request.nextUrl.searchParams.get("token")));
+  if (!row?.items) return fail("Este QR ya venció. Pide uno nuevo en la caja.", 404);
+  const index = itemIndex(row, request.nextUrl.searchParams.get("item"));
+  if (index < 0) return fail("Esa tarea ya no está en la lista.", 404);
+  const body = (await request.json().catch(() => ({}))) as { done?: unknown; by?: unknown };
+  if (body.done === true && row.items[index].photo && !row.items[index].url) return fail("Esta tarea necesita foto.");
+  try {
+    return json({ success: true, items: await patchItem(row, index, itemPatch(body.done === true, body.by)) });
+  } catch (e) {
+    return fail(e instanceof Error ? e.message : "No se pudo guardar.", 502);
+  }
 }
 
 type BlindMailRow = { name: string; unit: string; counted: number | null; expected?: number; diff: number; money: number; state: string };
@@ -121,6 +187,32 @@ export async function POST(request: NextRequest) {
     // De paso se borran los folios de más de 2 días
     void admin.from("bpos_task_evidence").delete().lt("created_at", new Date(Date.now() - 2 * 86_400_000).toISOString());
     return json({ success: true, token });
+  }
+
+  if (body.accion === "lista") {
+    if (auth.ctx.mode !== "cloud") return fail("La lista en el celular necesita B-POS en la nube.", 503);
+    // Lo que ya llevaban palomeado en la caja entra tal cual
+    const items: ListItem[] = (Array.isArray(body.items) ? body.items : []).slice(0, MAX_ITEMS).map((raw) => {
+      const i = (raw || {}) as Record<string, unknown>;
+      return { name: String(i.name || "").slice(0, 120), photo: i.photo === true, url: httpsUrl(i.url), done: i.done === true, by: cleanName(i.by) || null, at: typeof i.at === "string" ? i.at.slice(0, 40) : null };
+    });
+    if (!items.length) return fail("La lista no tiene tareas.");
+    const token = randomBytes(24).toString("hex");
+    const { error } = await supabaseAdmin().from("bpos_task_evidence").insert({ token, business_id: auth.ctx.businessId, branch_id: auth.ctx.branchId, title: String(body.title || "").slice(0, 200), items });
+    if (error) return fail(error.message, 502);
+    return json({ success: true, token });
+  }
+
+  if (body.accion === "lista-marcar") {
+    const row = await evidence(cleanToken(String(body.token || "")));
+    if (auth.ctx.mode !== "cloud" || !row?.items || row.business_id !== auth.ctx.businessId) return fail("Folio no encontrado.", 404);
+    const index = itemIndex(row, body.item);
+    if (index < 0) return fail("Esa tarea ya no está en la lista.", 404);
+    try {
+      return json({ success: true, items: await patchItem(row, index, itemPatch(body.done === true, body.by, httpsUrl(body.url))) });
+    } catch (e) {
+      return fail(e instanceof Error ? e.message : "No se pudo guardar.", 502);
+    }
   }
 
   if (body.accion === "inventario-ciego") {
