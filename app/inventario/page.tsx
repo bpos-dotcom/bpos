@@ -183,7 +183,7 @@ export default function InventarioPage() {
       <ListPanel
         title="Kardex de inventario"
         items={kardexRows}
-        searchText={(m) => `${m.ingredientName} ${m.type} ${movementLabel(m)} ${m.reason || ""} ${m.userName || ""} ${m.orderId ?? ""} ${m.externalOrderKey || ""} ${new Date(m.createdAt).toLocaleDateString("es-MX")}`}
+        searchText={(m) => `${m.ingredientName} ${m.type} ${movementLabel(m)} ${m.reason || ""} ${m.userName || ""} ${m.orderId ? `${m.orderId} #${m.orderId.toString().padStart(6, "0")}` : ""} ${m.externalOrderKey || ""} ${new Date(m.createdAt).toLocaleDateString("es-MX")}`}
         searchPlaceholder="Buscar insumo, pedido, motivo o persona"
         empty="Todavía no hay movimientos de inventario."
         filters={KARDEX_FILTERS}
