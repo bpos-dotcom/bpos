@@ -52,6 +52,7 @@ import {
   getNextShiftOrderNumberPreview,
 } from "@/lib/order-sequence";
 import { openWhatsapp } from "@/lib/whatsapp";
+import { PendingNoticeButtons } from "@/components/pos/PendingNoticeButtons";
 import { BRANDS_EVENT, getBrands, isAppsOnly, type Brand } from "@/lib/brands";
 
 const STORAGE_KEY = "bpos_orders";
@@ -284,7 +285,7 @@ function PosScreen() {
   );
 
   // Al escribir un WhatsApp de 10 dígitos en Detalles, se busca al socio del club y se enrola solo
-  const phoneDigits = details.customerPhone.replace(/D/g, "");
+  const phoneDigits = details.customerPhone.replace(/\D/g, "");
   useEffect(() => {
     if (clubMember || phoneDigits.length !== 10 || lookedUpPhone.current === phoneDigits) return;
     lookedUpPhone.current = phoneDigits;
@@ -292,7 +293,7 @@ function PosScreen() {
     const t = window.setTimeout(async () => {
       try {
         const found = await findMembers(phoneDigits);
-        const m = found.find((x) => x.member && x.phone.replace(/D/g, "").endsWith(phoneDigits));
+        const m = found.find((x) => x.member && x.phone.replace(/\D/g, "").endsWith(phoneDigits));
         if (alive && m) setClubMember(m);
       } catch {
         // sin internet: se puede buscar a mano en el Club
@@ -1134,7 +1135,8 @@ function PosScreen() {
                   .map((order) => {
                     const minutes = Math.max(0, Math.round((Date.now() - Date.parse(order.createdAt)) / 60000));
                     return (
-                      <div key={order.id} className="flex items-center justify-between gap-3 rounded-2xl border border-yellow-500/30 bg-black p-4">
+                      <div key={order.id} className="rounded-2xl border border-yellow-500/30 bg-black p-4">
+                      <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                           <p className="font-black text-white">Pedido #{formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}</p>
                           <p className="truncate text-sm text-zinc-400">
@@ -1158,6 +1160,16 @@ function PosScreen() {
                             </button>
                           </div>
                         </div>
+                      </div>
+                      {/* Con WhatsApp del cliente: avisarle que ya está listo / va en camino / entregado */}
+                      <PendingNoticeButtons
+                        order={order}
+                        onSent={(notice, at) => {
+                          const all = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]") as SavedOrder[];
+                          saveOrders(all.map((o) => (o.id === order.id ? ({ ...o, notices: { ...(o as { notices?: object }).notices, [notice]: at } } as SavedOrder) : o)));
+                          window.dispatchEvent(new Event("bpos:orders-updated"));
+                        }}
+                      />
                       </div>
                     );
                   })}

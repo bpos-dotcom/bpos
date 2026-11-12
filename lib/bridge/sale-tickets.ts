@@ -79,6 +79,10 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
           return { qty: r.qty, name: r.name, price: null, question: r.group, ...(alsoAt?.length ? { alsoAt } : {}) };
         }),
         ...(item.modifiers || []).filter((m) => m.extra).map((m) => ({ qty: 1, name: m.name, price: m.price * (Number(item.quantity) || 1), ...(m.alsoAt?.length ? { alsoAt: m.alsoAt } : {}) })),
+        // Lo que se cobró en las opciones de una parte del combo (la Carne Extra de la hamburguesa)
+        ...(item.parts || []).flatMap((p) =>
+          (p.modifiers || []).filter((m) => m.extra).map((m) => ({ qty: 1, name: m.name, price: m.price * (Number(p.quantity) || 1) * (Number(item.quantity) || 1), charge: true }))
+        ),
       ],
       ...(item.extraStations?.length ? { extra: item.extraStations } : {}),
       notes: item.comment ? [item.comment] : [], // comentario para la cocina
