@@ -8,6 +8,7 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toWebp } from "@/lib/media";
 import type { RemoteListItem } from "@/lib/productivity";
+import { LiveCamera } from "@/components/productivity/LiveCamera";
 
 const NAME_KEY = "bpos_evidencia_nombre";
 const REFRESH_MS = 5000;
@@ -29,6 +30,7 @@ function ListEvidence({ token, title, initial }: { token: string; title: string;
   const [busy, setBusy] = useState<number | null>(null);
   const [error, setError] = useState("");
   const [photo, setPhoto] = useState("");
+  const [camFor, setCamFor] = useState<number | null>(null);
 
   useEffect(() => {
     const refresh = () =>
@@ -124,10 +126,13 @@ function ListEvidence({ token, title, initial }: { token: string; title: string;
               </div>
               <div className="mt-3 flex gap-2">
                 {item.photo && (
-                  <label className={`flex-1 cursor-pointer rounded-xl px-4 py-3 text-center font-black ${item.done ? "border border-zinc-700 text-zinc-300" : "bg-violet-500 text-black"} ${busy === index ? "opacity-50" : ""}`}>
+                  <button
+                    onClick={() => (name.trim() ? setCamFor(index) : setError("Escribe tu nombre arriba para saber quién hizo cada tarea."))}
+                    disabled={busy !== null}
+                    className={`flex-1 rounded-xl px-4 py-3 text-center font-black ${item.done ? "border border-zinc-700 text-zinc-300" : "bg-violet-500 text-black"} ${busy === index ? "opacity-50" : ""}`}
+                  >
                     {busy === index ? "Subiendo…" : item.done ? "📷 Tomar otra" : "📷 Tomar foto"}
-                    <input type="file" accept="image/*" capture="environment" className="hidden" disabled={busy !== null} onChange={(e) => void takePhoto(index, e.target.files?.[0])} />
-                  </label>
+                  </button>
                 )}
                 {!item.photo && !item.done && (
                   <button onClick={() => void toggle(index, true)} disabled={busy !== null} className="flex-1 rounded-xl bg-emerald-500 px-4 py-3 font-black text-black disabled:opacity-50">
@@ -145,6 +150,16 @@ function ListEvidence({ token, title, initial }: { token: string; title: string;
         </div>
         {complete && <p className="mt-5 text-center text-sm text-zinc-400">La caja ya tiene todo. Puedes cerrar esta página.</p>}
       </div>
+      {camFor !== null && (
+        <LiveCamera
+          onClose={() => setCamFor(null)}
+          onShot={(file) => {
+            const index = camFor;
+            setCamFor(null);
+            void takePhoto(index, file);
+          }}
+        />
+      )}
       {photo && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-4" onClick={() => setPhoto("")}>
           {/* eslint-disable-next-line @next/next/no-img-element -- foto de evidencia */}
@@ -164,6 +179,7 @@ export default function EvidencePage() {
   const [preview, setPreview] = useState("");
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
+  const [cam, setCam] = useState(false);
 
   const [items, setItems] = useState<RemoteListItem[] | null>(null);
 
@@ -228,10 +244,18 @@ export default function EvidencePage() {
           ) : (
             <p className="mt-4 text-zinc-400">Toma una foto que muestre que ya quedó hecho.</p>
           )}
-          <label className="mt-6 block w-full max-w-sm cursor-pointer rounded-2xl border border-violet-500 bg-violet-500/15 px-5 py-4 text-lg font-black text-violet-100">
+          <button onClick={() => setCam(true)} className="mt-6 block w-full max-w-sm rounded-2xl border border-violet-500 bg-violet-500/15 px-5 py-4 text-lg font-black text-violet-100">
             {preview ? "📷 Tomar otra" : "📷 Tomar foto"}
-            <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => pick(e.target.files?.[0])} />
-          </label>
+          </button>
+          {cam && (
+            <LiveCamera
+              onClose={() => setCam(false)}
+              onShot={(shot) => {
+                setCam(false);
+                pick(shot);
+              }}
+            />
+          )}
           {preview && (
             <button onClick={() => void upload()} disabled={busy} className="mt-3 w-full max-w-sm rounded-2xl bg-violet-500 px-5 py-4 text-lg font-black text-black disabled:opacity-50">
               {busy ? "Subiendo…" : "Subir foto"}

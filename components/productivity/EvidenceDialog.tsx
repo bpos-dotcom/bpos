@@ -2,13 +2,14 @@
 /**
  * Foto de evidencia de un recordatorio. Casi ninguna caja tiene cámara: se
  * muestra un QR, el empleado lo abre con su celular, toma la foto y aquí
- * aparece sola. Si la computadora tiene cámara o la foto ya está en la
- * computadora, también se puede subir desde aquí.
+ * aparece sola. Si la computadora tiene cámara, también se puede tomar aquí.
+ * Siempre en vivo: nunca una foto vieja de la galería o de la computadora.
  */
 import QRCode from "qrcode";
 import { useEffect, useRef, useState } from "react";
 import { uploadBusinessImage } from "@/lib/media";
 import { evidencePhoto, newEvidenceToken } from "@/lib/productivity-remote";
+import { LiveCamera } from "@/components/productivity/LiveCamera";
 
 const POLL_MS = 3000;
 
@@ -16,6 +17,7 @@ export function EvidenceDialog({ title, onDone, onClose }: { title: string; onDo
   const [qr, setQr] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [cam, setCam] = useState(false);
   const done = useRef(false);
 
   useEffect(() => {
@@ -78,10 +80,18 @@ export function EvidenceDialog({ title, onDone, onClose }: { title: string; onDo
         </div>
         {qr && <p className="mt-3 animate-pulse text-xs font-bold text-violet-300">Esperando la foto…</p>}
         {error && <p className="mt-3 rounded-xl border border-red-500/40 bg-red-500/10 p-2 text-sm text-red-300">{error}</p>}
-        <label className={`mt-4 block cursor-pointer rounded-2xl border border-zinc-700 px-4 py-3 text-sm font-black text-zinc-200 ${busy ? "opacity-50" : ""}`}>
-          {busy ? "Subiendo…" : "💻 Subir desde esta computadora"}
-          <input type="file" accept="image/*" capture="environment" className="hidden" disabled={busy} onChange={(e) => void fromComputer(e.target.files?.[0])} />
-        </label>
+        <button onClick={() => setCam(true)} disabled={busy} className="mt-4 block w-full rounded-2xl border border-zinc-700 px-4 py-3 text-sm font-black text-zinc-200 disabled:opacity-50">
+          {busy ? "Subiendo…" : "📷 Tomar con la cámara de este equipo"}
+        </button>
+        {cam && (
+          <LiveCamera
+            onClose={() => setCam(false)}
+            onShot={(file) => {
+              setCam(false);
+              void fromComputer(file);
+            }}
+          />
+        )}
         <button onClick={onClose} className="mt-3 w-full rounded-2xl px-4 py-2 text-sm font-bold text-zinc-400">
           Cancelar
         </button>
