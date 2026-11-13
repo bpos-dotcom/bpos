@@ -163,14 +163,61 @@ async function renderTicketStrip(filePath) {
  * Carga HTML desde un archivo temporal: como dirección "data:" falla cuando
  * el ticket es largo o lleva imágenes (límite de ~2 MB de Chromium).
  */
-async function loadHtml(win, html) {
-  const file = path.join(os.tmpdir(), `bpos-ticket-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
+const DATA_URL_MAX = 1.5 * 1024 * 1024;
+
+/**
+ * Carpeta propia para los tickets: en Temp el antivirus o los limpiadores
+ * a veces bloquean o borran el archivo antes de que se lea (ERR_FAILED -2).
+ */
+function ticketDir() {
+  const candidates = [];
+  try {
+    candidates.push(path.join(app.getPath("userData"), "tickets"));
+  } catch {
+    // sin app lista: solo Temp
+  }
+  candidates.push(os.tmpdir());
+  for (const dir of candidates) {
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      return dir;
+    } catch {
+      // probar la siguiente
+    }
+  }
+  return os.tmpdir();
+}
+
+async function loadHtmlFile(win, html, dir) {
+  const file = path.join(dir, `bpos-ticket-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.html`);
   fs.writeFileSync(file, html, "utf8");
   try {
     await win.loadFile(file);
   } finally {
-    fs.rm(file, { force: true }, () => {});
+    // Un momento después: que Chromium termine de leerlo
+    setTimeout(() => fs.rm(file, { force: true }, () => {}), 5000);
   }
+}
+
+/**
+ * Si un intento falla se prueba el siguiente: archivo en la carpeta de
+ * B-POS, archivo en Temp y, si el ticket no es muy grande, dirección "data:".
+ */
+async function loadHtml(win, html) {
+  const attempts = [() => loadHtmlFile(win, html, ticketDir())];
+  if (ticketDir() !== os.tmpdir()) attempts.push(() => loadHtmlFile(win, html, os.tmpdir()));
+  if (Buffer.byteLength(html, "utf8") < DATA_URL_MAX) {
+    attempts.push(() => win.loadURL(`data:text/html;charset=utf-8;base64,${Buffer.from(html, "utf8").toString("base64")}`));
+  }
+  let lastError;
+  for (const attempt of attempts) {
+    try {
+      return await attempt();
+    } catch (e) {
+      lastError = e;
+    }
+  }
+  throw lastError;
 }
 
 /** Manda una imagen (tira del ancho del ticket) a una impresora de Windows sin diálogos. */
