@@ -12,7 +12,8 @@
  *
  * Funciona sin internet: los cambios quedan pendientes y se suben al
  * volver la conexión.
- */
+ */
+import { isQuotaError, slimOrdersText } from "@/lib/order-slim";
 import type { ReadyAccount } from "@/lib/cloud/account";
 import { friendlyError, getSupabase } from "@/lib/supabase/client";
 
@@ -191,7 +192,8 @@ function bindRawStorage() {
   const originalSet = (window as unknown as { __bposRawSet?: Storage["setItem"] }).__bposRawSet ?? proto.setItem;
   const originalRemove =
     (window as unknown as { __bposRawRemove?: Storage["removeItem"] }).__bposRawRemove ?? proto.removeItem;
-  rawSet = (k, v) => originalSet.call(storage, k, v);
+  // Las ventas cerradas se guardan sin la copia completa del producto (ver lib/order-slim.ts)
+  rawSet = (k, v) => originalSet.call(storage, k, k === ORDERS_COLLECTION ? slimOrdersText(v) : v);
   rawRemove = (k) => originalRemove.call(storage, k);
   rawGet = (k) => proto.getItem.call(storage, k);
   return { proto, originalSet, originalRemove };
@@ -206,16 +208,40 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
+/** Lo interno de la sincronización nunca debe tumbar la caja (ej. memoria llena) */
+function safeSet(key: string, value: string) {
+  try {
+    rawSet(key, value);
+  } catch (e) {
+    console.warn("[sync] no se pudo guardar", key, e);
+  }
+}
+
 function saveShadow() {
-  rawSet(SHADOW_KEY, JSON.stringify(shadow));
+  safeSet(SHADOW_KEY, JSON.stringify(shadow));
 }
 
 function saveMeta() {
-  if (meta) rawSet(META_KEY, JSON.stringify(meta));
+  if (meta) safeSet(META_KEY, JSON.stringify(meta));
 }
 
 function saveDirty() {
-  rawSet(DIRTY_KEY, JSON.stringify([...dirty]));
+  safeSet(DIRTY_KEY, JSON.stringify([...dirty]));
+}
+
+/** Aligera las ventas ya guardadas. Regresa true si cambió algo. */
+function compactOrders() {
+  const raw = rawGet(ORDERS_COLLECTION);
+  if (!raw) return false;
+  const slim = slimOrdersText(raw);
+  if (slim === raw) return false;
+  try {
+    rawSet(ORDERS_COLLECTION, slim);
+    return true;
+  } catch (e) {
+    console.warn("[sync] no se pudieron aligerar las ventas", e);
+    return false;
+  }
 }
 
 export function getDeviceId() {
@@ -731,6 +757,8 @@ export async function initialSync(
  */
 export function startSync(acc: ReadyAccount) {
   const { proto, originalSet, originalRemove } = bindRawStorage();
+  // Primero liberar espacio: las ventas viejas traían copias completas de cada producto
+  const compacted = compactOrders();
   account = acc;
   meta = readJson<SyncMeta | null>(META_KEY, null) ?? {
     businessId: acc.businessId,
@@ -739,6 +767,10 @@ export function startSync(acc: ReadyAccount) {
   };
   shadow = readJson<Shadow>(SHADOW_KEY, {});
   dirty = new Set(readJson<string[]>(DIRTY_KEY, []));
+  if (compacted) {
+    dirty.add(ORDERS_COLLECTION);
+    saveDirty();
+  }
 
   if (started) return;
   started = true;
@@ -748,7 +780,17 @@ export function startSync(acc: ReadyAccount) {
   w.__bposRawRemove = originalRemove;
 
   proto.setItem = function setItem(this: Storage, key: string, value: string) {
-    originalSet.call(this, key, value);
+    const isLocal = this === window.localStorage;
+    const next = isLocal && key === ORDERS_COLLECTION ? slimOrdersText(value) : value;
+    try {
+      originalSet.call(this, key, next);
+    } catch (e) {
+      // Memoria llena: se suelta lo que se puede volver a calcular y se intenta otra vez
+      if (!isLocal || !isQuotaError(e)) throw e;
+      originalRemove.call(this, SHADOW_KEY);
+      shadow = {};
+      originalSet.call(this, key, next);
+    }
     if (this === window.localStorage && shouldSync(key)) markDirty(key);
   };
   proto.removeItem = function removeItem(this: Storage, key: string) {
