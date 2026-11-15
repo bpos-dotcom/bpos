@@ -14,6 +14,10 @@ import {
   roundQty,
   salesInRange,
   stockAt,
+  unlinkedOptions,
+  linkOption,
+  unlinkedProducts,
+  addRecipeLine,
   type EquivalenceOrder,
 } from "@/lib/recipe-equivalence";
 
@@ -128,6 +132,46 @@ const big = proposeEquivalence({ ingredient: { id: LECHUGA, unit: "pza" }, realU
 check("avisa cuando el cambio es muy grande", equivalenceWarnings({ realUse: 40, expected: exp, proposal: big, endIsSystem: false, manualIn: 0, manualOut: 0, unit: "pza" }).some((x) => x.includes("muy grande")));
 const few = expectedUse([{ createdAt: at(10), items: [{ id: 1, quantity: 5 }] }], LECHUGA, recipes);
 check("avisa cuando se vendió poco", equivalenceWarnings({ realUse: 1, expected: few, proposal: proposeEquivalence({ ingredient: { id: LECHUGA, unit: "pza" }, realUse: 1, expected: few, recipes, products }), endIsSystem: false, manualIn: 0, manualOut: 0, unit: "pza" }).some((x) => x.includes("Solo se vendieron")));
+
+// --- Salsa BBQ: boneless con la opción "BBQ" sin insumo enlazado, y ventas de apps
+const BBQ = 20;
+const bbqRecipes: RecipeItem[] = [{ productId: 30, ingredientId: BBQ, quantity: 15 }]; // hamburguesa BBQ
+const bbqProducts = [
+  { id: 30, name: "Hamburguesa Kansas City" },
+  { id: 31, name: "Boneless", modifierGroups: [{ key: "s", name: "Salsas", min: 1, included: 1, extraPrice: 10, options: [{ key: "b", name: "BBQ" }, { key: "h", name: "Búfalo" }] }] },
+  { id: 32, name: "Combo boneless", modifierGroups: [] },
+] as unknown as Product[];
+const bbqOrders = [
+  { id: 1, createdAt: at(10), items: [{ id: 30, quantity: 40 }] },
+  { id: 2, createdAt: at(11), items: [{ id: 31, quantity: 30, modifiers: [{ group: "Salsas", name: "BBQ", price: 0 }] }] },
+  { id: 3, createdAt: at(11), items: [{ id: 31, quantity: 10, modifiers: [{ group: "Salsas", name: "Búfalo", price: 0 }, { group: "Salsas", name: "Salsas extra (1)", price: 10, extra: 1 }] }] },
+  // boneless dentro de un combo, pedido de Uber
+  { id: 4, createdAt: at(12), externalOrderKey: "UBER-1", items: [{ id: 32, quantity: 5, parts: [{ productId: 31, name: "Boneless", quantity: 1, station: "Freidora", modifiers: [{ group: "Salsas", name: "BBQ", price: 0 }] }] }] },
+  { id: 5, createdAt: at(13), externalOrderKey: "DIDI-1", items: [{ id: 30, quantity: 10 }] },
+] as EquivalenceOrder[];
+const bbqIng = { id: BBQ, name: "Bbq abal 4kg", unit: "ml" as const };
+const loose = unlinkedOptions(bbqOrders, bbqIng, bbqProducts);
+check("detecta la opción BBQ de los boneless sin insumo", loose.length === 1 && loose[0].productId === 31 && loose[0].optionName === "BBQ");
+check("cuenta las BBQ vendidas (sueltas y dentro de combos de apps)", loose[0].times === 35);
+check("no confunde Búfalo con BBQ", !loose.some((o) => o.optionName === "Búfalo"));
+const before = expectedUse(bbqOrders, BBQ, bbqRecipes, bbqProducts);
+check("las ventas de apps sí cuentan", before.units.get(30) === 50 && before.appUnits === 10);
+const linked = linkOption(bbqProducts, loose[0], BBQ, 30);
+const after = expectedUse(bbqOrders, BBQ, bbqRecipes, linked);
+check("al enlazar, las BBQ ya vendidas cuentan con la cantidad nueva", near(after.fromOptions, 35 * 30) && near(after.total, 50 * 15 + 35 * 30));
+check("las de apps también cuentan en opciones", after.appUnits === 10 + 5);
+check("ya enlazada no sale como pendiente", unlinkedOptions(bbqOrders, bbqIng, linked).length === 0);
+const propBbq = proposeEquivalence({ ingredient: bbqIng, realUse: 3600, expected: after, recipes: bbqRecipes, products: linked });
+check("al equivaler también ajusta la opción BBQ de los boneless", propBbq.optionChanges.length === 1 && propBbq.optionChanges[0].productId === 31);
+
+// Producto "Boneless BBQ" cuya receta no lleva la salsa
+const withBonelessBbq = [...bbqProducts, { id: 33, name: "Boneless BBQ 250g" } as Product];
+const bbqSales = [...bbqOrders, { id: 9, createdAt: at(14), externalOrderKey: "RAPPI-1", items: [{ id: 33, quantity: 7 }] }] as EquivalenceOrder[];
+const lp = unlinkedProducts(bbqSales, bbqIng, withBonelessBbq, bbqRecipes);
+check("detecta Boneless BBQ vendido sin la salsa en su receta", lp.length === 1 && lp[0].productId === 33 && lp[0].times === 7);
+check("no marca la hamburguesa que ya la lleva", !lp.some((x) => x.productId === 30));
+const withLine = addRecipeLine(bbqRecipes, 33, BBQ, 40);
+check("al agregarla a la receta ya cuenta", expectedUse(bbqSales, BBQ, withLine, withBonelessBbq).units.get(33) === 7 && unlinkedProducts(bbqSales, bbqIng, withBonelessBbq, withLine).length === 0);
 
 console.log(`\n${ok} bien, ${bad} mal`);
 process.exit(bad ? 1 : 0);
