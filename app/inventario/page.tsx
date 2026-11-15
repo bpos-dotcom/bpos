@@ -100,6 +100,13 @@ export default function InventarioPage() {
       title="Inventario"
       subtitle="Inventario real, ajustes manuales, recetas y Kardex."
     >
+      <Link href="/inventario/equivalador" className="mb-4 flex items-center justify-between gap-3 rounded-3xl border border-orange-500/40 bg-orange-500/10 p-4 hover:border-orange-500">
+        <span>
+          <span className="block font-black text-orange-300">⚖️ Equivalador de insumos</span>
+          <span className="block text-sm text-zinc-400">Repara las recetas de lo que se sirve a ojo (lechuga, tomate, cátsup...) con lo que de verdad se gastó.</span>
+        </span>
+        <span className="font-black text-orange-400">→</span>
+      </Link>
       <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
         <Metric title="Ingredientes" value={ingredients.length.toString()} />
         <Metric title="Alertas" value={lowStock.length.toString()} />

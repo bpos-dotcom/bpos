@@ -63,6 +63,7 @@ const BUSINESS_KEYS = new Set([
   "bpos_products",
   "bpos_brands",
   "bpos_recipes",
+  "bpos_recipe_equivalence_log",
   "bpos_users",
   "bpos_user_permissions",
   "bpos_payment_methods",
