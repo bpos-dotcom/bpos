@@ -59,6 +59,8 @@ import {
   type Range,
 } from "@/lib/finance";
 import { buildReport, loadReportSources, type ReportSources } from "@/lib/reports";
+import { archivedNotice, useArchivedOrders } from "@/lib/use-archived-orders";
+import { mergeOrders } from "@/lib/order-archive";
 import { paymentsOf, type PaidSale } from "@/lib/sale-payments";
 import { COMMISSIONS_EVENT, DELIVERY_APPS, deliveryApp, getAppCommissions, isConfigured, netFactor, saveAppCommissions, type AppCommission } from "@/lib/app-commissions";
 
@@ -296,19 +298,23 @@ export default function FinanzasPage() {
   }, []);
 
   const ranges = useMemo(() => financeRanges(period, custom), [period, custom]);
+  // Antes del mes pasado las ventas ya no están en la caja: se traen de la nube
+  const archived = useArchivedOrders(ranges.previous.from, ranges.main.to);
+  const fullSrc = useMemo(() => (src ? { ...src, orders: mergeOrders(src.orders, archived.orders) } : null), [src, archived.orders]);
+  const cloudNotice = archivedNotice(archived);
   const fixedTotal = fixed.reduce((s, e) => s + (Number(e.amount) || 0), 0);
   const data = useMemo(
     () => {
-      if (!src) return null;
-      const orders = src.orders as Parameters<typeof incomeByDay>[1];
+      if (!fullSrc) return null;
+      const orders = fullSrc.orders as Parameters<typeof incomeByDay>[1];
       const days = incomeByDay(income, orders);
       const appDays = incomeByDay(income.filter((i) => i.source !== "Otro"), orders);
       return {
-        cur: periodNumbers(src, ranges.main, income, days, appDays, fixedTotal, expenses, commissions),
-        prev: periodNumbers(src, ranges.previous, income, days, appDays, fixedTotal, expenses, commissions),
+        cur: periodNumbers(fullSrc, ranges.main, income, days, appDays, fixedTotal, expenses, commissions),
+        prev: periodNumbers(fullSrc, ranges.previous, income, days, appDays, fixedTotal, expenses, commissions),
       };
     },
-    [src, ranges, income, fixedTotal, expenses, commissions]
+    [fullSrc, ranges, income, fixedTotal, expenses, commissions]
   );
 
   const cur = data?.cur;
@@ -588,6 +594,7 @@ export default function FinanzasPage() {
 
         {/* Izquierda: gráfica con punto de equilibrio y gastos fijos. Derecha: gastos sueltos, pedidos de apps y depósitos */}
         {error && <p className="text-sm font-bold text-red-300">{error}</p>}
+        {cloudNotice && <p className={`text-sm font-bold ${archived.error ? "text-red-300" : "text-sky-300"}`}>{cloudNotice}</p>}
         {(cur?.all.byBrand.length || 0) > 1 && <BrandsPanel rows={cur!.all.byBrand} mixed={cur!.all.mixedBrandOrders} periodName={periodName} money={money} pct={pct} commissions={commissions} />}
         <div className="grid items-start gap-6 xl:grid-cols-2">
           <div className="space-y-6">

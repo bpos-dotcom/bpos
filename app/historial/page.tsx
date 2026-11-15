@@ -10,6 +10,8 @@ import { formatOrderNumber } from "@/lib/order-sequence";
 import { exportOrders } from "@/lib/exports";
 import { cancelSavedOrder, changeSavedOrderPayment, loadSavedOrders, markSavedOrderPaid, sendSaleWhatsapp } from "@/lib/sale-actions";
 import { ask } from "@/components/layout/Dialogs";
+import { archivedNotice, useArchivedOrders } from "@/lib/use-archived-orders";
+import { mergeOrders } from "@/lib/order-archive";
 import { ReprintDialog } from "@/components/print/ReprintDialog";
 import type { SaleForTickets } from "@/lib/bridge/sale-tickets";
 
@@ -97,13 +99,19 @@ export default function OrderHistoryPage() {
       ...(shift ? [{ key: "actual", label: `Turno actual (desde ${fmt(shift.openedAt)})`, sessionId: shift.sessionId }] : []),
       ...closed.map((c, i) => ({ key: `cerrado-${i}`, label: `Turno ${c.folio} · ${fmt(c.openedAt)} → ${fmt(c.closedAt)}`, sessionId: c.sessionId })),
       { key: "rango", label: "Rango de fechas…" },
-      { key: "todo", label: "Todos los pedidos" },
+      { key: "todo", label: "Este mes y el pasado" },
     ],
     [shift, closed]
   );
   const period = periods.find((p) => p.key === periodKey) || periods[periods.length - 1];
   const effective: Period = period.key === "rango" ? { ...period, from, to } : period;
-  const visible = useMemo(() => orders.filter((o) => inPeriod(o, effective, shift?.openedAt)), [orders, effective, shift]);
+  // Un rango de antes del mes pasado se consulta en la nube (la caja guarda solo este mes y el pasado)
+  const rangeFrom = period.key === "rango" && /^d{4}-d{2}-d{2}$/.test(from) ? new Date(`${from}T00:00:00`) : null;
+  const rangeTo = period.key === "rango" && /^d{4}-d{2}-d{2}$/.test(to) ? new Date(new Date(`${to}T00:00:00`).getTime() + 86_400_000) : null;
+  const archived = useArchivedOrders(rangeFrom, rangeTo);
+  const cloudNotice = archivedNotice(archived);
+  const allOrders = useMemo(() => (archived.orders.length ? [...mergeOrders([...orders].reverse(), archived.orders)].reverse() : orders), [orders, archived.orders]);
+  const visible = useMemo(() => allOrders.filter((o) => inPeriod(o, effective, shift?.openedAt)), [allOrders, effective, shift]);
   const platformOrders = visible.filter((o) => Boolean(o.externalOrderNumber));
   const visibleTotal = visible.filter((o) => !o.cancelled).reduce((s, o) => s + o.total, 0);
 
@@ -136,6 +144,8 @@ export default function OrderHistoryPage() {
             {visible.length} pedidos · ${visibleTotal.toFixed(2)}
           </span>
         </section>
+        {period.key === "rango" && !cloudNotice && <p className="-mt-3 text-xs text-zinc-500">Para ver ventas de antes del mes pasado, elige aquí las fechas: se consultan en la nube.</p>}
+        {cloudNotice && <p className={`-mt-3 text-sm font-bold ${archived.error ? "text-red-300" : "text-sky-300"}`}>{cloudNotice}</p>}
 
         <OrderHistoryPanel
           orders={visible}

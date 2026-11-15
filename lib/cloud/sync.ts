@@ -14,6 +14,7 @@
  * volver la conexión.
  */
 import { isQuotaError, slimOrdersText } from "@/lib/order-slim";
+import { isArchivedOrder, localOrdersCutoff } from "@/lib/order-archive";
 import type { ReadyAccount } from "@/lib/cloud/account";
 import { friendlyError, getSupabase } from "@/lib/supabase/client";
 
@@ -242,6 +243,60 @@ function compactOrders() {
     console.warn("[sync] no se pudieron aligerar las ventas", e);
     return false;
   }
+}
+
+/**
+ * Solo este mes y el pasado se quedan en la caja: las ventas cerradas más
+ * viejas que ya están en la nube tal cual se quitan de la memoria (y de la
+ * sombra, para que NO se suban como borradas). Se consultan en la nube.
+ */
+function pruneArchivedOrders() {
+  const parsed = parseValue(rawGet(ORDERS_COLLECTION));
+  if (parsed.mode !== "records") return;
+  const cutoff = localOrdersCutoff();
+  const keyShadow = shadow[ORDERS_COLLECTION] ?? {};
+  const removed: string[] = [];
+  const kept = parsed.list.filter((order, i) => {
+    const id = parsed.ids[i];
+    if (!isArchivedOrder(order, cutoff) || !keyShadow[id] || keyShadow[id] !== hash(JSON.stringify(order))) return true;
+    removed.push(id);
+    return false;
+  });
+  if (!removed.length) return;
+  try {
+    rawSet(ORDERS_COLLECTION, JSON.stringify(kept));
+  } catch (e) {
+    console.warn("[sync] no se pudieron quitar las ventas viejas", e);
+    return;
+  }
+  removed.forEach((id) => delete keyShadow[id]);
+  shadow[ORDERS_COLLECTION] = keyShadow;
+  saveShadow();
+  notifyApp([ORDERS_COLLECTION]);
+}
+
+/** Ventas de la nube de esta sucursal entre dos fechas (lo que ya no está en la caja) */
+export async function fetchCloudOrders(from: Date, to: Date): Promise<unknown[]> {
+  if (!account) return [];
+  const all: unknown[] = [];
+  for (let page = 0; ; page += 1) {
+    const { data, error } = await getSupabase()
+      .from("sync_records")
+      .select("data")
+      .eq("business_id", account.businessId)
+      .eq("scope", account.branchId)
+      .eq("collection", ORDERS_COLLECTION)
+      .eq("deleted", false)
+      .gte("data->>createdAt", from.toISOString())
+      .lt("data->>createdAt", to.toISOString())
+      .order("seq", { ascending: true })
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+    if (error) throw new Error(friendlyError(error));
+    const rows = (data ?? []) as { data: unknown }[];
+    rows.forEach((r) => r.data && all.push(r.data));
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return all;
 }
 
 export function getDeviceId() {
@@ -486,6 +541,7 @@ async function pushKey(key: string) {
   shadow[key] = nextHashes;
   if (Object.keys(nextHashes).length === 0) delete shadow[key];
   saveShadow();
+  if (key === ORDERS_COLLECTION) pruneArchivedOrders();
 }
 
 /** Sube todo lo pendiente */
@@ -533,7 +589,17 @@ function applyRows(rows: Row[]) {
       parsed.mode === "doc" ? { present: true, value: parsed.value } : { present: false, value: null };
     let mode: "records" | "doc" | "missing" = parsed.mode;
 
+    const cutoff = localOrdersCutoff();
     for (const change of changes) {
+      // Ventas viejas que no están en la caja se quedan solo en la nube
+      if (
+        key === ORDERS_COLLECTION &&
+        !change.deleted &&
+        isArchivedOrder(change.data, cutoff) &&
+        !list.some((item) => String((item as { id?: unknown }).id) === change.record_id)
+      ) {
+        continue;
+      }
       const remoteHash = change.deleted ? undefined : hash(JSON.stringify(change.data));
       if (remoteHash && keyShadow[change.record_id] === remoteHash) continue; // ya lo tengo (eco)
 
@@ -771,6 +837,7 @@ export function startSync(acc: ReadyAccount) {
     dirty.add(ORDERS_COLLECTION);
     saveDirty();
   }
+  pruneArchivedOrders();
 
   if (started) return;
   started = true;
@@ -812,6 +879,8 @@ export function startSync(acc: ReadyAccount) {
   setInterval(() => {
     if (document.visibilityState === "visible") void pull();
   }, 60000);
+  // Al cambiar de mes, el mes antepasado se va a la nube
+  setInterval(() => void enqueue(async () => pruneArchivedOrders()), 60 * 60 * 1000);
   window.addEventListener("online", () => {
     void flush();
     schedulePull(100);

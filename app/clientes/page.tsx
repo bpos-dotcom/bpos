@@ -32,6 +32,11 @@ import { balanceLabel, clubName, getLoyalty, howItWorks, welcomeLabel } from "@/
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { exportCustomers } from "@/lib/exports";
 import { loadReportSources } from "@/lib/reports";
+import { archivedNotice, useArchivedOrders } from "@/lib/use-archived-orders";
+import { mergeOrders } from "@/lib/order-archive";
+
+/** Desde cuándo se cuentan las compras de cada cliente (todo el historial) */
+const HISTORY_START = new Date(2020, 0, 1);
 import { openWhatsapp, whatsappTarget } from "@/lib/whatsapp";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-5";
@@ -297,8 +302,11 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
   /** Teléfonos con cuenta en el menú digital (null = todavía no se consulta) */
   const [accountPhones, setAccountPhones] = useState<Set<string> | null>(null);
 
+  // Las compras de antes del mes pasado ya no están en la caja: se traen de la nube
+  const archived = useArchivedOrders(HISTORY_START, null);
+  const cloudNotice = archivedNotice(archived);
   useEffect(() => {
-    const load = () => setCustomers(buildCustomers(loadReportSources().orders));
+    const load = () => setCustomers(buildCustomers(mergeOrders(loadReportSources().orders, archived.orders)));
     load();
     fetchAccountPhones()
       .then(setAccountPhones)
@@ -312,7 +320,7 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
       window.removeEventListener("bpos:orders-updated", load);
       window.removeEventListener(CUSTOMERS_EVENT, load);
     };
-  }, []);
+  }, [archived.orders]);
 
   const origins = useMemo(() => {
     const c = new Map<string, number>();
@@ -351,6 +359,7 @@ function CustomersTab({ coupons }: { coupons: Coupon[] }) {
 
   return (
     <div className="space-y-5">
+      {cloudNotice && <p className={`text-sm font-bold ${archived.error ? "text-red-300" : "text-sky-300"}`}>{cloudNotice}</p>}
       {origins.length > 1 && (
         <div className="flex flex-wrap items-center gap-2" role="group" aria-label="De dónde compran">
           {[["todos", allCustomers.length] as [string, number], ...origins].map(([o, n]) => (
