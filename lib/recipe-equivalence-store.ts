@@ -9,7 +9,7 @@ import { getAdminProducts, getAdminRecipes, saveAdminProducts, saveAdminRecipes 
 import { adjustInventory } from "@/lib/inventory";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
-import { applyOptionChanges, applyRecipeChanges, type OptionChange, type RecipeChange } from "@/lib/recipe-equivalence";
+import { addRecipeLine, applyOptionChanges, applyRecipeChanges, linkOption, type OptionChange, type RecipeChange, type UnlinkedOption, type UnlinkedProduct } from "@/lib/recipe-equivalence";
 
 const LOG_KEY = "bpos_recipe_equivalence_log";
 const PICKS_KEY = "bpos_equivalence_ingredients";
@@ -93,4 +93,20 @@ export function undoEquivalence(id: string) {
   addAuditEvent({ category: "Inventario", action: "recipes.equivalence_undo", description: `${user?.name || "Usuario"} regresó las recetas de ${entry.ingredientName} a como estaban antes del equivalado`, userId: user?.id ? String(user.id) : undefined, userName: user?.name, entityId: id });
   notify();
   return true;
+}
+
+/** Enlaza una opción (ej. "Salsas: BBQ" de los boneless) al insumo, para que descuente y cuente */
+export function linkOptionToIngredient(target: UnlinkedOption, ingredient: { id: number; name: string; unit: string }, quantity: number) {
+  saveAdminProducts(linkOption(getAdminProducts(), target, ingredient.id, quantity));
+  const user = getCurrentUser();
+  addAuditEvent({ category: "Inventario", action: "recipes.link_option", description: `${user?.name || "Usuario"} enlazó la opción ${target.groupName}: ${target.optionName} de ${target.productName} a ${ingredient.name} (${quantity} ${ingredient.unit} cada vez)`, userId: user?.id ? String(user.id) : undefined, userName: user?.name });
+  notify();
+}
+
+/** Agrega el insumo a la receta de un producto que lo lleva y no lo tenía */
+export function addIngredientToRecipe(target: UnlinkedProduct, ingredient: { id: number; name: string; unit: string }, quantity: number) {
+  saveAdminRecipes(addRecipeLine(getAdminRecipes(), target.productId, ingredient.id, quantity));
+  const user = getCurrentUser();
+  addAuditEvent({ category: "Inventario", action: "recipes.add_line", description: `${user?.name || "Usuario"} agregó ${quantity} ${ingredient.unit} de ${ingredient.name} a la receta de ${target.productName}`, userId: user?.id ? String(user.id) : undefined, userName: user?.name });
+  notify();
 }

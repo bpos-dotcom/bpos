@@ -72,6 +72,8 @@ export function periodMoves(kardex: Move[], ingredientId: number, from: Date, to
 export type EquivalenceOrder = {
   id?: number | string;
   createdAt?: string;
+  /** Pedido de Uber, DiDi, Rappi... (entra igual que las ventas de la caja) */
+  externalOrderKey?: string;
   cancelled?: boolean;
   pendingPayment?: boolean;
   items?: Array<{ id: number; name?: string; quantity: number; parts?: SoldPart[]; modifiers?: SoldModifier[] }>;
@@ -90,7 +92,30 @@ export type ExpectedUse = {
   units: Map<number, number>;
   /** Veces que se eligió cada opción que descuenta ese insumo */
   options: Map<string, { name: string; times: number; amount: number }>;
+  /** De todo lo vendido con el insumo, cuánto fue en apps (Uber, DiDi, Rappi...) */
+  appUnits: number;
 };
+
+const norm = (t: string) => String(t || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+/** Opción del catálogo con la que se vendió (por producto, grupo y nombre) */
+export function catalogOption(products: Product[], productId: number, group: string, name: string) {
+  const p = products.find((x) => Number(x.id) === Number(productId));
+  for (const g of p?.modifierGroups || []) {
+    if (norm(g.name) !== norm(group)) continue;
+    const o = g.options.find((x) => norm(x.name) === norm(name));
+    if (o) return { product: p!, group: g, option: o };
+  }
+  return null;
+}
+
+/** Cuánto descuenta de ese insumo una opción vendida: con lo que dice HOY el catálogo (o lo guardado en la venta si ya no existe) */
+function modifierAmount(m: SoldModifier, ownerId: number, ingredientId: number, products: Product[]) {
+  if (m.extra || m.productId) return 0;
+  const found = products.length ? catalogOption(products, ownerId, m.group, m.name) : null;
+  if (found) return Number(found.option.ingredientId) === Number(ingredientId) && !found.option.productId ? Number(found.option.quantity) || 0 : 0;
+  return Number(m.ingredientId) === Number(ingredientId) ? Number(m.quantity) || 0 : 0;
+}
 
 /** Ventas válidas: cobradas, no canceladas, dentro del rango */
 export function salesInRange<T extends EquivalenceOrder>(orders: T[], from: Date, to: Date) {
@@ -101,19 +126,23 @@ export function salesInRange<T extends EquivalenceOrder>(orders: T[], from: Date
   });
 }
 
-export function expectedUse(orders: EquivalenceOrder[], ingredientId: number, recipes: RecipeItem[]): ExpectedUse {
+export function expectedUse(orders: EquivalenceOrder[], ingredientId: number, recipes: RecipeItem[], products: Product[] = []): ExpectedUse {
   const perProduct = new Map<number, number>();
   for (const r of recipes) if (Number(r.ingredientId) === Number(ingredientId)) perProduct.set(Number(r.productId), (perProduct.get(Number(r.productId)) || 0) + (Number(r.quantity) || 0));
-  const res: ExpectedUse = { total: 0, fromRecipes: 0, fromOptions: 0, fixed: 0, units: new Map(), options: new Map() };
+  const res: ExpectedUse = { total: 0, fromRecipes: 0, fromOptions: 0, fixed: 0, units: new Map(), options: new Map(), appUnits: 0 };
+  let app = false;
   const addProduct = (productId: number, times: number) => {
     if (!perProduct.has(Number(productId)) || !(times > 0)) return;
     res.units.set(Number(productId), (res.units.get(Number(productId)) || 0) + times);
     res.fromRecipes += (perProduct.get(Number(productId)) || 0) * times;
+    if (app) res.appUnits += times;
   };
-  const addModifiers = (mods: SoldModifier[] | undefined, times: number) => {
+  const addModifiers = (mods: SoldModifier[] | undefined, ownerId: number, times: number) => {
     for (const m of mods || []) {
-      if (Number(m.ingredientId) !== Number(ingredientId) || !m.quantity || !(times > 0)) continue;
-      const amount = Number(m.quantity) * times;
+      const per = modifierAmount(m, ownerId, ingredientId, products);
+      if (!per || !(times > 0)) continue;
+      if (app) res.appUnits += times;
+      const amount = per * times;
       const key = `${m.group}|${m.name}`;
       const prev = res.options.get(key) || { name: `${m.group}: ${m.name}`, times: 0, amount: 0 };
       res.options.set(key, { name: prev.name, times: prev.times + times, amount: prev.amount + amount });
@@ -121,15 +150,16 @@ export function expectedUse(orders: EquivalenceOrder[], ingredientId: number, re
     }
   };
   for (const order of orders) {
+    app = Boolean(order.externalOrderKey);
     for (const item of order.items || []) {
       const qty = Number(item.quantity) || 0;
       if (qty <= 0) continue;
       addProduct(item.id, qty);
-      addModifiers(item.modifiers, qty);
+      addModifiers(item.modifiers, item.id, qty);
       for (const part of item.parts || []) {
         const times = (Number(part.quantity) || 1) * qty;
         addProduct(part.productId, times);
-        addModifiers(part.modifiers, times);
+        addModifiers(part.modifiers, part.productId, times);
       }
     }
     for (const a of order.bridgeActions?.inventoryAdjustments || []) {
@@ -138,6 +168,104 @@ export function expectedUse(orders: EquivalenceOrder[], ingredientId: number, re
   }
   res.total = res.fromRecipes + res.fromOptions + res.fixed;
   return res;
+}
+
+export type UnlinkedOption = { productId: number; productName: string; groupKey: string; groupName: string; optionKey: string; optionName: string; times: number };
+
+const STOP = ["kg", "gr", "grs", "lt", "lts", "ml", "pza", "pzas", "con", "sin", "para", "del", "las", "los"];
+
+/** Palabras del nombre del insumo que sirven para reconocerlo ("Bbq abal 4kg" → bbq, abal) */
+function keywords(name: string) {
+  return norm(name)
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 3 && !/^\d/.test(w) && !STOP.includes(w));
+}
+
+/**
+ * Opciones que por su nombre parecen de ese insumo pero no descuentan nada
+ * (ej. "Salsas: BBQ" de los boneless sin insumo enlazado). Así nunca se
+ * contaron: se avisa para enlazarlas. Con las veces que se vendieron.
+ */
+export function unlinkedOptions(orders: EquivalenceOrder[], ingredient: Pick<Ingredient, "name">, products: Product[]): UnlinkedOption[] {
+  const words = keywords(ingredient.name);
+  if (!words.length) return [];
+  const looks = (t: string) => {
+    const n = norm(t).split(/[^a-z0-9]+/);
+    return words.some((w) => n.includes(w));
+  };
+  const found = new Map<string, UnlinkedOption>();
+  for (const p of products) {
+    for (const g of p.modifierGroups || []) {
+      for (const o of g.options || []) {
+        if (o.productId || o.ingredientId || !looks(o.name)) continue;
+        found.set(`${p.id}|${g.key}|${o.key}`, { productId: Number(p.id), productName: p.name, groupKey: g.key, groupName: g.name, optionKey: o.key, optionName: o.name, times: 0 });
+      }
+    }
+  }
+  if (!found.size) return [];
+  const count = (mods: SoldModifier[] | undefined, ownerId: number, times: number) => {
+    for (const m of mods || []) {
+      if (m.extra || m.productId) continue;
+      const c = catalogOption(products, ownerId, m.group, m.name);
+      const hit = c ? found.get(`${c.product.id}|${c.group.key}|${c.option.key}`) : undefined;
+      if (hit) hit.times += times;
+    }
+  };
+  for (const order of orders) {
+    for (const item of order.items || []) {
+      const qty = Number(item.quantity) || 0;
+      count(item.modifiers, item.id, qty);
+      for (const part of item.parts || []) count(part.modifiers, part.productId, (Number(part.quantity) || 1) * qty);
+    }
+  }
+  return [...found.values()].sort((a, b) => b.times - a.times);
+}
+
+export type UnlinkedProduct = { productId: number; productName: string; times: number };
+
+/**
+ * Productos vendidos que por su nombre parecen llevar ese insumo pero su
+ * receta no lo tiene (ej. "Boneless BBQ" sin la salsa en la receta).
+ */
+export function unlinkedProducts(orders: EquivalenceOrder[], ingredient: Pick<Ingredient, "id" | "name">, products: Product[], recipes: RecipeItem[]): UnlinkedProduct[] {
+  const words = keywords(ingredient.name);
+  if (!words.length) return [];
+  const has = new Set(recipes.filter((r) => Number(r.ingredientId) === Number(ingredient.id)).map((r) => Number(r.productId)));
+  const linkedByOption = new Set<number>();
+  for (const pr of products) for (const g of pr.modifierGroups || []) for (const o of g.options || []) if (Number(o.ingredientId) === Number(ingredient.id)) linkedByOption.add(Number(pr.id));
+  const candidates = new Map<number, UnlinkedProduct>();
+  for (const pr of products) {
+    if (has.has(Number(pr.id)) || linkedByOption.has(Number(pr.id))) continue;
+    const n = norm(pr.name).split(/[^a-z0-9]+/);
+    if (words.some((w) => n.includes(w))) candidates.set(Number(pr.id), { productId: Number(pr.id), productName: pr.name, times: 0 });
+  }
+  if (!candidates.size) return [];
+  for (const order of orders) {
+    for (const item of order.items || []) {
+      const qty = Number(item.quantity) || 0;
+      const own = candidates.get(Number(item.id));
+      if (own) own.times += qty;
+      for (const part of item.parts || []) {
+        const c = candidates.get(Number(part.productId));
+        if (c) c.times += (Number(part.quantity) || 1) * qty;
+      }
+    }
+  }
+  return [...candidates.values()].filter((c) => c.times > 0).sort((a, b) => b.times - a.times);
+}
+
+/** Agrega el insumo a la receta de un producto */
+export function addRecipeLine(recipes: RecipeItem[], productId: number, ingredientId: number, quantity: number) {
+  return [...recipes.filter((r) => !(Number(r.productId) === Number(productId) && Number(r.ingredientId) === Number(ingredientId))), { productId: Number(productId), ingredientId: Number(ingredientId), quantity }];
+}
+
+/** Enlaza una opción a un insumo con su cantidad por cada vez que se elige */
+export function linkOption(products: Product[], target: Pick<UnlinkedOption, "productId" | "groupKey" | "optionKey">, ingredientId: number, quantity: number) {
+  return products.map((p) =>
+    Number(p.id) !== Number(target.productId)
+      ? p
+      : { ...p, modifierGroups: (p.modifierGroups || []).map((g) => (g.key !== target.groupKey ? g : { ...g, options: g.options.map((o) => (o.key === target.optionKey ? { ...o, ingredientId, quantity } : o)) })) }
+  );
 }
 
 /** Redondeo según la unidad: gramos y mililitros con 1 decimal, piezas/kg/litros con 4 */

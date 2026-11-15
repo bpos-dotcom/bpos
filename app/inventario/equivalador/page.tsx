@@ -20,11 +20,15 @@ import {
   roundQty,
   salesInRange,
   stockAt,
+  unlinkedOptions,
+  unlinkedProducts,
   type EquivalenceOrder,
   type EquivalenceProposal,
 } from "@/lib/recipe-equivalence";
 import {
+  addIngredientToRecipe,
   applyEquivalence,
+  linkOptionToIngredient,
   getEquivalenceLog,
   getEquivalencePicks,
   saveEquivalencePicks,
@@ -220,6 +224,7 @@ export default function EquivaladorPage() {
                 setRows((r) => ({ ...r, [ing.id]: defaultRow() }));
                 load();
               }}
+              onLinked={load}
             />
           ))}
 
@@ -278,6 +283,7 @@ function IngredientRow(props: {
   endExclusive: Date;
   cloudLoading: boolean;
   onApplied: () => void;
+  onLinked: () => void;
 }) {
   const { ingredient: ing, input, onInput, kardex, sales, recipes, products, from, endExclusive } = props;
   const [confirming, setConfirming] = useState(false);
@@ -293,7 +299,11 @@ function IngredientRow(props: {
   const start = input.start === "personalizado" ? Number(input.startValue) : systemStart;
   const end = input.end === "personalizado" ? Number(input.endValue) : systemEnd;
   const missing = (input.start === "personalizado" && input.startValue.trim() === "") || (input.end === "personalizado" && input.endValue.trim() === "");
-  const expected = useMemo(() => expectedUse(sales, id, recipes), [sales, id, recipes]);
+  const expected = useMemo(() => expectedUse(sales, id, recipes, products), [sales, id, recipes, products]);
+  const looseOptions = useMemo(() => unlinkedOptions(sales, ing, products), [sales, ing, products]);
+  const looseProducts = useMemo(() => unlinkedProducts(sales, ing, products, recipes), [sales, ing, products, recipes]);
+  const [linkQty, setLinkQty] = useState<Record<string, string>>({});
+  const totalSold = [...expected.units.values()].reduce((a, b) => a + b, 0) + [...expected.options.values()].reduce((a, b) => a + b.times, 0);
   const realUse = start + purchases - moves.waste - end;
   const shouldRemain = start + purchases - moves.waste - expected.total;
   const proposal: EquivalenceProposal = missing ? { mode: "ninguno", factor: 1, recipeChanges: [], optionChanges: [], reason: "Escribe el número personalizado." } : proposeEquivalence({ ingredient: ing, realUse, expected, recipes, products });
@@ -413,7 +423,9 @@ function IngredientRow(props: {
 
       {(soldRows.length > 0 || expected.options.size > 0) && (
         <details className="mt-3 rounded-2xl border border-zinc-800 bg-black p-3 text-sm">
-          <summary className="cursor-pointer font-bold text-zinc-300">Vendido con {ing.name.toLowerCase()} ({soldRows.reduce((a, b) => a + b.n, 0)} productos)</summary>
+          <summary className="cursor-pointer font-bold text-zinc-300">
+            Vendido con {ing.name.toLowerCase()} ({totalSold} · {totalSold - expected.appUnits} en caja y {expected.appUnits} en apps)
+          </summary>
           <div className="mt-2 space-y-1">
             {soldRows.map((r) => (
               <p key={r.name} className="flex justify-between">
@@ -429,6 +441,48 @@ function IngredientRow(props: {
             ))}
           </div>
         </details>
+      )}
+
+      {(looseOptions.some((o) => o.times > 0) || looseProducts.length > 0) && (
+        <div className="mt-3 rounded-2xl border border-red-500/50 bg-red-500/10 p-3 text-sm">
+          <p className="font-black text-red-300">⚠️ Esto parece llevar {ing.name.toLowerCase()} pero no descuenta nada, por eso no entra en la cuenta:</p>
+          <p className="mt-1 text-xs text-zinc-400">Pon cuánto lleva cada vez y dale Enlazar. Las ventas de estas fechas se cuentan al momento.</p>
+          <div className="mt-2 space-y-2">
+            {[
+              ...looseOptions.filter((o) => o.times > 0).map((o) => ({ key: `o${o.productId}|${o.groupKey}|${o.optionKey}`, label: `${o.productName} · ${o.groupName}: ${o.optionName}`, times: o.times, link: (q: number) => linkOptionToIngredient(o, { id, name: ing.name, unit: u }, q) })),
+              ...looseProducts.map((x) => ({ key: `p${x.productId}`, label: `${x.productName} (su receta no lo lleva)`, times: x.times, link: (q: number) => addIngredientToRecipe(x, { id, name: ing.name, unit: u }, q) })),
+            ].map((row) => (
+              <div key={row.key} className="flex flex-wrap items-center gap-2 rounded-xl bg-black p-2">
+                <span className="min-w-0 flex-1">
+                  <b>{row.label}</b> <span className="text-xs text-zinc-400">· vendido {row.times} veces</span>
+                </span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  step="any"
+                  min={0}
+                  value={linkQty[row.key] || ""}
+                  onChange={(e) => setLinkQty((q) => ({ ...q, [row.key]: e.target.value }))}
+                  placeholder={`${u} cada vez`}
+                  className="w-28 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-white"
+                />
+                <button
+                  type="button"
+                  disabled={!(Number(linkQty[row.key]) > 0)}
+                  onClick={async () => {
+                    if (!(await requirePermission(getCurrentUser(), "recipes.manage", "cambiar recetas"))) return;
+                    row.link(Number(linkQty[row.key]));
+                    setLinkQty((q) => ({ ...q, [row.key]: "" }));
+                    props.onLinked();
+                  }}
+                  className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-black text-black disabled:opacity-40"
+                >
+                  Enlazar
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
       {props.cloudLoading && <p className="mt-3 text-sm font-bold text-sky-400">☁️ Esperando las ventas de la nube para ese rango…</p>}
