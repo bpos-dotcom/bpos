@@ -18,6 +18,8 @@ import {
 } from "@/lib/reports";
 import { downloadXlsx, type Cell, type Sheet } from "@/lib/xlsx";
 import { isCloudConfigured } from "@/lib/supabase/client";
+import { archivedNotice, useArchivedOrders } from "@/lib/use-archived-orders";
+import { mergeOrders } from "@/lib/order-archive";
 import { getAdminProducts } from "@/lib/admin";
 import { modifierPopularity, slowMovers, staffReport } from "@/lib/staff";
 import { StaffTab } from "@/components/reports/StaffTab";
@@ -57,12 +59,16 @@ export default function ReportesPage() {
   const [branchError, setBranchError] = useState("");
   const [showCosts, setShowCosts] = useState(false);
 
+  // Antes del mes pasado las ventas ya no están en la caja: se traen de la nube (también el periodo para comparar)
+  const archived = useArchivedOrders(new Date(range.from.getTime() - (range.to.getTime() - range.from.getTime())), range.to);
+  const cloudNotice = archivedNotice(archived);
   const refresh = useCallback(() => {
-    const src = loadReportSources();
+    const local = loadReportSources();
+    const src = { ...local, orders: mergeOrders(local.orders, archived.orders) };
     const length = range.to.getTime() - range.from.getTime();
     setReport(buildReport(src, range));
     setPrevious(buildReport(src, { from: new Date(range.from.getTime() - length), to: range.from }));
-  }, [range]);
+  }, [range, archived.orders]);
 
   useEffect(() => {
     setShowCosts(canViewCosts(getCurrentUser().role));
@@ -225,6 +231,7 @@ export default function ReportesPage() {
   return (
     <AppShell title="Reportes" subtitle="Ventas, productos, canales, turnos, compras e inventario por periodo.">
       <div className="space-y-6">
+        {cloudNotice && <p className={`no-print text-sm font-bold ${archived.error ? "text-red-300" : "text-sky-300"}`}>{cloudNotice}</p>}
         {/* Filtros */}
         <section className="no-print flex flex-wrap items-end gap-3 rounded-3xl border border-zinc-800 bg-zinc-950 p-4">
           <div className="flex flex-wrap gap-2">
