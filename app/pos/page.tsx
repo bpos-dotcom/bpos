@@ -294,7 +294,11 @@ function PosScreen() {
       try {
         const found = await findMembers(phoneDigits);
         const m = found.find((x) => x.member && x.phone.replace(/\D/g, "").endsWith(phoneDigits));
-        if (alive && m) setClubMember(m);
+        if (alive && m) {
+          setClubMember(m);
+          // Su nombre va a Cliente si aún está vacío
+          if (m.name?.trim()) setDetails((d) => (d.customerName.trim() ? d : { ...d, customerName: m.name.trim() }));
+        }
       } catch {
         // sin internet: se puede buscar a mano en el Club
       }
