@@ -33,6 +33,7 @@ import {
   itemsText,
   personStatus,
   productAllowed,
+  withoutPaidExtras,
   undoStaffMeal,
   type StaffMealConfig,
   type StaffMealInfo,
@@ -75,7 +76,8 @@ export default function PersonalPage() {
     const loadConfig = () => setConfig(getStaffMealConfig());
     const loadOrders = () => setOrders(readOrders());
     const loadBrands = () => setBrands(getBrands());
-    const loadProducts = () => setProducts(getAdminProducts().map((p) => ({ ...p, station: p.station || "Cocina" })));
+    // Sin extras con costo: la cena es lo del menú tal cual
+    const loadProducts = () => setProducts(getAdminProducts().map((p) => withoutPaidExtras({ ...p, station: p.station || "Cocina" })));
     loadConfig();
     loadOrders();
     loadBrands();
@@ -238,6 +240,7 @@ export default function PersonalPage() {
         <ComboChoiceModal
           product={choosing}
           products={products}
+          hidePrices
           onClose={() => setChoosing(null)}
           onConfirm={(chosen) => {
             addLine(choosing, chosen);
@@ -263,7 +266,7 @@ export default function PersonalPage() {
           </div>
           <div className="mt-3 grid grid-cols-2 gap-2 sm:gap-3 xl:grid-cols-3">
             {shown.map((p) => (
-              <ProductCard key={p.id} product={p} onAdd={add} offSchedule={offSchedule(p)} inCart={cart.reduce((n, i) => (i.id === p.id ? n + i.quantity : n), 0)} />
+              <ProductCard key={p.id} product={p} nameOnly onAdd={add} offSchedule={offSchedule(p)} inCart={cart.reduce((n, i) => (i.id === p.id ? n + i.quantity : n), 0)} />
             ))}
             {shown.length === 0 && <p className="col-span-full py-6 text-center text-sm text-zinc-500">No hay productos para la cena con ese filtro.</p>}
           </div>
@@ -339,9 +342,9 @@ export default function PersonalPage() {
               ))}
               {cart.length === 0 && <li className="rounded-2xl border border-dashed border-zinc-800 p-4 text-center text-sm text-zinc-500">Toca los productos para agregarlos</li>}
             </ul>
-            {(config.maxItems > 0 || config.maxValue > 0) && (
+            {(config.maxItems > 0 || cap) && (
               <p className={`mt-3 text-xs font-bold ${cap ? "text-yellow-200" : "text-zinc-500"}`}>
-                {cap || `Tope: ${[config.maxItems > 0 ? `${config.maxItems} productos` : "", config.maxValue > 0 ? `$${config.maxValue.toFixed(0)} de menú` : ""].filter(Boolean).join(" · ")} (lleva ${pieces})`}
+                {cap || `Tope: ${config.maxItems} ${config.maxItems === 1 ? "producto" : "productos"} (lleva ${pieces})`}
               </p>
             )}
             <button

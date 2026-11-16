@@ -28,11 +28,13 @@ type Props = {
   products: Product[];
   onConfirm: (result: { parts?: SoldPart[]; modifiers?: SoldModifier[]; ownTicket: boolean; comment?: string; extraStations?: ExtraStation[] }) => void;
   onClose: () => void;
+  /** Sin precios (cena del personal): solo nombres de las opciones */
+  hidePrices?: boolean;
 };
 
 type Picks = Record<string, string[]>;
 
-export function ComboChoiceModal({ product, products, onConfirm, onClose }: Props) {
+export function ComboChoiceModal({ product, products, onConfirm, onClose, hidePrices = false }: Props) {
   const [picks, setPicks] = useState<Record<string, Picks>>({});
   const [withComment, setWithComment] = useState(false);
   const [comment, setComment] = useState("");
@@ -99,8 +101,8 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
                     <div key={group.key}>
                       <p className="font-black">{group.name}</p>
                       <p className="mb-2 text-xs font-bold text-zinc-500">
-                        {describeGroup(group)} · elegidas {selected.length}
-                        {extras > 0 && (
+                        {hidePrices ? (group.min > 0 ? "obligatorio" : "opcional") : describeGroup(group)} · elegidas {selected.length}
+                        {extras > 0 && !hidePrices && (
                           <span className="text-orange-400">
                             {" "}
                             · {extras} extra{group.extraPrice > 0 ? ` +$${(extras * group.extraPrice).toFixed(2)}` : ""}
@@ -118,7 +120,7 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
                               <button onClick={() => add(owner.key, owner.groups, group, option.key)} className="flex-1 p-3 text-left">
                                 {option.productId ? "🔗 " : ""}
                                 {optionName(option, products)}
-                                {Number(option.extraPrice) > 0 && <span className="ml-1 text-orange-400">+${Number(option.extraPrice)}</span>}
+                                {!hidePrices && Number(option.extraPrice) > 0 && <span className="ml-1 text-orange-400">+${Number(option.extraPrice)}</span>}
                                 {count > 1 && <span className="ml-1 text-orange-400">×{count}</span>}
                               </button>
                               {count > 0 && !single(group) && (
@@ -204,7 +206,7 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose }: Prop
                 comment: withComment && comment.trim() ? comment.trim() : undefined,
               })
             } disabled={Boolean(problem)} className="flex-1 rounded-2xl bg-orange-500 py-3 font-black text-black disabled:opacity-40">
-            Agregar ${total.toFixed(2)}
+            {hidePrices ? "Agregar" : `Agregar $${total.toFixed(2)}`}
           </button>
         </div>
       </div>
