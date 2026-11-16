@@ -81,12 +81,14 @@ function CopiedModal({ copied, onClose }: { copied: { text: string; ok: boolean 
 }
 
 /** Modificar el pedido antes de aceptarlo: quitar productos o piezas, con motivo */
-function EditOrderModal({ order, onClose, onSaved }: { order: OnlineOrder; onClose: () => void; onSaved: (notice: string) => void }) {
+function EditOrderModal({ order, onClose, onSaved }: { order: OnlineOrder; onClose: () => void; onSaved: (notice: string, printFailed: string[]) => void }) {
   const d = order.data;
   const [qty, setQty] = useState(() => d.lines.map((l) => l.quantity));
   const [reason, setReason] = useState<"Agotado" | "Otro">("Agotado");
   const [other, setOther] = useState("");
   const [markSoldOut, setMarkSoldOut] = useState(true);
+  const [prepared, setPrepared] = useState(false);
+  const accepted = order.status !== "nuevo";
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const subtotal = d.lines.reduce((a, l, i) => a + l.unitPrice * qty[i], 0);
@@ -100,8 +102,8 @@ function EditOrderModal({ order, onClose, onSaved }: { order: OnlineOrder; onClo
     setSaving(true);
     setError("");
     try {
-      const { order: next, edit } = await editOnlineOrder(order, qty, reason === "Agotado" ? "Agotado" : other, { userName: getCurrentUser()?.name, markSoldOut: reason === "Agotado" && markSoldOut });
-      onSaved(editNoticeText(next, edit));
+      const result = await editOnlineOrder(order, qty, reason === "Agotado" ? "Agotado" : other, { userName: getCurrentUser()?.name, markSoldOut: reason === "Agotado" && markSoldOut, prepared: accepted && prepared });
+      onSaved(editNoticeText(result.order, result.edit), result.printFailed);
     } catch (e) {
       setError(e instanceof Error ? e.message : "No se pudo guardar.");
     } finally {
@@ -113,7 +115,10 @@ function EditOrderModal({ order, onClose, onSaved }: { order: OnlineOrder; onClo
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 pt-[6vh]" onClick={onClose}>
       <div className="w-full max-w-lg rounded-3xl border border-orange-500/60 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
         <p className="text-lg font-black text-orange-300">✏️ Modificar pedido {order.folio}</p>
-        <p className="mt-1 text-sm text-zinc-400">Quita lo que no hay. El total se actualiza y le avisas al cliente.</p>
+        <p className="mt-1 text-sm text-zinc-400">
+          Quita lo que no hay. El total se actualiza y le avisas al cliente.
+          {accepted ? " Ya está en cocina: se ajusta la cuenta en caja y sale un ticket de QUITAR en la estación." : ""} El dueño recibe el aviso.
+        </p>
         <ul className="mt-3 space-y-2">
           {d.lines.map((l, i) => (
             <li key={i} className={`rounded-2xl border p-3 text-sm ${qty[i] === 0 ? "border-red-500/40 bg-red-500/5 opacity-60" : "border-zinc-800 bg-black"}`}>
@@ -151,6 +156,19 @@ function EditOrderModal({ order, onClose, onSaved }: { order: OnlineOrder; onClo
             </div>
             {reason === "Otro" && (
               <textarea value={other} onChange={(e) => setOther(e.target.value)} rows={2} autoFocus placeholder="¿Por qué se quita? (se le dice al cliente)" className="mt-2 w-full rounded-xl border border-zinc-700 bg-black p-3 text-sm text-white" />
+            )}
+            {accepted && (
+              <div className="mt-3">
+                <p className="text-xs font-black text-zinc-400">¿Ya se había preparado lo que se quita?</p>
+                <div className="mt-1 grid grid-cols-2 gap-2">
+                  <button type="button" onClick={() => setPrepared(false)} className={`rounded-xl border px-3 py-2 text-xs font-black ${!prepared ? "border-emerald-500 bg-emerald-500 text-black" : "border-zinc-700 text-zinc-300"}`}>
+                    No · regresa al inventario
+                  </button>
+                  <button type="button" onClick={() => setPrepared(true)} className={`rounded-xl border px-3 py-2 text-xs font-black ${prepared ? "border-red-500 bg-red-500 text-black" : "border-zinc-700 text-zinc-300"}`}>
+                    Sí · se tira (merma)
+                  </button>
+                </div>
+              </div>
             )}
             {reason === "Agotado" && fullyRemoved.length > 0 && (
               <label className="mt-2 flex items-center gap-2 text-xs font-bold text-zinc-300">
@@ -501,7 +519,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
           ))}
         </ul>
       )}
-      {order.status === "nuevo" && (
+      {(order.status === "nuevo" || order.status === "aceptado" || order.status === "listo") && (
         <button
           type="button"
           disabled={busy}
@@ -588,9 +606,10 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         <EditOrderModal
           order={order}
           onClose={() => setEditing(false)}
-          onSaved={(text) => {
+          onSaved={(text, printFailed) => {
             setEditing(false);
             setEditNotice(text);
+            if (printFailed.length) setMessage(`Modificado. No se imprimió en: ${printFailed.join(", ")}`);
             onChanged();
           }}
         />

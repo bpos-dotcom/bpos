@@ -50,6 +50,9 @@ export const PUSH_ACTIONS = new Set([
   "task.done",
   "task.overdue",
   "blind.submitted",
+  "online_order.edit",
+  "online_order.phone",
+  "sale.item.removed",
 ]);
 
 export type PushEvent = {
@@ -124,6 +127,16 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
       const faltante = Number(meta.faltante) || 0;
       return { title: faltante > 0 ? `📦 Inventario ciego · faltante ${money(faltante)}` : "📦 Inventario ciego listo", body: event.description, tag, url: "/dueno?vista=productividad" };
     }
+    // Pedido del menú digital modificado (se quitó algo) o mesa a la que se le quitó un platillo ya enviado
+    case "online_order.edit":
+    case "sale.item.removed": {
+      if (!prefs.cancelaciones) return null;
+      const before = Number(meta.before) || 0;
+      return { title: `✏️ Pedido modificado${before && total ? ` · ${money(before)} → ${money(total)}` : ""}`, body: event.description, tag, url: "/configuracion/auditoria" };
+    }
+    case "online_order.phone":
+      if (!prefs.seguridad) return null;
+      return { title: "📱 Cambiaron el teléfono de un pedido", body: event.description, tag, url: "/configuracion/auditoria" };
     case "backup.restored":
     case "user.created":
     case "permissions.updated":
