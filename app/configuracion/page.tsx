@@ -65,6 +65,12 @@ const adminModules = [
     description: "App de meseros en el celular: vincula sus teléfonos con un código, toman la orden en la mesa y la mandan a cocina. Se corta por turno (checador) y fuera de horario.",
   },
   {
+    title: "Cena del personal",
+    href: "/configuracion/personal",
+    icon: "🍽️",
+    description: "Quiénes tienen cena, qué días les toca, qué pueden elegir y el tope por cena. Se marca en la sección Personal: va a cocina, descuenta inventario y te avisa.",
+  },
+  {
     title: "Tablets de cocina",
     href: "/configuracion/kds",
     icon: "👨‍🍳",

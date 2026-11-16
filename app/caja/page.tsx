@@ -137,6 +137,7 @@ export default function CajaPage() {
 
     return orders.filter((order) => {
       if (isCancelled(order)) return false; // canceladas no cuentan en el corte
+      if ((order as { staffMeal?: unknown }).staffMeal) return false; // la cena del personal no es venta
       if (order.pendingPayment) return false; // en espera: hasta que pague
       // Cuenta en espera cobrada: cuenta en el turno donde se cobró
       if (order.shiftSessionId) {

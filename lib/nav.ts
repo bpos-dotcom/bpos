@@ -45,6 +45,7 @@ export const NAV: NavGroup[] = [
     ],
   },
   { label: "Cocina KDS", icon: "👨‍🍳", tabs: [{ label: "Cocina KDS", href: "/cocina", icon: "👨‍🍳" }] },
+  { label: "Personal", icon: "🍽️", tabs: [{ label: "Cena del personal", href: "/personal", icon: "🍽️" }] },
   { label: "Productividad", icon: "✅", tabs: [{ label: "Productividad", href: "/productividad", icon: "✅" }] },
   {
     label: "Tu negocio",

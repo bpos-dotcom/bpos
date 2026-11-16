@@ -47,6 +47,8 @@ export type InventoryOrderLike = {
   source?: string;
   externalOrderKey?: string;
   externalPlatform?: string;
+  /** Cena del personal: a quién se le dio (sale así en la bitácora de inventario) */
+  staffMeal?: { name: string };
   bridgeActions?: {
     inventoryAdjustments?: Array<{
       ingredientId: string | number;
@@ -293,7 +295,7 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
         orderId: order.id,
         externalOrderKey: order.externalOrderKey,
         platform: order.externalPlatform,
-        reason: order.externalOrderKey ? `Pedido ${order.externalOrderKey}` : `Venta #${order.id}`,
+        reason: order.externalOrderKey ? `Pedido ${order.externalOrderKey}` : order.staffMeal ? `Cena del personal #${order.id} · ${order.staffMeal.name}` : `Venta #${order.id}`,
         createdAt: now,
       });
       if (ingredient.stock < 0) {
@@ -379,7 +381,7 @@ export function orderNetConsumption(orderId: number | string) {
 }
 
 /** Último costo por unidad (Compras o "Puesto a mano"); 0 si no se conoce */
-function latestUnitCost(ingredientId: number) {
+export function latestUnitCost(ingredientId: number) {
   const records = readJson<{ ingredientId: number; purchasedAt: string; unitCost: number }[]>("bpos_ingredient_cost_history", []);
   const last = records.filter((r) => Number(r.ingredientId) === ingredientId).sort((a, b) => +new Date(b.purchasedAt) - +new Date(a.purchasedAt))[0];
   return Number(last?.unitCost) || 0;

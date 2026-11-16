@@ -177,7 +177,7 @@ export function buildCustomers(orders: SaleLike[], now = Date.now()): Customer[]
   const isOnline = (s: SaleLike) => Boolean(s.onlineFolio || s.onlineOrderId) || s.source === "Menú digital" || s.source === "Kiosco";
   const groups = new Map<string, SaleLike[]>();
   for (const order of orders) {
-    if (order.cancelled) continue;
+    if (order.cancelled || (order as { staffMeal?: unknown }).staffMeal) continue;
     const name = cleanName(order.details?.customerName || "");
     const phone = phoneKey(order.details?.customerPhone || "");
     if (!phone && name.length < 2) continue;
