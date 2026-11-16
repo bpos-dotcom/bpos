@@ -36,9 +36,10 @@ function initUpdater({ isPackaged }) {
   autoUpdater.on("download-progress", (p) =>
     setStatus({ progress: Math.round(p.percent), message: `Descargando ${status.available || "actualización"}: ${Math.round(p.percent)}%` })
   );
-  autoUpdater.on("update-downloaded", (info) =>
-    setStatus({ state: "ready", message: `Versión ${info.version} lista. Se instala al cerrar B-POS.`, available: info.version, progress: 100 })
-  );
+  autoUpdater.on("update-downloaded", (info) => {
+    setStatus({ state: "ready", message: `Versión ${info.version} lista. Se instala al cerrar B-POS o sola en la madrugada.`, available: info.version, progress: 100 });
+    scheduleNightInstall();
+  });
   autoUpdater.on("error", (error) => {
     const text = String(error?.message || error);
     // Sin releases publicados GitHub contesta 404: no es una falla
@@ -68,6 +69,30 @@ function checkForUpdates() {
   return autoUpdater.checkForUpdates().then(() => status).catch(() => status);
 }
 
+/**
+ * El Agent casi nunca se cierra, así que la versión descargada se quedaba sin
+ * instalar (y seguían los errores ya corregidos). Se instala sola en la
+ * madrugada (3 a 6 a.m., hora de la PC), cuando no hay servicio, y se vuelve a abrir.
+ */
+const NIGHT_FROM = 3;
+const NIGHT_TO = 6;
+let nightTimer = null;
+function isNight(date = new Date()) {
+  const h = date.getHours();
+  return h >= NIGHT_FROM && h < NIGHT_TO;
+}
+function scheduleNightInstall() {
+  if (nightTimer) return;
+  nightTimer = setInterval(() => {
+    if (status.state === "ready" && isNight()) {
+      console.log("[actualizaciones] Instalando la versión nueva (madrugada)...");
+      clearInterval(nightTimer);
+      nightTimer = null;
+      autoUpdater.quitAndInstall(true, true);
+    }
+  }, 10 * 60 * 1000);
+}
+
 /** Cierra B-POS, instala la versión descargada y la vuelve a abrir. */
 function installNow() {
   if (status.state !== "ready") return false;
@@ -75,4 +100,4 @@ function installNow() {
   return true;
 }
 
-module.exports = { initUpdater, checkForUpdates, installNow, onUpdateStatus, getUpdateStatus: () => status };
+module.exports = { isNight, initUpdater, checkForUpdates, installNow, onUpdateStatus, getUpdateStatus: () => status };

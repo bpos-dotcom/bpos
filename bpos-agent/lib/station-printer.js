@@ -200,11 +200,26 @@ async function loadHtmlFile(win, html, dir) {
 }
 
 /**
- * Si un intento falla se prueba el siguiente: archivo en la carpeta de
- * B-POS, archivo en Temp y, si el ticket no es muy grande, dirección "data:".
+ * Sin archivos: abre una página en blanco y escribe el ticket ahí. No depende
+ * de Temp (antivirus, limpiadores, permisos: ERR_FAILED -2) ni del límite de
+ * las direcciones "data:".
+ */
+async function writeHtml(win, html) {
+  await win.loadURL("about:blank");
+  await win.webContents.executeJavaScript(`document.open(); document.write(${JSON.stringify(html)}); document.close(); true`);
+  // Que termine de acomodar y cargar las imágenes antes de medir o imprimir
+  await win.webContents.executeJavaScript(
+    "new Promise((r) => { const go = () => Promise.all([...document.images].map((i) => i.complete ? 0 : new Promise((d) => { i.onload = d; i.onerror = d; }))).then(() => r(true)); document.readyState === 'complete' ? go() : window.addEventListener('load', go, { once: true }); setTimeout(() => r(true), 5000); })"
+  );
+}
+
+/**
+ * Si un intento falla se prueba el siguiente: escribir el ticket en una página
+ * en blanco, archivo en la carpeta de B-POS, archivo en Temp y, si el ticket
+ * no es muy grande, dirección "data:".
  */
 async function loadHtml(win, html) {
-  const attempts = [() => loadHtmlFile(win, html, ticketDir())];
+  const attempts = [() => writeHtml(win, html), () => loadHtmlFile(win, html, ticketDir())];
   if (ticketDir() !== os.tmpdir()) attempts.push(() => loadHtmlFile(win, html, os.tmpdir()));
   if (Buffer.byteLength(html, "utf8") < DATA_URL_MAX) {
     attempts.push(() => win.loadURL(`data:text/html;charset=utf-8;base64,${Buffer.from(html, "utf8").toString("base64")}`));
@@ -215,6 +230,7 @@ async function loadHtml(win, html) {
       return await attempt();
     } catch (e) {
       lastError = e;
+      console.log(`[impresion] No cargó el ticket (intento ${attempts.indexOf(attempt) + 1}): ${String((e && e.message) || e).slice(0, 160)}`);
     }
   }
   throw lastError;
