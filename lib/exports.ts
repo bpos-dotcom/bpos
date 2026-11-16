@@ -34,7 +34,7 @@ export function exportOrders(orders: SavedOrder[], label = "pedidos") {
           o.total,
           o.tip || 0,
           o.details.payments ? methodLabel(o.details.payments) : o.details.paymentMethod,
-          o.cancelled ? "Cancelada" : o.pendingPayment ? "Por cobrar" : "Cobrada",
+          o.cancelled ? "Cancelada" : (o as { staffMeal?: unknown }).staffMeal ? "Cena del personal" : o.pendingPayment ? "Por cobrar" : "Cobrada",
           o.externalPlatform || "",
           o.externalOrderNumber || "",
         ]),

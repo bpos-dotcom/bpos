@@ -36,7 +36,7 @@ export default function DashboardPage() {
     const today = new Date().toISOString().slice(0, 10);
 
     const voided = voidedShiftIds();
-    return orders.filter((order) => !isCancelled(order) && !inVoidedShift(order as { shiftSessionId?: string }, voided) && order.createdAt.slice(0, 10) === today);
+    return orders.filter((order) => !isCancelled(order) && !(order as { staffMeal?: unknown }).staffMeal && !inVoidedShift(order as { shiftSessionId?: string }, voided) && order.createdAt.slice(0, 10) === today);
   }, [orders]);
 
   const salesToday = todayOrders.reduce((sum, order) => sum + order.total, 0);

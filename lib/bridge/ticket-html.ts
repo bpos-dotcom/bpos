@@ -196,3 +196,23 @@ export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings
     ${settings.ticketFooter ? `<div class="center platform" style="margin-top:6px">${esc(settings.ticketFooter)}</div>` : ""}`
   );
 }
+
+/**
+ * Comprobante corto de la cena del personal: sin logo, sin precios, sin QR.
+ * Solo negocio, quién, cuándo y qué pidió.
+ */
+export function staffMealTicketHtml(ticket: DeliveryTicket, staffName: string, settings: BusinessSettings, paper: PaperWidth = 80, by = "") {
+  return page(
+    settings,
+    paper,
+    `<div class="center platform">${esc(settings.businessName)}</div>
+    <div class="station">CENA DEL PERSONAL</div>
+    <div class="center order">${esc(staffName)}</div>
+    <div class="center meta">${esc(time(ticket.receivedAt))}</div>
+    <div class="center meta">Pedido #${esc(ticket.orderId)}</div>
+    <div class="rule"></div>
+    ${ticket.items.map((i) => itemBlock(i, settings, false)).join("")}
+    <div class="rule"></div>
+    <div class="center meta">Comprobante · sin costo${by && by !== staffName ? ` · marcó ${esc(by)}` : ""}</div>`
+  );
+}

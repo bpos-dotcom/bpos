@@ -3,7 +3,7 @@ import type { ExtraStation, KitchenStation } from "@/data/products";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { platformLabel, realCustomerName, type DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { paperWidth, qrSvg, type OrderTicket } from "@/lib/bridge/order-tickets";
-import { bagTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
+import { bagTicketHtml, staffMealTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { ticketBrandName } from "@/lib/brands";
@@ -33,6 +33,8 @@ export type SaleForTickets = {
   deliveryTicket?: DeliveryTicket;
   /** Pedido del menú en línea: su folio de 4 letras */
   onlineFolio?: string;
+  /** Cena del personal (no es venta): comandas normales y un comprobante corto en lugar del ticket */
+  staffMeal?: { name: string; by?: string };
 };
 
 export const STATIONS: KitchenStation[] = ["Parrilla", "Freidora", "Barra", "Cocina"];
@@ -57,7 +59,9 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
     // Mesa: "Mesa 4 · 3 personas" (y "PRECUENTA" cuando se imprime antes de cobrar)
     platform: delivery
       ? platformLabel(sale.externalPlatform)
-      : sale.details?.table
+      : sale.staffMeal
+        ? `CENA PERSONAL · ${sale.staffMeal.name}`
+        : sale.details?.table
         ? `${sale.details.precuenta ? "PRECUENTA · " : ""}Mesa ${sale.details.table.name}${sale.details.diners ? ` · ${sale.details.diners} pers.` : ""}`
         : sale.onlineFolio && orderType.startsWith("En línea")
           ? orderType.replace(/^En línea/, `En línea #${sale.onlineFolio}`)
@@ -106,7 +110,7 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
     })),
     charges: discount > 0 ? [{ label: "Subtotal", amount: subtotal }, { label: "Descuento", amount: -discount }] : [],
     total: Number(sale.total),
-    payment: delivery ? undefined : sale.details?.paymentMethod,
+    payment: delivery || sale.staffMeal ? undefined : sale.details?.paymentMethod,
     ...(sale.details?.waiter ? { waiter: sale.details.waiter } : {}),
     ...(brand ? { brand } : {}),
   };
@@ -140,13 +144,14 @@ export async function buildSaleTickets(sale: SaleForTickets, choice: { stations:
   const tickets: OrderTicket[] = choice.stations
     .filter((station) => ticket.items.some((i) => i.stations.includes(station)))
     .map((station) => ({ target: station, html: stationTicketHtml(ticket, station, settings, paper) }));
-  if (choice.customer) tickets.push({ target: "Caja", html: bagTicketHtml(ticket, settings, await qrSvg(settings.ticketQrText), paper), drawer: choice.drawer !== false && paysCash(sale) });
+  if (choice.customer && sale.staffMeal) tickets.push({ target: "Caja", html: staffMealTicketHtml(ticket, sale.staffMeal.name, settings, paper, sale.staffMeal.by), drawer: false });
+  else if (choice.customer) tickets.push({ target: "Caja", html: bagTicketHtml(ticket, settings, await qrSvg(settings.ticketQrText), paper), drawer: choice.drawer !== false && paysCash(sale) });
   return tickets;
 }
 
 /** ¿Entró efectivo con este cobro? (abre el cajón de dinero; no en precuentas ni en cuentas por cobrar) */
 export function paysCash(sale: SaleForTickets) {
-  if (sale.pendingPayment || sale.details?.precuenta) return false;
+  if (sale.pendingPayment || sale.details?.precuenta || sale.staffMeal) return false;
   const payments = sale.details?.payments;
   if (payments && Object.keys(payments).length) return (payments.Efectivo || 0) > 0 || (sale.tipPayments?.Efectivo || 0) > 0;
   const method = sale.details?.paymentMethod || "";

@@ -19,6 +19,7 @@ export type PushPrefs = {
   seguridad: boolean; // respaldos restaurados, usuarios y permisos
   opiniones: boolean; // opiniones de 1 a 3 estrellas del menú digital
   productividad: boolean; // recordatorios atendidos o sin atender e inventario ciego
+  cenaPersonal: boolean; // cada cena del personal que se marca (o se deshace)
 };
 
 export const DEFAULT_PUSH_PREFS: PushPrefs = {
@@ -30,6 +31,7 @@ export const DEFAULT_PUSH_PREFS: PushPrefs = {
   seguridad: true,
   opiniones: true,
   productividad: true,
+  cenaPersonal: true,
 };
 
 /** Acciones de la bitácora que pueden generar aviso. */
@@ -53,6 +55,8 @@ export const PUSH_ACTIONS = new Set([
   "online_order.edit",
   "online_order.phone",
   "sale.item.removed",
+  "staff_meal.created",
+  "staff_meal.cancelled",
 ]);
 
 export type PushEvent = {
@@ -134,6 +138,15 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
       const before = Number(meta.before) || 0;
       return { title: `✏️ Pedido modificado${before && total ? ` · ${money(before)} → ${money(total)}` : ""}`, body: event.description, tag, url: "/configuracion/auditoria" };
     }
+    // Cena del personal: quién, qué y cuánto costó en insumos
+    case "staff_meal.created": {
+      if (!prefs.cenaPersonal) return null;
+      const cost = Number(meta.cost) || 0;
+      return { title: `🍽️ Cena del personal · ${meta.name || ""}${cost ? ` · costo ${money(cost)}` : ""}`, body: event.description, tag, url: "/configuracion/auditoria" };
+    }
+    case "staff_meal.cancelled":
+      if (!prefs.cenaPersonal && !prefs.cancelaciones) return null;
+      return { title: `↩️ Cena del personal deshecha · ${meta.name || ""}`, body: event.description, tag, url: "/configuracion/auditoria" };
     case "online_order.phone":
       if (!prefs.seguridad) return null;
       return { title: "📱 Cambiaron el teléfono de un pedido", body: event.description, tag, url: "/configuracion/auditoria" };

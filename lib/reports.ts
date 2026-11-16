@@ -258,7 +258,8 @@ export function buildReport(src: ReportSources, range: DateRange): ReportData {
   // Las ventas de un corte anulado (ej. pruebas) no cuentan
   const voided = voidedShiftIds(src.shifts);
   const orders = src.orders
-    .filter((o) => !(o as { cancelled?: boolean }).cancelled && !(o as { pendingPayment?: boolean }).pendingPayment && !inVoidedShift(o as { shiftSessionId?: string }, voided) && inRange(o.createdAt, range))
+    // La cena del personal no es venta (sale en Inventario y en su propio resumen)
+    .filter((o) => !(o as { cancelled?: boolean }).cancelled && !(o as { pendingPayment?: boolean }).pendingPayment && !(o as { staffMeal?: unknown }).staffMeal && !inVoidedShift(o as { shiftSessionId?: string }, voided) && inRange(o.createdAt, range))
     .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 
   const byDay = new Map<string, Row>();
@@ -515,7 +516,7 @@ export function salesByBranch(
   const byBranch = new Map<string, Row>();
   branches.forEach((b) => byBranch.set(b.name, emptyRow(b.name)));
   orders.forEach(({ branchName, order }) => {
-    if ((order as { cancelled?: boolean }).cancelled || (order as { pendingPayment?: boolean }).pendingPayment || !inRange(order.createdAt, range)) return;
+    if ((order as { cancelled?: boolean }).cancelled || (order as { pendingPayment?: boolean }).pendingPayment || (order as { staffMeal?: unknown }).staffMeal || !inRange(order.createdAt, range)) return;
     bump(byBranch, branchName, { count: 1, sales: Number(order.total) || 0 });
   });
   return finish(byBranch);
