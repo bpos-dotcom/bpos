@@ -796,7 +796,7 @@ function Kpi({ title, value, hint, accent = "text-orange-500" }: { title: string
 
 function Panel({ title, children, wide }: { title: string; children: React.ReactNode; wide?: boolean }) {
   return (
-    <section className={`rounded-3xl border border-zinc-800 bg-zinc-950 p-6 ${wide ? "xl:col-span-2" : ""}`}>
+    <section className={`min-w-0 rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-6 ${wide ? "xl:col-span-2" : ""}`}>
       <h2 className="text-lg font-black">{title}</h2>
       <div className="mt-4">{children}</div>
     </section>
