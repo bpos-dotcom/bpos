@@ -6,7 +6,9 @@
  */
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
-import { notify } from "@/components/layout/Dialogs";
+import { ask, notify } from "@/components/layout/Dialogs";
+import { getCurrentUser } from "@/lib/auth";
+import { authorizeAdmin } from "@/lib/permissions";
 import { EvidenceDialog } from "@/components/productivity/EvidenceDialog";
 import { ItemPhotos } from "@/components/productivity/ItemPhotos";
 import { ListQrDialog } from "@/components/productivity/ListQrDialog";
@@ -15,6 +17,7 @@ import { pushListItem } from "@/lib/productivity-remote";
 import {
   PRODUCTIVITY_EVENT,
   ackMessage,
+  cancelBlind,
   completeTask,
   doneToday,
   itemNeedsPhoto,
@@ -70,6 +73,25 @@ export default function ProductividadPage() {
     }
   }
 
+  /** No se hizo: un administrador lo cancela con su PIN */
+  async function cancelPendingBlind() {
+    const blind = state.blind;
+    if (!blind) return;
+    const admin = await authorizeAdmin("cancelar el inventario ciego", getCurrentUser());
+    if (!admin) return;
+    const sure = await ask(
+      blind.count?.status === "en curso" ? "¿Cancelar el inventario ciego? Lo que ya contaron se descarta y no se sube." : "¿Cancelar el inventario ciego de hoy? Ya no va a sonar.",
+      { ok: "Sí, cancelar", cancel: "No" }
+    );
+    if (!sure) return;
+    try {
+      cancelBlind({ countId: blind.count?.id, slot: blind.slot }, admin);
+      notify("Inventario ciego cancelado. Se le avisó al dueño.");
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "No se pudo.", "error");
+    }
+  }
+
   function startBlind() {
     try {
       openBlindWindow();
@@ -113,9 +135,14 @@ export default function ProductividadPage() {
                   : "Cuenta lo que hay de cada insumo y pon la cantidad. Se abre en otra ventana."}
               </p>
             </div>
-            <button onClick={startBlind} className="rounded-2xl bg-orange-500 px-8 py-4 text-xl font-black text-black">
-              {state.blind.count?.status === "en curso" ? "Continuar" : "Empezar"}
-            </button>
+            <div className="flex flex-col items-stretch gap-2">
+              <button onClick={startBlind} className="rounded-2xl bg-orange-500 px-8 py-4 text-xl font-black text-black">
+                {state.blind.count?.status === "en curso" ? "Continuar" : "Empezar"}
+              </button>
+              <button onClick={() => void cancelPendingBlind()} className="rounded-xl border border-zinc-600 px-4 py-2 text-sm font-black text-zinc-300 hover:border-red-500 hover:text-red-300">
+                🔒 Cancelar (admin)
+              </button>
+            </div>
           </section>
         )}
 

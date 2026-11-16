@@ -120,7 +120,7 @@ export type BlindCount = {
   /** La hora que tocaba (o cuando el dueño lo pidió) */
   slot: string;
   /** pendiente: lo pidió el dueño y nadie lo ha empezado */
-  status: "pendiente" | "en curso" | "enviado" | "ajustado" | "revisado";
+  status: "pendiente" | "en curso" | "enviado" | "ajustado" | "revisado" | "cancelado";
   requestedBy?: string;
   startedAt?: string;
   startedBy?: string;
@@ -129,6 +129,8 @@ export type BlindCount = {
   submittedBy?: string;
   reviewedAt?: string;
   reviewedBy?: string;
+  cancelledAt?: string;
+  cancelledBy?: string;
 };
 
 export const DEFAULT_SETTINGS: ProductivitySettings = {
@@ -477,7 +479,7 @@ export function blindSlotToday(now = new Date()): string | null {
   return when <= now ? when.toISOString() : null;
 }
 
-const CLOSED: BlindCount["status"][] = ["enviado", "ajustado", "revisado"];
+const CLOSED: BlindCount["status"][] = ["enviado", "ajustado", "revisado", "cancelado"];
 
 /**
  * El inventario ciego que les toca ahora: uno empezado o pedido por el dueño,
@@ -620,6 +622,25 @@ export function dismissBlind(countId: string) {
   saveBlind({ ...count, status: "revisado", reviewedAt: new Date().toISOString(), reviewedBy: who() });
 }
 
-export function cancelBlind(countId: string) {
-  write(BLIND_KEY, getBlindCounts().filter((c) => c.id !== countId));
+/**
+ * Cancelar el inventario ciego que toca (no se hizo): queda como "cancelado"
+ * para que no vuelva a sonar ni a salir hoy. Sirve también para el de la hora
+ * programada que nadie empezó (todavía no tiene registro).
+ */
+export function cancelBlind(target: { countId?: string; slot?: string } | string, by = who()) {
+  const { countId, slot } = typeof target === "string" ? { countId: target, slot: undefined } : target;
+  const existing = countId ? getBlindCounts().find((c) => c.id === countId) : undefined;
+  if (existing && CLOSED.includes(existing.status)) throw new Error("Este inventario ciego ya se subió o se canceló.");
+  const base: BlindCount | undefined = existing || (slot ? { id: newId("ciego"), slot, status: "pendiente", lines: [] } : undefined);
+  if (!base) throw new Error("No hay inventario ciego para cancelar.");
+  const counted = base.lines.filter((l) => l.counted !== null).length;
+  const saved = saveBlind({ ...base, status: "cancelado", cancelledAt: new Date().toISOString(), cancelledBy: by });
+  addAuditEvent({
+    category: "Inventario",
+    action: "blind.cancelled",
+    description: `${by} canceló el inventario ciego${base.startedBy ? ` que empezó ${base.startedBy}` : ""}${counted ? ` (llevaba ${counted} de ${base.lines.length} contados)` : ""}`,
+    userName: by,
+    entityId: saved.id,
+  });
+  return saved;
 }

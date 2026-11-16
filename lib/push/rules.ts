@@ -52,6 +52,7 @@ export const PUSH_ACTIONS = new Set([
   "task.done",
   "task.overdue",
   "blind.submitted",
+  "blind.cancelled",
   "online_order.edit",
   "online_order.phone",
   "sale.item.removed",
@@ -131,6 +132,9 @@ export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null
       const faltante = Number(meta.faltante) || 0;
       return { title: faltante > 0 ? `📦 Inventario ciego · faltante ${money(faltante)}` : "📦 Inventario ciego listo", body: event.description, tag, url: "/dueno?vista=productividad" };
     }
+    case "blind.cancelled":
+      if (!prefs.productividad) return null;
+      return { title: "📦 Inventario ciego cancelado", body: event.description, tag, url: "/dueno?vista=productividad" };
     // Pedido del menú digital modificado (se quitó algo) o mesa a la que se le quitó un platillo ya enviado
     case "online_order.edit":
     case "sale.item.removed": {
