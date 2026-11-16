@@ -177,6 +177,16 @@ async function main() {
   }
   check("editar número: rechaza números incompletos", rejected);
 
+  // Programado: hora elegida para mandarlo a cocina
+  const due = Date.parse("2026-11-15T20:30:00");
+  check("sin hora elegida: X min antes según el menú", dm.kitchenTime({ scheduledFor: "2026-11-15T20:30:00" }, 30) === due - 30 * 60000);
+  check("con hora elegida: esa hora", dm.kitchenTime({ scheduledFor: "2026-11-15T20:30:00", kitchenAt: new Date(due - 15 * 60000).toISOString() }, 30) === due - 15 * 60000);
+  check("todavía no toca si la hora elegida no llega", dm.scheduledLater({ scheduledFor: "2026-11-15T20:30:00", kitchenAt: new Date(due - 15 * 60000).toISOString() }, 30, due - 20 * 60000));
+  check("ya toca al llegar la hora elegida", !dm.scheduledLater({ scheduledFor: "2026-11-15T20:30:00", kitchenAt: new Date(due - 15 * 60000).toISOString() }, 30, due - 14 * 60000));
+  check("hora después de la entrega: no", oo.checkKitchenAt(badPhone, new Date(due + 60000), due - 3600000) !== "");
+  check("hora que ya pasó: no", oo.checkKitchenAt(badPhone, new Date(due - 7200000), due - 3600000) !== "");
+  check("hora válida: sí", oo.checkKitchenAt(badPhone, new Date(due - 15 * 60000), due - 3600000) === "");
+
   console.log(`\n${ok} bien, ${bad} mal`);
   process.exit(bad ? 1 : 0);
 }
