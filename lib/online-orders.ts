@@ -10,7 +10,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { getAdminProducts } from "@/lib/admin";
 import { buildSelection, extrasPrice, lineIdFor } from "@/lib/compound";
 import { aiFetch } from "@/lib/ai/client";
-import { awaitingOnlinePayment, getDigitalMenu, isAvailableOnline, kioskLabel, mapsLink, paidOnline, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
+import { awaitingOnlinePayment, getDigitalMenu, isAvailableOnline, kioskLabel, mapsLink, paidOnline, scheduledLabel, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { earnLoyalty } from "@/lib/loyalty-pos";
@@ -271,6 +271,23 @@ export async function expireUnpaidOrder(order: OnlineOrder) {
   return true;
 }
 
+/**
+ * Corrige el teléfono del cliente (si lo escribió mal). Lee el pedido de nuevo
+ * para no pisar otros cambios (ej. el pago) y solo cambia el número.
+ */
+export async function updateOnlineCustomerPhone(order: OnlineOrder, phone: string) {
+  const digits = String(phone || "").replace(/\D/g, "");
+  if (!whatsappNumber(digits)) throw new Error("Escribe el número a 10 dígitos.");
+  const clean = digits.slice(-10);
+  const { data: fresh, error } = await getSupabase().from("bpos_online_orders").select("data").eq("id", order.id).single();
+  if (error) throw new Error(error.message);
+  const data = (fresh?.data || order.data) as OnlineOrderData;
+  const before = data.customer?.phone || "";
+  await setStatus(order.id, { data: { ...data, customer: { ...data.customer, phone: clean } } });
+  addAuditEvent({ category: "Pedidos", action: "online_order.phone", description: `Se corrigió el teléfono del pedido ${order.folio}: ${before || "(vacío)"} → ${clean}`, entityId: order.id });
+  return clean;
+}
+
 /** Avisa al cliente que su pedido está listo o entregado. */
 export function markOnlineOrder(order: OnlineOrder, status: "listo" | "entregado") {
   return setStatus(order.id, { status });
@@ -296,9 +313,20 @@ export function noticeFor(status: OnlineOrderStatus): CustomerNotice | "" {
  * "" si no dejó un teléfono válido. El negocio solo le da enviar.
  */
 export function customerWhatsappLink(order: OnlineOrder, notice: CustomerNotice, opts: { eta?: number; reason?: string } = {}) {
+  const phone = whatsappNumber(order.data.customer.phone);
+  return phone ? whatsappLink(phone, customerNoticeText(order, notice, opts)) : "";
+}
+
+/** Confirmación de un pedido programado (para mandarla por WhatsApp o copiarla) */
+export function scheduledConfirmText(order: OnlineOrder) {
   const d = order.data;
-  const phone = whatsappNumber(d.customer.phone);
-  if (!phone) return "";
+  const name = (d.customer.name || "").trim().split(/\s+/)[0] || "";
+  return `¡Hola${name ? ` ${name}` : ""}! Recibimos tu pedido programado ${order.folio} para ${d.scheduledFor ? scheduledLabel(d.scheduledFor) : "la hora que elegiste"}. ¡Te esperamos! 🧡`;
+}
+
+/** Texto del aviso al cliente (el mismo de WhatsApp), para copiarlo y mandarlo a mano */
+export function customerNoticeText(order: OnlineOrder, notice: CustomerNotice, opts: { eta?: number; reason?: string } = {}) {
+  const d = order.data;
   const business = getBusinessSettings().businessName || "nuestro negocio";
   const name = (d.customer.name || "").trim().split(/\s+/)[0] || "";
   const hi = name ? `${name}, ` : "";
@@ -321,7 +349,7 @@ export function customerWhatsappLink(order: OnlineOrder, notice: CustomerNotice,
     rechazado:
       `😔 ${hi}lo sentimos: no pudimos tomar tu pedido *${order.folio}* en ${business}.` + (opts.reason || order.reason ? `\nMotivo: ${opts.reason || order.reason}` : ""),
   };
-  return whatsappLink(phone, texts[notice]);
+  return texts[notice];
 }
 
 /** Datos para el repartidor de un pedido del menú digital. */
