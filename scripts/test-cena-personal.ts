@@ -94,7 +94,32 @@ async function main() {
   check("producto bloqueado", !sm.productAllowed({ id: 9, category: "Burgers", price: 80 }, config));
   check("sin categorías = todo", sm.productAllowed({ id: 2, category: "Bebidas", price: 30 }, { categories: [], blockedProducts: [] }));
   check("tope de piezas", sm.capProblem([{ price: 10, quantity: 3 }], config).includes("2 productos"));
-  check("tope de dinero", sm.capProblem([{ price: 160, quantity: 1 }], config).includes("$150.00"));
+  const moneyCap = sm.capProblem([{ price: 160, quantity: 1 }], config);
+  check("tope de dinero (sin mostrar montos)", moneyCap.includes("tope") && !moneyCap.includes("$"), moneyCap);
+
+  // --- sin extras con costo
+  const opt = (key: string, extraPrice?: number) => ({ key, name: key, ...(extraPrice ? { extraPrice } : {}) });
+  const burger = {
+    id: 5,
+    modifierGroups: [
+      { key: "x", name: "¿Algún extra?", min: 1, included: 1, extraPrice: 0, max: 0, options: [opt("No, gracias"), opt("Carne extra", 25), opt("Tocino", 15)] },
+      { key: "p", name: "Papas", min: 0, included: 0, extraPrice: 0, max: 5, options: [opt("Papas", 20)] },
+      { key: "s", name: "Salsas", min: 0, included: 2, extraPrice: 10, max: 0, options: [opt("BBQ"), opt("Búfalo")] },
+      { key: "r", name: "Aderezo extra", min: 0, included: 0, extraPrice: 8, max: 0, options: [opt("Ranch")] },
+    ],
+  };
+  const clean = sm.withoutPaidExtras(burger as never) as typeof burger;
+  const g = (k: string) => clean.modifierGroups.find((x) => x.key === k);
+  check("quita las opciones que cobran", g("x")?.options.map((o) => o.key).join() === "No, gracias");
+  check("obligatorio con una sola opción: ya va elegida", g("x")?.max === 1 && g("x")?.min === 1);
+  check("grupo que solo tenía extras con costo desaparece", !g("p"));
+  check("grupo que cobra las de más: máximo las incluidas", g("s")?.max === 2 && g("s")?.extraPrice === 0);
+  check("grupo sin incluidas gratis desaparece", !g("r"));
+  const { needsChoices, buildSelection, extrasPrice } = await import("@/lib/compound");
+  const onlyFree = sm.withoutPaidExtras({ id: 6, modifierGroups: [burger.modifierGroups[0], burger.modifierGroups[1]] } as never);
+  check("sin nada que elegir: se agrega directo", !needsChoices(onlyFree as never));
+  const sel = buildSelection(onlyFree as never, []);
+  check("y sin cobrar extras", extrasPrice(sel.modifiers, sel.parts) === 0);
   check("dentro del tope", sm.capProblem([{ price: 70, quantity: 2 }], config) === "");
   check("sin tope", sm.capProblem([{ price: 999, quantity: 9 }], { maxItems: 0, maxValue: 0 }) === "");
 

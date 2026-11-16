@@ -17,6 +17,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import { getUsers } from "@/lib/users";
 import { lastPunch } from "@/lib/timeclock";
+import type { ModifierGroup } from "@/data/products";
 
 export const STAFF_MEAL_CONFIG_KEY = "bpos_staff_meal_config";
 export const STAFF_MEAL_EVENT = "bpos:staff-meal-updated";
@@ -173,8 +174,33 @@ export function capProblem(items: { price: number; quantity: number }[], config:
   const pieces = items.reduce((n, i) => n + (Number(i.quantity) || 0), 0);
   const value = Math.round(items.reduce((n, i) => n + (Number(i.price) || 0) * (Number(i.quantity) || 0), 0) * 100) / 100;
   if (config.maxItems > 0 && pieces > config.maxItems) return `El tope es de ${config.maxItems} ${config.maxItems === 1 ? "producto" : "productos"} por cena (lleva ${pieces}).`;
-  if (config.maxValue > 0 && value > config.maxValue) return `El tope es de $${config.maxValue.toFixed(2)} por cena (lleva $${value.toFixed(2)}).`;
+  // Sin montos: en Personal no se muestran precios
+  if (config.maxValue > 0 && value > config.maxValue) return "Se pasa del tope de la cena. Quita algo.";
   return "";
+}
+
+/**
+ * Sin extras con costo: quita las opciones que cobran (+$25 Carne extra) y, en
+ * grupos que cobran las de más, no deja pasar de las incluidas. Los grupos que
+ * se quedan sin nada que elegir gratis desaparecen.
+ */
+export function withoutPaidExtras<P extends { modifierGroups?: ModifierGroup[] }>(product: P): P {
+  if (!product.modifierGroups?.length) return product;
+  const groups = product.modifierGroups.flatMap((g): ModifierGroup[] => {
+    const options = g.options.filter((o) => !(Number(o.extraPrice) > 0));
+    if (!options.length) return [];
+    let max = g.max;
+    if (Number(g.extraPrice) > 0) {
+      const free = Number(g.included) || 0;
+      if (free <= 0) return [];
+      max = g.max > 0 ? Math.min(g.max, free) : free;
+    }
+    const min = max > 0 ? Math.min(g.min, max) : g.min;
+    // Obligatorio con una sola opción ("No, gracias"): ya va elegida
+    if (min > 0 && options.length === 1) max = min;
+    return [{ ...g, options, min, max, extraPrice: 0 }];
+  });
+  return { ...product, modifierGroups: groups };
 }
 
 /** "2x Hamburguesa, 1x Papas" */

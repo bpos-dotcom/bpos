@@ -13,6 +13,8 @@ type ProductCardProps = {
   layout?: "grid" | "list";
   /** Eligiendo favoritos: estrella prendida o apagada (undefined = no se está eligiendo) */
   favorite?: boolean;
+  /** Solo foto y nombre, sin precio ni categoría (cena del personal) */
+  nameOnly?: boolean;
 };
 
 /**
@@ -20,7 +22,7 @@ type ProductCardProps = {
  * que sí se marcó) y, mientras esté en el pedido, queda con borde naranja y
  * la cantidad en la esquina.
  */
-export function ProductCard({ product, onAdd, offSchedule, inCart = 0, layout = "grid", favorite }: ProductCardProps) {
+export function ProductCard({ product, onAdd, offSchedule, inCart = 0, layout = "grid", favorite, nameOnly = false }: ProductCardProps) {
   const [taps, setTaps] = useState(0);
   const selected = inCart > 0;
   const choosing = favorite !== undefined;
@@ -81,7 +83,7 @@ export function ProductCard({ product, onAdd, offSchedule, inCart = 0, layout = 
           <span className="line-clamp-2 text-sm font-black leading-tight">{product.name}</span>
           <span className="block truncate text-xs text-zinc-500">{offSchedule ? `🕒 ${offSchedule}` : product.category}</span>
         </span>
-        <span className={`shrink-0 text-sm font-black text-orange-500 sm:text-base ${choosing ? "pr-7" : ""}`}>${product.price.toFixed(2)}</span>
+        {!nameOnly && <span className={`shrink-0 text-sm font-black text-orange-500 sm:text-base ${choosing ? "pr-7" : ""}`}>${product.price.toFixed(2)}</span>}
       </button>
     );
   }
@@ -100,11 +102,12 @@ export function ProductCard({ product, onAdd, offSchedule, inCart = 0, layout = 
       {photo("h-14 text-3xl sm:h-24 sm:text-5xl")}
 
       <h3 className="mt-2 text-sm font-black leading-tight sm:mt-4 sm:text-base">{product.name}</h3>
-      <p className="mt-1 hidden text-sm text-zinc-400 sm:block">{product.category}</p>
-
-      <p className="mt-1 text-lg font-black text-orange-500 sm:mt-3 sm:text-2xl">
-        ${product.price.toFixed(2)}
-      </p>
+      {!nameOnly && (
+        <>
+          <p className="mt-1 hidden text-sm text-zinc-400 sm:block">{product.category}</p>
+          <p className="mt-1 text-lg font-black text-orange-500 sm:mt-3 sm:text-2xl">${product.price.toFixed(2)}</p>
+        </>
+      )}
       {offSchedule && <p className="mt-2 text-xs font-black text-zinc-300">🕒 {offSchedule}</p>}
     </button>
   );
