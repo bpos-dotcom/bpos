@@ -701,7 +701,7 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
   return (
     <div className="fixed bottom-4 right-4 z-[60] text-sm">
       {open && (
-        <div className="mb-2 w-80 rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-white shadow-2xl">
+        <div className="bpos-scroll mb-2 max-h-[70vh] w-80 max-w-[calc(100vw-2rem)] overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-950 p-4 text-white shadow-2xl">
           <p className="font-black text-orange-500">{account.businessName}</p>
           <p className="text-zinc-400">Sucursal: {account.branchName}</p>
           <p className="text-xs text-zinc-500">{account.email}</p>
@@ -779,9 +779,18 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
       )}
       <button
         onClick={() => setOpen((v) => !v)}
-        className={`rounded-full border bg-black/90 px-4 py-2 font-bold shadow-lg backdrop-blur ${color}`}
+        aria-label={label}
+        title={label}
+        className={`rounded-full border bg-black/90 px-3 py-2 font-bold shadow-lg backdrop-blur sm:px-4 ${color}`}
       >
-        {label}
+        {/* En celular, cuando todo está bien, solo la nube (para no tapar lo de abajo) */}
+        {(status.state === "idle" || status.state === "ok") && !status.pending ? (
+          <>
+            ☁️<span className="hidden sm:inline"> Sincronizado</span>
+          </>
+        ) : (
+          label
+        )}
       </button>
     </div>
   );

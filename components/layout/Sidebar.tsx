@@ -272,10 +272,12 @@ export function Sidebar() {
     <button
       type="button"
       onClick={() => setMobileOpen(true)}
-      className="fixed right-3 top-3 z-40 rounded-2xl border border-zinc-700 bg-black/90 px-4 py-3 text-sm font-black text-white shadow-lg backdrop-blur lg:hidden"
-      aria-label="Abrir menú"
+      className="fixed right-2 top-2 z-40 flex items-center gap-1 rounded-2xl border border-zinc-700 bg-black/90 px-3 py-2 text-sm font-black text-white shadow-lg backdrop-blur sm:right-3 sm:top-3 sm:px-4 sm:py-3 lg:hidden"
+      aria-label={`Abrir menú${badgeCount > 0 ? ` (${badgeCount} avisos)` : ""}`}
     >
-      ☰ Menú{badgeCount > 0 ? ` (${badgeCount})` : ""}
+      {/* En celular solo ☰ y el número, para no tapar lo de abajo */}
+      ☰<span className="hidden sm:inline"> Menú</span>
+      {badgeCount > 0 && <span className="rounded-full bg-orange-500 px-1.5 text-xs leading-5 text-black">{badgeCount > 99 ? "99+" : badgeCount}</span>}
     </button>
     {mobileOpen && (
       <div className="fixed inset-0 z-40 bg-black/70 lg:hidden" onClick={() => setMobileOpen(false)} />

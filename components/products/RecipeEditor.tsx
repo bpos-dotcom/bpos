@@ -76,7 +76,7 @@ export function RecipeEditor({ lines, ingredients, compound, onChange, copyFrom 
         value=""
         disabled={sources.length === 0}
         onChange={(e) => void copy(Number(e.target.value))}
-        className="mt-3 mr-2 rounded-2xl border border-zinc-700 bg-black px-4 py-2 text-sm disabled:opacity-60"
+        className="mt-3 mr-2 w-full max-w-full truncate rounded-2xl border border-zinc-700 bg-black px-4 py-2 text-sm disabled:opacity-60 sm:w-auto"
         aria-label={packaging ? "Copiar empaque de otro producto" : "Copiar ingredientes de otro producto"}
         title={sources.length === 0 ? `Cuando otro producto tenga ${packaging ? "empaque" : "receta"} guardado, aquí lo copias` : undefined}
       >

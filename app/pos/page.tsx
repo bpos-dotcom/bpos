@@ -1139,17 +1139,17 @@ function PosScreen() {
                   .map((order) => {
                     const minutes = Math.max(0, Math.round((Date.now() - Date.parse(order.createdAt)) / 60000));
                     return (
-                      <div key={order.id} className="rounded-2xl border border-yellow-500/30 bg-black p-4">
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
+                      <div key={order.id} className="min-w-0 rounded-2xl border border-yellow-500/30 bg-black p-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
                           <p className="font-black text-white">Pedido #{formatOrderNumber(order as SavedOrder & { localOrderNumber?: number })}</p>
-                          <p className="truncate text-sm text-zinc-400">
+                          <p className="line-clamp-2 break-words text-sm text-zinc-400">
                             {order.details.table ? `🍽️ ${tableLabel(order.details.table, order.details.diners)}` : order.details.orderType}
                             {order.details.customerName && order.details.customerName !== `Mesa ${order.details.table?.name}` ? ` · ${order.details.customerName}` : ""}
                             {" · "}
                             {minutes < 1 ? "ahora" : minutes < 60 ? `hace ${minutes} min` : minutes < 1440 ? `hace ${Math.floor(minutes / 60)} h` : `hace ${Math.floor(minutes / 1440)} día${minutes < 2880 ? "" : "s"}`}
                           </p>
-                          <p className="truncate text-xs text-zinc-500">{order.items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</p>
+                          <p className="mt-0.5 line-clamp-3 break-words text-xs text-zinc-500">{order.items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</p>
                         </div>
                         <div className="flex shrink-0 flex-col items-end gap-2">
                           <p className="text-xl font-black text-yellow-200">${order.total.toFixed(2)}</p>
