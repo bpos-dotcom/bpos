@@ -229,8 +229,27 @@ async function main() {
   check("no deja subir cantidades", oo.applyOrderEdit(editData, [5, 1, 1], "Agotado").lines[0].quantity === 1);
   const asOrder = (data: unknown, status = "nuevo") => ({ status, data }) as unknown as import("@/lib/online-orders").OnlineOrder;
   check("se puede modificar si es nuevo", oo.editBlocked(asOrder(editData)) === "");
-  check("aceptado ya no", oo.editBlocked(asOrder(editData, "aceptado")) !== "");
+  check("rechazado ya no", oo.editBlocked(asOrder(editData, "rechazado")) !== "");
   check("pagado en línea no (hay que devolver el pago)", oo.editBlocked(asOrder({ ...editData, payment: "Mercado Pago", mp: { status: "approved", paymentId: "1", amount: 301, paidAt: "" } })) !== "");
+
+  // Pedido ya aceptado: la venta de la caja baja esas piezas con sus precios
+  const cartBefore = [
+    { id: 10, name: "Hamburguesa", price: 79, quantity: 1, lineId: "10" },
+    { id: 11, name: "Aros", price: 49, quantity: 2, lineId: "11" },
+    { id: 12, name: "Boneless", price: 104, quantity: 1, lineId: "12|m" },
+  ] as unknown as import("@/components/CartPanel").CartItem[];
+  const cartAfter = [cartBefore[0], { ...cartBefore[1], quantity: 1 }] as typeof cartBefore;
+  const saleIn = { items: cartBefore.map((x) => ({ ...x })), subtotal: 281, total: 301, deliveryFee: 40, details: { discount: 20 } } as unknown as Parameters<typeof oo.saleAfterEdit>[0];
+  const se = oo.saleAfterEdit(saleIn, cartBefore, cartAfter);
+  check("venta: quita el boneless y un aro", se.sale.items.length === 2 && se.sale.items[1].quantity === 1 && se.removed.map((r) => r.name + r.quantity).join() === "Aros1,Boneless1");
+  check("venta: total nuevo con envío y descuento", se.sale.subtotal === 128 && se.sale.total === 148, se.sale);
+  const none = oo.saleAfterEdit(saleIn, cartBefore, cartBefore);
+  check("venta: sin cambios no quita nada", none.removed.length === 0 && none.sale.total === 301);
+  check("aceptado sí se puede modificar; entregado no", oo.editBlocked(asOrder(editData, "aceptado")) === "" && oo.editBlocked(asOrder(editData, "entregado")) !== "");
+  const rules = await import("@/lib/push/rules");
+  const pm = rules.pushMessage({ event_id: "e", action: "online_order.edit", description: "x", metadata: { total: 148, before: 301 } }, null);
+  check("aviso al dueño del pedido modificado", Boolean(pm && pm.title.includes("Pedido modificado") && pm.title.includes("$301") && pm.title.includes("$148")), pm);
+  check("acción en la lista de avisos", rules.PUSH_ACTIONS.has("online_order.edit") && rules.PUSH_ACTIONS.has("sale.item.removed"));
 
   console.log(`\n${ok} bien, ${bad} mal`);
   process.exit(bad ? 1 : 0);

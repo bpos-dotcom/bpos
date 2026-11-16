@@ -16,7 +16,7 @@ import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { earnLoyalty } from "@/lib/loyalty-pos";
 import { getBusinessSettings } from "@/lib/business-settings";
 import type { DispatchInfo } from "@/lib/drivers";
-import { discountInventoryByOrder } from "@/lib/inventory";
+import { correctInventoryForOrder, discountInventoryByOrder, type InventoryOrderLike } from "@/lib/inventory";
 import { notifyKdsUpdated } from "@/lib/kds";
 import { allocateShiftOrderNumber, formatOrderNumber } from "@/lib/order-sequence";
 import { printSale, saleStations } from "@/lib/bridge/sale-tickets";
@@ -282,7 +282,7 @@ async function freshData(order: OnlineOrder) {
 
 /** Por qué no se puede modificar ("" si se puede) */
 export function editBlocked(order: Pick<OnlineOrder, "status" | "data">) {
-  if (order.status !== "nuevo") return "Solo se puede modificar antes de aceptarlo.";
+  if (order.status !== "nuevo" && order.status !== "aceptado" && order.status !== "listo") return order.status === "entregado" ? "Ya se entregó: los cambios se hacen desde Historial de pedidos." : "Este pedido ya no se puede modificar.";
   if (order.data.kiosk || paidOnline(order.data)) return "Ya lo pagó en línea: para cambiarlo, recházalo (se le devuelve su pago) y que lo vuelva a pedir.";
   return "";
 }
@@ -322,18 +322,86 @@ export function editNoticeText(order: Pick<OnlineOrder, "folio" | "data">, edit:
   return `¡Hola${name ? ` ${name}` : ""}! Hicimos un cambio a tu pedido *${order.folio}* en ${business}: quitamos ${what} (${why}). Tu nuevo total es *$${edit.totalAfter.toFixed(2)}${quote}*. ¡Disculpa!`;
 }
 
+type SaleItem = SavedOrder["items"][number] & { lineId?: string };
+
+/**
+ * Venta de la caja con lo que se quitó del pedido en línea. Compara el carrito
+ * de antes y el de después renglón por renglón (mismo producto, opciones y
+ * comentario) y baja esas piezas de la venta con sus precios de la caja.
+ */
+export function saleAfterEdit<T extends { items: SaleItem[]; subtotal?: number; total: number; deliveryFee?: number; details: { discount?: number } }>(sale: T, before: CartItem[], after: CartItem[]) {
+  const left = new Map<string, number>();
+  for (const i of before) left.set(i.lineId || String(i.id), (left.get(i.lineId || String(i.id)) || 0) + i.quantity);
+  for (const i of after) left.set(i.lineId || String(i.id), (left.get(i.lineId || String(i.id)) || 0) - i.quantity);
+  const removed: SaleItem[] = [];
+  const items = sale.items
+    .map((item) => {
+      const key = item.lineId || String(item.id);
+      const take = Math.min(item.quantity, Math.max(0, left.get(key) || 0));
+      if (!take) return item;
+      left.set(key, (left.get(key) || 0) - take);
+      removed.push({ ...item, quantity: take });
+      return { ...item, quantity: item.quantity - take };
+    })
+    .filter((i) => i.quantity > 0);
+  const subtotal = Math.round(items.reduce((s, i) => s + i.price * i.quantity, 0) * 100) / 100;
+  const discount = Math.min(Number(sale.details.discount) || 0, subtotal);
+  const total = Math.max(0, Math.round((subtotal - discount + (Number(sale.deliveryFee) || 0)) * 100) / 100);
+  return { sale: { ...sale, items, subtotal, total, details: { ...sale.details, discount } }, removed };
+}
+
+/**
+ * Pedido ya aceptado: ajusta su venta en la caja, el inventario (regresa lo
+ * quitado o lo anota como merma si ya se preparó), la pantalla de cocina y
+ * saca en la estación un ticket de "QUITAR" y el ticket del cliente corregido.
+ */
+async function editAcceptedSale(order: OnlineOrder, before: OnlineOrderData, after: OnlineOrderData, reason: string, prepared: boolean) {
+  const orders = readOrders();
+  const sale = orders.find((o) => (o as { onlineOrderId?: string }).onlineOrderId === order.id || (order.sale_order_id && o.id === order.sale_order_id)) as (SavedOrder & { items: SaleItem[]; deliveryFee?: number; localOrderNumber?: number }) | undefined;
+  if (!sale) throw new Error("No encuentro su venta en esta caja. Modifícalo desde la caja donde se aceptó.");
+  if (sale.cancelled) throw new Error("Su venta ya está cancelada.");
+  if (!sale.pendingPayment) throw new Error("Ya se cobró en caja: haz la devolución desde Historial de pedidos.");
+  const result = saleAfterEdit(sale, buildOnlineCart(before).cart, buildOnlineCart(after).cart);
+  if (!result.removed.length) throw new Error("No encontré esos productos en la venta de la caja.");
+  const updated = result.sale as SavedOrder;
+  localStorage.setItem(ORDERS_KEY, JSON.stringify(orders.map((o) => (o.id === sale.id ? updated : o))));
+  window.dispatchEvent(new Event("bpos:orders-updated"));
+  const what = result.removed.map((i) => `${i.quantity}x ${i.name}`).join(", ");
+  try {
+    correctInventoryForOrder(updated as unknown as InventoryOrderLike, `pedido en línea ${order.folio}: se quitó ${what} (${reason})`, prepared ? (result.removed as unknown as InventoryOrderLike["items"]) : []);
+  } catch (error) {
+    console.error("No se pudo ajustar el inventario al modificar el pedido:", error);
+  }
+  notifyKdsUpdated(sale.id);
+  // Comanda de "QUITAR" en las estaciones de lo quitado y el ticket del cliente con el total nuevo
+  const quitar = { ...updated, items: result.removed, details: { ...updated.details, orderType: `❌ QUITAR · ${updated.details.orderType || "En línea"}` } } as SavedOrder;
+  const printFailed = [
+    ...(await printSale(quitar, { stations: saleStations(quitar), customer: false }, true).catch(() => ["cocina: B-POS Agent no respondió"])),
+    ...(await printSale(updated, { stations: [], customer: true, drawer: false }, true).catch(() => ["caja: B-POS Agent no respondió"])),
+  ];
+  return { sale: updated, saleBefore: sale.total, removed: what, printFailed };
+}
+
 /**
  * Guarda el cambio. Con "Agotado" puede marcar agotados hoy en el menú los
- * productos que se quitaron completos, para que nadie más los pida.
+ * productos que se quitaron completos, para que nadie más los pida. Si ya se
+ * aceptó, también ajusta la venta de la caja, el inventario y la cocina.
  */
-export async function editOnlineOrder(order: OnlineOrder, quantities: number[], reason: string, options: { userName?: string; markSoldOut?: boolean } = {}) {
+export async function editOnlineOrder(order: OnlineOrder, quantities: number[], reason: string, options: { userName?: string; markSoldOut?: boolean; prepared?: boolean } = {}) {
   const blocked = editBlocked(order);
   if (blocked) throw new Error(blocked);
   const fresh = await freshData(order);
   if (JSON.stringify(fresh.lines) !== JSON.stringify(order.data.lines)) throw new Error("El pedido cambió en otro dispositivo: revisa y vuelve a intentar.");
   const data = applyOrderEdit(fresh, quantities, reason, options.userName);
-  await setStatus(order.id, { data });
+  const accepted = order.status !== "nuevo" ? await editAcceptedSale(order, fresh, data, reason.trim(), Boolean(options.prepared)) : null;
   const edit = data.edits![data.edits!.length - 1];
+  // Ya aceptado: lo que se cobra es lo de la caja (con los precios de B-POS)
+  if (accepted) {
+    edit.totalBefore = accepted.saleBefore;
+    edit.totalAfter = accepted.sale.total;
+    data.total = accepted.sale.total;
+  }
+  await setStatus(order.id, { data });
   if (options.markSoldOut) {
     const gone = order.data.lines.filter((l, i) => !(Number(quantities[i]) > 0)).map((l) => l.productId);
     if (gone.length) {
@@ -346,10 +414,13 @@ export async function editOnlineOrder(order: OnlineOrder, quantities: number[], 
   addAuditEvent({
     category: "Pedidos",
     action: "online_order.edit",
-    description: `${options.userName || "B-POS"} modificó el pedido en línea ${order.folio}: quitó ${edit.removed.map((r) => `${r.quantity} × ${r.name}`).join(", ")} (${edit.reason}). Total $${edit.totalBefore.toFixed(2)} → $${edit.totalAfter.toFixed(2)}`,
+    description:
+      `${options.userName || "B-POS"} modificó el pedido en línea ${order.folio}${accepted ? ` (Pedido #${formatOrderNumber(accepted.sale as SavedOrder & { localOrderNumber?: number })}, ya en cocina)` : ""}: quitó ${edit.removed.map((r) => `${r.quantity} × ${r.name}`).join(", ")} (${edit.reason}). ` +
+      (accepted ? `Cobro $${accepted.saleBefore.toFixed(2)} → $${accepted.sale.total.toFixed(2)}${options.prepared ? " · ya se había preparado (merma)" : ""}` : `Total $${edit.totalBefore.toFixed(2)} → $${edit.totalAfter.toFixed(2)}`),
     entityId: order.id,
+    metadata: { folio: order.folio, total: accepted ? accepted.sale.total : edit.totalAfter, before: accepted ? accepted.saleBefore : edit.totalBefore, accepted: Boolean(accepted) },
   });
-  return { order: { ...order, data }, edit };
+  return { order: { ...order, data }, edit, printFailed: accepted?.printFailed || [] };
 }
 
 /**
