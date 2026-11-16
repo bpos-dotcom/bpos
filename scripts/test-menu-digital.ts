@@ -202,6 +202,36 @@ async function main() {
   check("no vuelve a salir aunque se revise otra vez", pop.popupOrders([prog, normal], 30, nowMs + 1000).map((o) => o.id).join() === "n1");
   check("si ya no está esperando, no sale", pop.popupOrders([], 30, nowMs).length === 0);
 
+  // Modificar pedido: quitar lo agotado, con motivo, y recalcular el cobro
+  const editData = {
+    type: "Domicilio", customer: { name: "Paloma ramirez", phone: "8717178766" }, payment: "Efectivo", note: "",
+    lines: [
+      { productId: 10, name: "Hamburguesa Si Racha", quantity: 1, unitPrice: 79, picks: {}, summary: "" },
+      { productId: 11, name: "Aros de Cebolla", quantity: 2, unitPrice: 49, picks: {}, summary: "" },
+      { productId: 12, name: "Boneless Orden Individual", quantity: 1, unitPrice: 104, picks: {}, summary: "" },
+    ],
+    subtotal: 281, deliveryFee: 40, coupon: { code: "X", discount: 20 }, total: 301,
+  } as unknown as import("@/lib/digital-menu").OnlineOrderData;
+  const edited = oo.applyOrderEdit(editData, [1, 1, 0], "Agotado", "Caja");
+  check("quita el renglón y baja la cantidad", edited.lines.length === 2 && edited.lines[1].quantity === 1);
+  check("recalcula subtotal y total (con envío y cupón)", edited.subtotal === 128 && edited.total === 148, { s: edited.subtotal, t: edited.total });
+  check("anota el cambio con lo quitado y el motivo", edited.edits?.length === 1 && edited.edits[0].removed.map((r) => r.name + r.quantity).join() === "Aros de Cebolla1,Boneless Orden Individual1" && edited.edits[0].totalBefore === 301 && edited.edits[0].totalAfter === 148);
+  const msg = oo.editNoticeText({ folio: "K6B4", data: edited }, edited.edits![0]);
+  check("mensaje al cliente con lo quitado y su nuevo total", msg.includes("K6B4") && msg.includes("1 × Boneless Orden Individual") && msg.includes("se nos agotó") && msg.includes("$148.00"), msg);
+  const other = oo.applyOrderEdit(editData, [0, 2, 1], "No hay pan", "");
+  check("motivo escrito (Otro)", other.edits![0].reason === "No hay pan" && oo.editNoticeText({ folio: "K6B4", data: other }, other.edits![0]).includes("No hay pan"));
+  const cheap = oo.applyOrderEdit({ ...editData, coupon: { code: "X", discount: 100 } }, [1, 0, 0], "Agotado");
+  check("el cupón no puede ser mayor que lo que queda", cheap.coupon?.discount === 79 && cheap.total === 40);
+  const throws = (fn: () => unknown) => { try { fn(); return false; } catch { return true; } };
+  check("sin motivo no se guarda", throws(() => oo.applyOrderEdit(editData, [1, 1, 0], "  ")));
+  check("sin quitar nada no se guarda", throws(() => oo.applyOrderEdit(editData, [1, 2, 1], "Agotado")));
+  check("si se quita todo, mejor rechazar", throws(() => oo.applyOrderEdit(editData, [0, 0, 0], "Agotado")));
+  check("no deja subir cantidades", oo.applyOrderEdit(editData, [5, 1, 1], "Agotado").lines[0].quantity === 1);
+  const asOrder = (data: unknown, status = "nuevo") => ({ status, data }) as unknown as import("@/lib/online-orders").OnlineOrder;
+  check("se puede modificar si es nuevo", oo.editBlocked(asOrder(editData)) === "");
+  check("aceptado ya no", oo.editBlocked(asOrder(editData, "aceptado")) !== "");
+  check("pagado en línea no (hay que devolver el pago)", oo.editBlocked(asOrder({ ...editData, payment: "Mercado Pago", mp: { status: "approved", paymentId: "1", amount: 301, paidAt: "" } })) !== "");
+
   console.log(`\n${ok} bien, ${bad} mal`);
   process.exit(bad ? 1 : 0);
 }

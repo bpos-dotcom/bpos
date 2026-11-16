@@ -10,7 +10,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { getAdminProducts } from "@/lib/admin";
 import { buildSelection, extrasPrice, lineIdFor } from "@/lib/compound";
 import { aiFetch } from "@/lib/ai/client";
-import { awaitingOnlinePayment, getDigitalMenu, isAvailableOnline, kioskLabel, mapsLink, paidOnline, scheduledLabel, whatsappNumber, type OnlineOrderData } from "@/lib/digital-menu";
+import { awaitingOnlinePayment, endOfToday, getDigitalMenu, isAvailableOnline, kioskLabel, mapsLink, paidOnline, saveDigitalMenu, scheduledLabel, whatsappNumber, type OnlineOrderData, type OnlineOrderEdit } from "@/lib/digital-menu";
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { earnLoyalty } from "@/lib/loyalty-pos";
@@ -276,6 +276,80 @@ async function freshData(order: OnlineOrder) {
   const { data: fresh, error } = await getSupabase().from("bpos_online_orders").select("data").eq("id", order.id).single();
   if (error) throw new Error(error.message);
   return (fresh?.data || order.data) as OnlineOrderData;
+}
+
+// ------------------------------------------------------------ modificar el pedido antes de aceptarlo
+
+/** Por qué no se puede modificar ("" si se puede) */
+export function editBlocked(order: Pick<OnlineOrder, "status" | "data">) {
+  if (order.status !== "nuevo") return "Solo se puede modificar antes de aceptarlo.";
+  if (order.data.kiosk || paidOnline(order.data)) return "Ya lo pagó en línea: para cambiarlo, recházalo (se le devuelve su pago) y que lo vuelva a pedir.";
+  return "";
+}
+
+/**
+ * Pedido con las cantidades nuevas (una por renglón; 0 = se quita). Recalcula
+ * subtotal, cupón (no puede ser mayor que el subtotal) y total, y anota el cambio.
+ */
+export function applyOrderEdit(data: OnlineOrderData, quantities: number[], reason: string, by = "", now = new Date()): OnlineOrderData {
+  const why = reason.trim();
+  if (!why) throw new Error("Escribe el motivo.");
+  if (quantities.length !== data.lines.length) throw new Error("El pedido cambió: vuelve a abrirlo.");
+  const removed: OnlineOrderEdit["removed"] = [];
+  const lines = data.lines
+    .map((l, i) => {
+      const q = Math.max(0, Math.min(l.quantity, Math.floor(Number(quantities[i]) || 0)));
+      if (q < l.quantity) removed.push({ name: l.name, quantity: l.quantity - q });
+      return { ...l, quantity: q };
+    })
+    .filter((l) => l.quantity > 0);
+  if (!removed.length) throw new Error("No quitaste nada.");
+  if (!lines.length) throw new Error("Si no queda nada, mejor rechaza el pedido.");
+  const subtotal = Math.round(lines.reduce((a, l) => a + l.unitPrice * l.quantity, 0) * 100) / 100;
+  const coupon = data.coupon ? { ...data.coupon, discount: Math.min(data.coupon.discount, subtotal) } : undefined;
+  const total = Math.max(0, Math.round((subtotal + (Number(data.deliveryFee) || 0) - (coupon?.discount || 0)) * 100) / 100);
+  const edit: OnlineOrderEdit = { at: now.toISOString(), ...(by ? { by } : {}), removed, reason: why, totalBefore: data.total, totalAfter: total };
+  return { ...data, lines, subtotal, ...(coupon ? { coupon } : {}), total, edits: [...(data.edits || []), edit] };
+}
+
+/** Mensaje para el cliente con lo que se quitó y su total nuevo */
+export function editNoticeText(order: Pick<OnlineOrder, "folio" | "data">, edit: OnlineOrderEdit) {
+  const name = (order.data.customer.name || "").trim().split(/\s+/)[0] || "";
+  const business = getBusinessSettings().businessName || "nuestro negocio";
+  const what = edit.removed.map((r) => `${r.quantity} × ${r.name}`).join(", ");
+  const why = edit.reason.toLowerCase() === "agotado" ? "se nos agotó" : edit.reason;
+  const quote = order.data.type === "Domicilio" && order.data.deliveryQuote && !order.data.deliveryFee ? " + envío" : "";
+  return `¡Hola${name ? ` ${name}` : ""}! Hicimos un cambio a tu pedido *${order.folio}* en ${business}: quitamos ${what} (${why}). Tu nuevo total es *$${edit.totalAfter.toFixed(2)}${quote}*. ¡Disculpa!`;
+}
+
+/**
+ * Guarda el cambio. Con "Agotado" puede marcar agotados hoy en el menú los
+ * productos que se quitaron completos, para que nadie más los pida.
+ */
+export async function editOnlineOrder(order: OnlineOrder, quantities: number[], reason: string, options: { userName?: string; markSoldOut?: boolean } = {}) {
+  const blocked = editBlocked(order);
+  if (blocked) throw new Error(blocked);
+  const fresh = await freshData(order);
+  if (JSON.stringify(fresh.lines) !== JSON.stringify(order.data.lines)) throw new Error("El pedido cambió en otro dispositivo: revisa y vuelve a intentar.");
+  const data = applyOrderEdit(fresh, quantities, reason, options.userName);
+  await setStatus(order.id, { data });
+  const edit = data.edits![data.edits!.length - 1];
+  if (options.markSoldOut) {
+    const gone = order.data.lines.filter((l, i) => !(Number(quantities[i]) > 0)).map((l) => l.productId);
+    if (gone.length) {
+      const menu = getDigitalMenu();
+      const soldOut = { ...menu.soldOut };
+      for (const id of gone) soldOut[String(id)] = { until: endOfToday(), at: new Date().toISOString() };
+      saveDigitalMenu({ soldOut });
+    }
+  }
+  addAuditEvent({
+    category: "Pedidos",
+    action: "online_order.edit",
+    description: `${options.userName || "B-POS"} modificó el pedido en línea ${order.folio}: quitó ${edit.removed.map((r) => `${r.quantity} × ${r.name}`).join(", ")} (${edit.reason}). Total $${edit.totalBefore.toFixed(2)} → $${edit.totalAfter.toFixed(2)}`,
+    entityId: order.id,
+  });
+  return { order: { ...order, data }, edit };
 }
 
 /**

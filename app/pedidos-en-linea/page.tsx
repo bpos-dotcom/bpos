@@ -24,6 +24,9 @@ import {
   onlinePaymentShort,
   rejectOnlineOrder,
   checkKitchenAt,
+  editBlocked,
+  editNoticeText,
+  editOnlineOrder,
   scheduledConfirmText,
   setOnlineKitchenAt,
   updateOnlineCustomerPhone,
@@ -72,6 +75,132 @@ function CopiedModal({ copied, onClose }: { copied: { text: string; ok: boolean 
         <button type="button" onClick={onClose} className="mt-3 w-full rounded-2xl bg-emerald-500 px-4 py-3 font-black text-black">
           Listo
         </button>
+      </div>
+    </div>
+  );
+}
+
+/** Modificar el pedido antes de aceptarlo: quitar productos o piezas, con motivo */
+function EditOrderModal({ order, onClose, onSaved }: { order: OnlineOrder; onClose: () => void; onSaved: (notice: string) => void }) {
+  const d = order.data;
+  const [qty, setQty] = useState(() => d.lines.map((l) => l.quantity));
+  const [reason, setReason] = useState<"Agotado" | "Otro">("Agotado");
+  const [other, setOther] = useState("");
+  const [markSoldOut, setMarkSoldOut] = useState(true);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const subtotal = d.lines.reduce((a, l, i) => a + l.unitPrice * qty[i], 0);
+  const discount = Math.min(d.coupon?.discount || 0, subtotal);
+  const total = Math.max(0, subtotal + (Number(d.deliveryFee) || 0) - discount);
+  const changed = qty.some((q, i) => q < d.lines[i].quantity);
+  const fullyRemoved = d.lines.filter((_, i) => qty[i] === 0);
+  const set = (i: number, q: number) => setQty((all) => all.map((x, j) => (j === i ? Math.max(0, Math.min(d.lines[i].quantity, q)) : x)));
+
+  async function save() {
+    setSaving(true);
+    setError("");
+    try {
+      const { order: next, edit } = await editOnlineOrder(order, qty, reason === "Agotado" ? "Agotado" : other, { userName: getCurrentUser()?.name, markSoldOut: reason === "Agotado" && markSoldOut });
+      onSaved(editNoticeText(next, edit));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/80 p-4 pt-[6vh]" onClick={onClose}>
+      <div className="w-full max-w-lg rounded-3xl border border-orange-500/60 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-lg font-black text-orange-300">✏️ Modificar pedido {order.folio}</p>
+        <p className="mt-1 text-sm text-zinc-400">Quita lo que no hay. El total se actualiza y le avisas al cliente.</p>
+        <ul className="mt-3 space-y-2">
+          {d.lines.map((l, i) => (
+            <li key={i} className={`rounded-2xl border p-3 text-sm ${qty[i] === 0 ? "border-red-500/40 bg-red-500/5 opacity-60" : "border-zinc-800 bg-black"}`}>
+              <div className="flex items-center gap-2">
+                <div className="min-w-0 flex-1">
+                  <p className={`font-black ${qty[i] === 0 ? "line-through" : ""}`}>{l.name}</p>
+                  {l.summary && <p className="text-xs text-zinc-500">{l.summary}</p>}
+                  <p className="text-xs text-zinc-400">{money(l.unitPrice)} c/u</p>
+                </div>
+                {l.quantity > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button type="button" onClick={() => set(i, qty[i] - 1)} className="h-9 w-9 rounded-xl border border-zinc-700 font-black">−</button>
+                    <span className="w-8 text-center font-black">{qty[i]}</span>
+                    <button type="button" disabled={qty[i] >= l.quantity} onClick={() => set(i, qty[i] + 1)} className="h-9 w-9 rounded-xl border border-zinc-700 font-black disabled:opacity-30">+</button>
+                  </div>
+                )}
+                {qty[i] > 0 ? (
+                  <button type="button" onClick={() => set(i, 0)} className="rounded-xl border border-red-500/60 px-3 py-2 text-xs font-black text-red-300">🗑 Quitar</button>
+                ) : (
+                  <button type="button" onClick={() => set(i, l.quantity)} className="rounded-xl border border-zinc-700 px-3 py-2 text-xs font-black text-zinc-300">↩ Regresar</button>
+                )}
+              </div>
+            </li>
+          ))}
+        </ul>
+        {changed && (
+          <div className="mt-4 rounded-2xl border border-zinc-800 p-3">
+            <p className="text-sm font-black text-zinc-300">Motivo</p>
+            <div className="mt-2 grid grid-cols-2 gap-2">
+              {(["Agotado", "Otro"] as const).map((r) => (
+                <button key={r} type="button" onClick={() => setReason(r)} className={`rounded-xl border px-3 py-2 font-black ${reason === r ? "border-orange-500 bg-orange-500 text-black" : "border-zinc-700 text-zinc-300"}`}>
+                  {r === "Agotado" ? "🚫 Agotado" : "✍️ Otro"}
+                </button>
+              ))}
+            </div>
+            {reason === "Otro" && (
+              <textarea value={other} onChange={(e) => setOther(e.target.value)} rows={2} autoFocus placeholder="¿Por qué se quita? (se le dice al cliente)" className="mt-2 w-full rounded-xl border border-zinc-700 bg-black p-3 text-sm text-white" />
+            )}
+            {reason === "Agotado" && fullyRemoved.length > 0 && (
+              <label className="mt-2 flex items-center gap-2 text-xs font-bold text-zinc-300">
+                <input type="checkbox" checked={markSoldOut} onChange={(e) => setMarkSoldOut(e.target.checked)} />
+                Marcar como agotado hoy en el menú digital ({fullyRemoved.map((l) => l.name).join(", ")})
+              </label>
+            )}
+          </div>
+        )}
+        <p className="mt-4 flex justify-between text-lg font-black">
+          <span>Nuevo total</span>
+          <span className="text-orange-400">
+            {money(total)}
+            {d.total !== total && <span className="ml-2 text-sm text-zinc-500 line-through">{money(d.total)}</span>}
+          </span>
+        </p>
+        {error && <p className="mt-2 text-sm font-bold text-yellow-200">{error}</p>}
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <button type="button" onClick={onClose} className="rounded-2xl border border-zinc-700 px-4 py-3 font-black text-zinc-300">Cancelar</button>
+          <button type="button" disabled={!changed || saving || (reason === "Otro" && !other.trim()) || qty.every((q) => q === 0)} onClick={() => void save()} className="rounded-2xl bg-orange-500 px-4 py-3 font-black text-black disabled:opacity-40">
+            {saving ? "..." : "Guardar cambios"}
+          </button>
+        </div>
+        {qty.every((q) => q === 0) && <p className="mt-2 text-xs font-bold text-yellow-200">Si no queda nada, mejor rechaza el pedido.</p>}
+      </div>
+    </div>
+  );
+}
+
+/** Después de modificar: avisar al cliente (WhatsApp o copiar) */
+function EditNoticeModal({ text, phone, onClose }: { text: string; phone: string; onClose: () => void }) {
+  const [copied, setCopiedOk] = useState<boolean | null>(null);
+  const link = phone ? whatsappLink(phone, text) : "";
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-3xl border border-emerald-500/60 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-lg font-black text-emerald-300">✅ Pedido modificado</p>
+        <p className="mt-1 text-sm text-zinc-300">Avísale al cliente del cambio y de su nuevo total. En su liga del pedido ya se ve.</p>
+        <textarea readOnly value={text} rows={5} onFocus={(e) => e.currentTarget.select()} className="mt-3 w-full rounded-2xl border border-zinc-700 bg-black p-3 text-sm text-white" />
+        <div className="mt-3 grid gap-2">
+          {link && (
+            <a href={link} target={whatsappTarget(link)} rel="noreferrer" className="rounded-2xl bg-emerald-500 px-4 py-3 text-center font-black text-black">
+              📲 Mandar por WhatsApp
+            </a>
+          )}
+          <button type="button" onClick={() => void copyText(text).then(setCopiedOk)} className="rounded-2xl border border-zinc-600 px-4 py-3 font-black text-zinc-200">
+            {copied === null ? "📋 Copiar mensaje" : copied ? "✅ Copiado: envíalo al cliente" : "No se pudo copiar: selecciónalo arriba"}
+          </button>
+          <button type="button" onClick={onClose} className="rounded-2xl border border-zinc-700 px-4 py-2 font-black text-zinc-400">Listo</button>
+        </div>
       </div>
     </div>
   );
@@ -161,6 +290,8 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   const [shipFee, setShipFee] = useState("");
   const [copied, setCopied] = useState<{ text: string; ok: boolean } | null>(null);
   const [choosingWhen, setChoosingWhen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editNotice, setEditNotice] = useState("");
   const d = order.data;
 
   async function copyMessage(text: string) {
@@ -361,6 +492,29 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         {d.coupon && <li className="text-emerald-400">🎟️ Cupón {d.coupon.code} -{money(d.coupon.discount)}</li>}
       </ul>
 
+      {d.edits && d.edits.length > 0 && (
+        <ul className="mt-3 space-y-1 rounded-2xl border border-orange-500/40 bg-orange-500/10 p-3 text-xs text-orange-100">
+          {d.edits.map((e, i) => (
+            <li key={i}>
+              ✏️ Se quitó {e.removed.map((x) => `${x.quantity} × ${x.name}`).join(", ")} ({e.reason}){e.by ? ` · ${e.by}` : ""} · total {money(e.totalBefore)} → {money(e.totalAfter)}
+            </li>
+          ))}
+        </ul>
+      )}
+      {order.status === "nuevo" && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => {
+            const blocked = editBlocked(order);
+            if (blocked) setMessage(blocked);
+            else setEditing(true);
+          }}
+          className="mt-3 rounded-xl border border-orange-500/60 px-3 py-1.5 text-xs font-black text-orange-300 disabled:opacity-50"
+        >
+          ✏️ Modificar pedido
+        </button>
+      )}
       {problems.length > 0 && (
         <ul className="mt-3 list-disc rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-3 pl-7 text-xs text-yellow-100">
           {problems.map((p) => <li key={p}>{p}</li>)}
@@ -430,6 +584,18 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         </div>
       )}
       {copied && <CopiedModal copied={copied} onClose={() => setCopied(null)} />}
+      {editing && (
+        <EditOrderModal
+          order={order}
+          onClose={() => setEditing(false)}
+          onSaved={(text) => {
+            setEditing(false);
+            setEditNotice(text);
+            onChanged();
+          }}
+        />
+      )}
+      {editNotice && <EditNoticeModal text={editNotice} phone={phone} onClose={() => setEditNotice("")} />}
       {choosingWhen && d.scheduledFor && (
         <KitchenWhenModal
           order={order}

@@ -1636,6 +1636,11 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
               {l.comment && <p className="pl-4 text-xs italic text-zinc-500">“{l.comment}”</p>}
             </div>
           ))}
+          {(d.edits || []).map((e, i) => (
+            <p key={i} className="mt-2 rounded-lg bg-orange-50 p-2 text-xs font-bold text-orange-800">
+              ✏️ El negocio quitó {e.removed.map((x) => `${x.quantity} x ${x.name}`).join(", ")} ({e.reason.toLowerCase() === "agotado" ? "agotado" : e.reason}). Total antes {money(e.totalBefore)}.
+            </p>
+          ))}
           <div className="my-3 border-t border-dashed border-zinc-300" />
           {d.deliveryFee > 0 ? (
             <p className="flex justify-between"><span>Envío{d.deliveryQuote && paidOnline(d) ? " (se paga al repartidor)" : ""}</span><span>{money(d.deliveryFee)}</span></p>

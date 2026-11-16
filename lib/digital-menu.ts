@@ -677,6 +677,19 @@ export type OnlineOrderData = {
   /** Cupón que escribió el cliente y el descuento que vio */
   coupon?: { code: string; discount: number };
   total: number;
+  /** Cambios que hizo el negocio antes de aceptarlo (ej. quitar algo agotado) */
+  edits?: OnlineOrderEdit[];
+};
+
+export type OnlineOrderEdit = {
+  at: string;
+  by?: string;
+  /** Lo que se quitó (piezas) */
+  removed: { name: string; quantity: number }[];
+  /** "Agotado" o lo que escribió el negocio */
+  reason: string;
+  totalBefore: number;
+  totalAfter: number;
 };
 
 export type OnlineMpPayment = {
