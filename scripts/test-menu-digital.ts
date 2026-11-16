@@ -160,6 +160,23 @@ async function main() {
   check("número mal escrito no arma liga", driverWhatsappLink({ id: "r", name: "Luis", phone: "123", active: true }, sale) === "");
 
 
+  // Confirmar manual: el mensaje se puede copiar aunque el número esté mal escrito
+  const oo = await import("@/lib/online-orders");
+  const badPhone = { id: "x", folio: "K6B4", token: "t", status: "nuevo", data: { type: "Domicilio", customer: { name: "Paloma ramirez", phone: "528717876" }, scheduledFor: "2026-11-15T20:30:00", lines: [] }, sale_order_id: null, eta_minutes: null, reason: null, created_at: "", updated_at: "" } as unknown as import("@/lib/online-orders").OnlineOrder;
+  const conf = oo.scheduledConfirmText(badPhone);
+  check("confirmación programada con nombre y folio", conf.startsWith("¡Hola Paloma!") && conf.includes("K6B4"), conf);
+  check("número mal escrito: no hay liga de WhatsApp", oo.customerWhatsappLink(badPhone, "aceptado") === "");
+  check("número mal escrito: el aviso sí se puede copiar", oo.customerNoticeText(badPhone, "aceptado").includes("K6B4"));
+  const goodPhone = { ...badPhone, data: { ...badPhone.data, customer: { name: "Paloma", phone: "8717178766" } } } as typeof badPhone;
+  check("número bien: la liga lleva el mismo texto", decodeURIComponent(oo.customerWhatsappLink(goodPhone, "listo")).includes(oo.customerNoticeText(goodPhone, "listo").slice(0, 20)));
+  let rejected = false;
+  try {
+    await oo.updateOnlineCustomerPhone(badPhone, "12345");
+  } catch {
+    rejected = true;
+  }
+  check("editar número: rechaza números incompletos", rejected);
+
   console.log(`\n${ok} bien, ${bad} mal`);
   process.exit(bad ? 1 : 0);
 }

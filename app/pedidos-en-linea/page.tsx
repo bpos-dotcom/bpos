@@ -15,6 +15,7 @@ import {
   ONLINE_ORDERS_EVENT,
   acceptOnlineOrder,
   buildOnlineCart,
+  customerNoticeText,
   customerWhatsappLink,
   listOnlineOrders,
   markOnlineOrder,
@@ -22,6 +23,8 @@ import {
   onlineDispatchInfo,
   onlinePaymentShort,
   rejectOnlineOrder,
+  scheduledConfirmText,
+  updateOnlineCustomerPhone,
   type CustomerNotice,
   type OnlineOrder,
 } from "@/lib/online-orders";
@@ -34,6 +37,44 @@ const ago = (iso: string) => {
   const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
   return min < 1 ? "ahora" : min < 60 ? `hace ${min} min` : new Date(iso).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
 };
+/** Copia al portapapeles (con respaldo para navegadores sin permiso) */
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    try {
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      const ok = document.execCommand("copy");
+      area.remove();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+}
+
+/** Aviso de "se copió el mensaje": lo muestra también por si no se pudo copiar solo */
+function CopiedModal({ copied, onClose }: { copied: { text: string; ok: boolean }; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-3xl border border-emerald-500/60 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-lg font-black text-emerald-300">{copied.ok ? "✅ Se copió el mensaje de confirmación" : "Copia el mensaje de confirmación"}</p>
+        <p className="mt-1 text-sm text-zinc-300">Envíalo al cliente por WhatsApp, SMS o como prefieras.{copied.ok ? "" : " (No se pudo copiar solo: selecciónalo y cópialo.)"}</p>
+        <textarea readOnly value={copied.text} rows={5} onFocus={(e) => e.currentTarget.select()} className="mt-3 w-full rounded-2xl border border-zinc-700 bg-black p-3 text-sm text-white" />
+        <button type="button" onClick={onClose} className="mt-3 w-full rounded-2xl bg-emerald-500 px-4 py-3 font-black text-black">
+          Listo
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const TYPE_ICON = { Recoger: "🛍️ Recoger", Domicilio: "🛵 Domicilio", Mesa: "🍽️ Mesa" } as const;
 
 function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => void }) {
@@ -44,7 +85,18 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   const [message, setMessage] = useState("");
   /** Envío a cotizar: lo que cobrará el negocio por llevarlo (se captura antes de aceptar) */
   const [shipFee, setShipFee] = useState("");
+  const [copied, setCopied] = useState<{ text: string; ok: boolean } | null>(null);
   const d = order.data;
+
+  async function copyMessage(text: string) {
+    setCopied({ text, ok: await copyText(text) });
+  }
+
+  async function editPhone() {
+    const value = await askText("Número del cliente (10 dígitos)", { defaultValue: (d.customer.phone || "").replace(/\D/g, "").slice(-10), numeric: true, ok: "Guardar", cancel: "Cancelar" });
+    if (value === null) return;
+    await run(() => updateOnlineCustomerPhone(order, value));
+  }
   const short = order.status === "nuevo" ? onlinePaymentShort(d) : "";
   const problems = order.status === "nuevo" ? [...buildOnlineCart(d).problems, ...(short ? [short] : [])] : [];
 
@@ -123,14 +175,13 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   // Para volver a mandar el aviso del estado actual
   const notice = noticeFor(order.status);
   const resend = notice ? customerWhatsappLink(order, notice) : "";
+  const noticeText = notice ? customerNoticeText(order, notice) : "";
 
   const isNew = order.status === "nuevo" || order.status === "aceptando";
   const later = isNew && scheduledLater(d, menu.scheduling.leadMinutes);
   const phone = whatsappNumber(d.customer.phone);
-  const confirmLink =
-    later && phone
-      ? whatsappLink(phone, `¡Hola ${d.customer.name.split(" ")[0]}! Recibimos tu pedido programado ${order.folio} para ${scheduledLabel(d.scheduledFor!)}. ¡Te esperamos! 🧡`)
-      : "";
+  const confirmText = later ? scheduledConfirmText(order) : "";
+  const confirmLink = confirmText && phone ? whatsappLink(phone, confirmText) : "";
   const chatLink = d.customer.phone ? whatsappLink(`52${d.customer.phone.slice(-10)}`) : "";
   return (
     <div className={`rounded-3xl border p-5 ${isNew ? "border-emerald-400 bg-emerald-500/5" : "border-zinc-800 bg-zinc-950"}`}>
@@ -158,10 +209,20 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
           {d.kiosk ? <span className="ml-2 text-xs font-bold text-zinc-500">🖥️ {d.kiosk.screen}</span> : null}
           {d.kiosk && order.account_id ? <span className="ml-2 text-xs font-bold text-amber-300">⭐ Socio del club</span> : null}
         </p>
-        {d.customer.phone && (
-          <a href={chatLink} target={whatsappTarget(chatLink)} rel="noreferrer" className="text-emerald-400 underline">
-            📱 {d.customer.phone}
-          </a>
+        {!d.kiosk && (
+          <p className="flex flex-wrap items-center gap-2">
+            {d.customer.phone ? (
+              <a href={chatLink} target={whatsappTarget(chatLink)} rel="noreferrer" className="text-emerald-400 underline">
+                📱 {d.customer.phone}
+              </a>
+            ) : (
+              <span className="text-zinc-500">📱 Sin número</span>
+            )}
+            <button type="button" disabled={busy} onClick={() => void editPhone()} className="rounded-lg border border-zinc-700 px-2 py-0.5 text-xs font-black text-zinc-300 disabled:opacity-50">
+              ✏️ {d.customer.phone ? "Editar" : "Agregar"}
+            </button>
+            {d.customer.phone && !phone && <span className="text-xs font-bold text-yellow-300">⚠️ No parece un número válido</span>}
+          </p>
         )}
         {d.customer.address && <p className="text-zinc-300">📍 {d.customer.address}{d.customer.reference ? ` · ${d.customer.reference}` : ""}</p>}
         {mapsLink(d.customer.location) && (
@@ -218,10 +279,17 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         </ul>
       )}
 
-      {confirmLink && (
-        <a href={confirmLink} target={whatsappTarget(confirmLink)} rel="noreferrer" className="mt-3 inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300">
-          📲 Confirmar al cliente por WhatsApp
-        </a>
+      {confirmText && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {confirmLink && (
+            <a href={confirmLink} target={whatsappTarget(confirmLink)} rel="noreferrer" className="inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300">
+              📲 Confirmar al cliente por WhatsApp
+            </a>
+          )}
+          <button type="button" onClick={() => void copyMessage(confirmText)} className="rounded-xl border border-zinc-600 px-3 py-1.5 text-xs font-black text-zinc-200">
+            📋 Confirmar manual
+          </button>
+        </div>
       )}
       {isNew && (
         <div className="mt-4 flex flex-wrap items-center gap-2">
@@ -261,11 +329,19 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       )}
       {order.status === "rechazado" && <p className="mt-3 text-sm text-red-300">Rechazado: {order.reason}</p>}
       {order.status === "entregado" && <p className="mt-3 text-sm text-zinc-500">Entregado ✅</p>}
-      {resend && (
-        <a href={resend} target={whatsappTarget(resend)} rel="noreferrer" className="mt-3 inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300 hover:bg-emerald-500/10">
-          📲 Avisar al cliente por WhatsApp
-        </a>
+      {noticeText && !d.kiosk && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {resend && (
+            <a href={resend} target={whatsappTarget(resend)} rel="noreferrer" className="inline-block rounded-xl border border-emerald-500/50 px-3 py-1.5 text-xs font-black text-emerald-300 hover:bg-emerald-500/10">
+              📲 Avisar al cliente por WhatsApp
+            </a>
+          )}
+          <button type="button" onClick={() => void copyMessage(noticeText)} className="rounded-xl border border-zinc-600 px-3 py-1.5 text-xs font-black text-zinc-200">
+            📋 Avisar manual
+          </button>
+        </div>
       )}
+      {copied && <CopiedModal copied={copied} onClose={() => setCopied(null)} />}
       {message && <p className="mt-3 text-sm font-bold text-yellow-200">{message}</p>}
       {dispatching && <DispatchModal info={onlineDispatchInfo(order)} saleId={order.sale_order_id || undefined} onClose={() => setDispatching(false)} />}
     </div>
