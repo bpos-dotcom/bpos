@@ -98,7 +98,7 @@ export default function BlindCountPage() {
   if (!count || count.status !== "en curso") {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center bg-black p-6 text-center text-white">
-        <h1 className="text-2xl font-black">{count ? "Este inventario ciego ya se subió." : "Cargando el inventario ciego…"}</h1>
+        <h1 className="text-2xl font-black">{!count ? "Cargando el inventario ciego…" : count.status === "cancelado" ? `Este inventario ciego se canceló${count.cancelledBy ? ` (${count.cancelledBy})` : ""}.` : "Este inventario ciego ya se subió."}</h1>
         <p className="mt-2 text-sm text-zinc-400">Si no aparece, ciérrala y vuelve a darle Empezar en Productividad.</p>
         <button onClick={() => window.close()} className="mt-6 rounded-2xl border border-zinc-700 px-6 py-3 font-black text-zinc-300">
           Cerrar
