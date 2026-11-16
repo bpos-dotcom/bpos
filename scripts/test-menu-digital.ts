@@ -187,6 +187,21 @@ async function main() {
   check("hora que ya pasó: no", oo.checkKitchenAt(badPhone, new Date(due - 7200000), due - 3600000) !== "");
   check("hora válida: sí", oo.checkKitchenAt(badPhone, new Date(due - 15 * 60000), due - 3600000) === "");
 
+  // Ventana de pedido nuevo (en cualquier pantalla), también los programados
+  const pop = await import("@/lib/online-orders-popup");
+  const nowMs = due - 5 * 3600000;
+  const prog = { id: "p1", folio: "K6B4", data: { ...badPhone.data, deliveryQuote: true, total: 232 } } as unknown as { id: string; folio: string; data: import("@/lib/digital-menu").OnlineOrderData };
+  const normal = { id: "n1", folio: "A1B2", data: { type: "Recoger", customer: { name: "Luis", phone: "" }, lines: [], total: 99 } } as unknown as typeof prog;
+  pop.announceNew([prog, normal], nowMs);
+  const shown = pop.popupOrders([prog, normal], 30, nowMs);
+  check("sale la ventana con el programado y el normal", shown.length === 2);
+  check("el programado dice para cuándo y que falta el envío", shown[0].later && shown[0].quote && shown[0].scheduled !== "");
+  pop.dismissPopup(["p1"], nowMs);
+  check("Enterado: ya no sale ese pedido", pop.popupOrders([prog, normal], 30, nowMs).map((o) => o.id).join() === "n1");
+  pop.announceNew([prog, normal], nowMs + 1000);
+  check("no vuelve a salir aunque se revise otra vez", pop.popupOrders([prog, normal], 30, nowMs + 1000).map((o) => o.id).join() === "n1");
+  check("si ya no está esperando, no sale", pop.popupOrders([], 30, nowMs).length === 0);
+
   console.log(`\n${ok} bien, ${bad} mal`);
   process.exit(bad ? 1 : 0);
 }

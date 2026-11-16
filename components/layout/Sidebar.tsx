@@ -26,6 +26,8 @@ import { flushDrawerSuspects } from "@/lib/cash-drawer";
 import { flushCloudAudit } from "@/lib/cloud/audit-outbox";
 import { EquivalencePrompt, type PendingEquivalence } from "@/components/bridge/EquivalencePrompt";
 import { useOnlineOrdersWatch } from "@/lib/online-orders-watch";
+import { OnlineOrderPopup } from "@/components/menu/OnlineOrderPopup";
+import { SoundUnlock } from "@/components/layout/SoundUnlock";
 import { usePendingReviews } from "@/lib/reviews";
 import { syncAdvisorSnapshot } from "@/lib/advisor-sync";
 import { UpdateNotice } from "@/components/layout/UpdateNotice";
@@ -408,6 +410,8 @@ export function Sidebar() {
     <UpdateNotice />
     <BridgeProcessor />
     <ProductivityAlarm />
+    <OnlineOrderPopup orders={online.popup} />
+    <SoundUnlock />
     <EquivalencePrompt items={pendingItems} signature={signature} canEquivalate={hasPermission(currentUser, "bridge.aliases")} />
     </>
   );

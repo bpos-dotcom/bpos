@@ -7,12 +7,14 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, scheduledLater } from "@/lib/digital-menu";
-import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, expireUnpaidOrder, listOnlineOrders } from "@/lib/online-orders";
+import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, expireUnpaidOrder, listOnlineOrders, type OnlineOrder } from "@/lib/online-orders";
+import { startBackgroundTicker } from "@/lib/background-ticker";
+import { POPUP_EVENT, announceNew, popupOrders, type OnlinePopupOrder } from "@/lib/online-orders-popup";
 
 const CHECK_MS = 10_000;
 
 export function useOnlineOrdersWatch() {
-  const [waiting, setWaiting] = useState<{ count: number; ids: string }>({ count: 0, ids: "" });
+  const [waiting, setWaiting] = useState<{ count: number; ids: string; popup: OnlinePopupOrder[] }>({ count: 0, ids: "", popup: [] });
   const seen = useRef<Set<string> | null>(null);
   const busy = useRef(false);
 
@@ -21,7 +23,7 @@ export function useOnlineOrdersWatch() {
     const check = async () => {
       const menu = getDigitalMenu();
       if (!menu.enabled || !menu.slug || busy.current) {
-        if (alive) setWaiting({ count: 0, ids: "" });
+        if (alive && !busy.current) setWaiting({ count: 0, ids: "", popup: [] });
         return;
       }
       busy.current = true;
@@ -36,31 +38,38 @@ export function useOnlineOrdersWatch() {
         const arrived = known ? fresh.filter((o) => !known.has(o.id)) : [];
         seen.current = new Set(fresh.map((o) => o.id));
 
-        // Programados que ya toca: se mandan solos a cocina si hay caja abierta
+        // Programados que ya toca: se mandan solos a cocina si hay caja abierta.
+        // Los de envío por cotizar no: alguien tiene que poner cuánto se cobra.
         const open = Boolean(localStorage.getItem("bpos_active_shift"));
+        const auto = (o: OnlineOrder) => !(o.data.type === "Domicilio" && o.data.deliveryQuote);
+        const accepted = new Set<string>();
         if (open && !menu.autoAccept) {
-          for (const order of fresh.filter((o) => o.data.scheduledFor)) {
+          for (const order of fresh.filter((o) => o.data.scheduledFor && auto(o))) {
             try {
               await acceptOnlineOrder(order, Math.max(5, Math.round((Date.parse(order.data.scheduledFor!) - Date.now()) / 60000)), "Programado");
+              accepted.add(order.id);
             } catch {
               // otro dispositivo lo tomó o falta algo: queda para aceptarlo a mano
             }
           }
         }
         if (menu.autoAccept && open) {
-          for (const order of fresh) {
+          for (const order of fresh.filter(auto)) {
             try {
               const eta = order.data.scheduledFor ? Math.max(5, Math.round((Date.parse(order.data.scheduledFor) - Date.now()) / 60000)) : menu.prepMinutes;
               await acceptOnlineOrder(order, eta, "Automático");
+              accepted.add(order.id);
             } catch {
               // otro dispositivo lo tomó o falta algo: queda para aceptarlo a mano
             }
           }
-          setWaiting({ count: 0, ids: "" });
-        } else {
-          const left = open ? fresh.filter((o) => !o.data.scheduledFor) : fresh;
-          setWaiting({ count: left.length, ids: left.map((o) => o.id).sort().join(",") });
         }
+        // Lo que sigue esperando a alguien (lo que no se aceptó solo)
+        const left = fresh.filter((o) => !accepted.has(o.id));
+        // Ventana "llegó un pedido" (en cualquier pantalla): también los programados, una vez
+        const pending = all.filter((o) => o.status === "nuevo" && !awaitingOnlinePayment(o.data) && !accepted.has(o.id));
+        announceNew(pending);
+        if (alive) setWaiting({ count: left.length, ids: left.map((o) => o.id).sort().join(","), popup: popupOrders(pending, menu.scheduling.leadMinutes) });
         if (arrived.length) {
           window.dispatchEvent(new Event(ONLINE_ORDERS_EVENT));
         }
@@ -71,15 +80,18 @@ export function useOnlineOrdersWatch() {
       }
     };
     void check();
-    const timer = setInterval(() => void check(), CHECK_MS);
+    // Reloj que no se frena con la ventana minimizada
+    const stopTicker = startBackgroundTicker(CHECK_MS, () => void check());
     const refresh = () => void check();
     window.addEventListener(DIGITAL_MENU_EVENT, refresh);
     window.addEventListener(ONLINE_ORDERS_EVENT, refresh);
+    window.addEventListener(POPUP_EVENT, refresh);
     return () => {
       alive = false;
-      clearInterval(timer);
+      stopTicker();
       window.removeEventListener(DIGITAL_MENU_EVENT, refresh);
       window.removeEventListener(ONLINE_ORDERS_EVENT, refresh);
+      window.removeEventListener(POPUP_EVENT, refresh);
     };
   }, []);
 
