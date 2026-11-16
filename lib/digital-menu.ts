@@ -667,6 +667,8 @@ export type OnlineOrderData = {
   deliveryQuote?: boolean;
   /** Pedido programado: cuándo lo quiere (ISO). Sin esto, lo antes posible */
   scheduledFor?: string;
+  /** Programado: a qué hora lo eligió mandar a cocina el negocio (ISO). Sin esto, X min antes según el menú */
+  kitchenAt?: string;
   /**
    * Pedido hecho en el kiosco del local (pantalla táctil): para comer aquí o
    * para llevar, qué pantalla, y la orden de cobro en la terminal Point.
@@ -710,8 +712,15 @@ export function scheduledLabel(iso: string) {
 }
 
 /** Pedido programado que todavía no toca mandar a cocina */
-export function scheduledLater(d: Pick<OnlineOrderData, "scheduledFor">, leadMinutes: number, now = Date.now()) {
-  return Boolean(d.scheduledFor && Date.parse(d.scheduledFor) - leadMinutes * 60000 > now);
+export function scheduledLater(d: Pick<OnlineOrderData, "scheduledFor" | "kitchenAt">, leadMinutes: number, now = Date.now()) {
+  if (!d.scheduledFor) return false;
+  return kitchenTime(d, leadMinutes) > now;
+}
+
+/** Cuándo se manda solo a cocina un programado (ms): la hora que eligió el negocio o X min antes */
+export function kitchenTime(d: Pick<OnlineOrderData, "scheduledFor" | "kitchenAt">, leadMinutes: number) {
+  const chosen = d.kitchenAt ? Date.parse(d.kitchenAt) : NaN;
+  return Number.isFinite(chosen) ? chosen : Date.parse(d.scheduledFor || "") - leadMinutes * 60000;
 }
 
 /** Liga de Google Maps de la ubicación que compartió el cliente */

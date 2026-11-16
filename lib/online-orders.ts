@@ -271,6 +271,38 @@ export async function expireUnpaidOrder(order: OnlineOrder) {
   return true;
 }
 
+/** Datos del pedido leídos de nuevo (para cambiar algo sin pisar otros cambios, ej. el pago) */
+async function freshData(order: OnlineOrder) {
+  const { data: fresh, error } = await getSupabase().from("bpos_online_orders").select("data").eq("id", order.id).single();
+  if (error) throw new Error(error.message);
+  return (fresh?.data || order.data) as OnlineOrderData;
+}
+
+/**
+ * Hora en que un programado se manda solo a cocina. Tiene que ser después de
+ * ahora y antes de la hora que pidió el cliente.
+ */
+export function checkKitchenAt(order: Pick<OnlineOrder, "data">, at: Date, now = Date.now()) {
+  const due = Date.parse(order.data.scheduledFor || "");
+  if (!Number.isFinite(at.getTime())) return "Elige una hora.";
+  if (Number.isFinite(due) && at.getTime() > due) return "Tiene que ser antes de la hora que pidió el cliente.";
+  if (at.getTime() <= now) return "Esa hora ya pasó: mándalo ahora.";
+  return "";
+}
+
+export async function setOnlineKitchenAt(order: OnlineOrder, at: Date) {
+  const problem = checkKitchenAt(order, at);
+  if (problem) throw new Error(problem);
+  const data = await freshData(order);
+  await setStatus(order.id, { data: { ...data, kitchenAt: at.toISOString() } });
+  addAuditEvent({
+    category: "Pedidos",
+    action: "online_order.kitchen_at",
+    description: `El programado ${order.folio} se mandará a cocina a las ${at.toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" })}`,
+    entityId: order.id,
+  });
+}
+
 /**
  * Corrige el teléfono del cliente (si lo escribió mal). Lee el pedido de nuevo
  * para no pisar otros cambios (ej. el pago) y solo cambia el número.
@@ -279,9 +311,7 @@ export async function updateOnlineCustomerPhone(order: OnlineOrder, phone: strin
   const digits = String(phone || "").replace(/\D/g, "");
   if (!whatsappNumber(digits)) throw new Error("Escribe el número a 10 dígitos.");
   const clean = digits.slice(-10);
-  const { data: fresh, error } = await getSupabase().from("bpos_online_orders").select("data").eq("id", order.id).single();
-  if (error) throw new Error(error.message);
-  const data = (fresh?.data || order.data) as OnlineOrderData;
+  const data = await freshData(order);
   const before = data.customer?.phone || "";
   await setStatus(order.id, { data: { ...data, customer: { ...data.customer, phone: clean } } });
   addAuditEvent({ category: "Pedidos", action: "online_order.phone", description: `Se corrigió el teléfono del pedido ${order.folio}: ${before || "(vacío)"} → ${clean}`, entityId: order.id });

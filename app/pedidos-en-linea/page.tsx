@@ -1,5 +1,5 @@
 "use client";
-import { askText } from "@/components/layout/Dialogs";
+import { ask, askText } from "@/components/layout/Dialogs";
 /**
  * Pedidos en línea: lo que mandan los clientes desde el menú digital de la
  * sucursal. Nuevos (aceptar con tiempo estimado o rechazar con motivo),
@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { DispatchModal } from "@/components/delivery/DispatchModal";
 import { getCurrentUser } from "@/lib/auth";
-import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, kioskLabel, mapsLink, paidOnline, scheduledLabel, scheduledLater, whatsappNumber } from "@/lib/digital-menu";
+import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, kioskLabel, kitchenTime, mapsLink, paidOnline, scheduledLabel, scheduledLater, whatsappNumber } from "@/lib/digital-menu";
 import {
   ONLINE_ORDERS_EVENT,
   acceptOnlineOrder,
@@ -23,7 +23,9 @@ import {
   onlineDispatchInfo,
   onlinePaymentShort,
   rejectOnlineOrder,
+  checkKitchenAt,
   scheduledConfirmText,
+  setOnlineKitchenAt,
   updateOnlineCustomerPhone,
   type CustomerNotice,
   type OnlineOrder,
@@ -75,6 +77,78 @@ function CopiedModal({ copied, onClose }: { copied: { text: string; ok: boolean 
   );
 }
 
+const hhmm = (ms: number) => new Date(ms).toLocaleTimeString("es-MX", { hour: "numeric", minute: "2-digit" });
+const timeValue = (ms: number) => {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+
+/** Programado antes de tiempo: ¿cuándo mandarlo a cocina? Ahora, 15 min antes o a una hora */
+function KitchenWhenModal({ order, onNow, onClose, onSaved }: { order: OnlineOrder; onNow: () => void; onClose: () => void; onSaved: () => void }) {
+  const due = Date.parse(order.data.scheduledFor || "");
+  const [time, setTime] = useState(() => timeValue(due - 30 * 60000));
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const before15 = due - 15 * 60000;
+  const [openedAt] = useState(() => Date.now());
+
+  async function save(at: Date) {
+    const problem = checkKitchenAt(order, at);
+    if (problem) return setError(problem);
+    setSaving(true);
+    try {
+      await setOnlineKitchenAt(order, at);
+      onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "No se pudo guardar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  /** La hora elegida, el mismo día que pidió el cliente (o el anterior si queda después) */
+  function custom() {
+    const [h, m] = time.split(":").map(Number);
+    if (!Number.isFinite(h) || !Number.isFinite(m)) return setError("Elige una hora.");
+    const at = new Date(due);
+    at.setHours(h, m, 0, 0);
+    if (at.getTime() > due) at.setDate(at.getDate() - 1);
+    void save(at);
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
+      <div className="w-full max-w-md rounded-3xl border border-sky-500/60 bg-zinc-950 p-5" onClick={(e) => e.stopPropagation()}>
+        <p className="text-lg font-black text-sky-300">¿Cuándo lo quieres mandar a cocina?</p>
+        <p className="mt-1 text-sm text-zinc-400">El cliente lo pidió para {scheduledLabel(order.data.scheduledFor!)}.</p>
+        <div className="mt-4 space-y-2">
+          <button type="button" disabled={saving} onClick={onNow} className="w-full rounded-2xl bg-emerald-500 px-4 py-3 font-black text-black disabled:opacity-50">
+            👨‍🍳 Ahora
+          </button>
+          {before15 > openedAt && (
+            <button type="button" disabled={saving} onClick={() => void save(new Date(before15))} className="w-full rounded-2xl border border-sky-500/60 px-4 py-3 font-black text-sky-200 disabled:opacity-50">
+              ⏰ 15 min antes ({hhmm(before15)})
+            </button>
+          )}
+          <div className="rounded-2xl border border-zinc-700 p-3">
+            <p className="text-sm font-black text-zinc-300">Personalizado</p>
+            <div className="mt-2 flex gap-2">
+              <input type="time" value={time} onChange={(e) => { setTime(e.target.value); setError(""); }} className="min-w-0 flex-1 rounded-xl border border-zinc-700 bg-black px-3 py-2 text-lg text-white" />
+              <button type="button" disabled={saving} onClick={custom} className="rounded-xl bg-sky-500 px-4 py-2 font-black text-black disabled:opacity-50">
+                Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+        {error && <p className="mt-3 text-sm font-bold text-yellow-200">{error}</p>}
+        <button type="button" onClick={onClose} className="mt-3 w-full rounded-2xl border border-zinc-700 px-4 py-2 font-black text-zinc-300">
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const TYPE_ICON = { Recoger: "🛍️ Recoger", Domicilio: "🛵 Domicilio", Mesa: "🍽️ Mesa" } as const;
 
 function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => void }) {
@@ -86,6 +160,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
   /** Envío a cotizar: lo que cobrará el negocio por llevarlo (se captura antes de aceptar) */
   const [shipFee, setShipFee] = useState("");
   const [copied, setCopied] = useState<{ text: string; ok: boolean } | null>(null);
+  const [choosingWhen, setChoosingWhen] = useState(false);
   const d = order.data;
 
   async function copyMessage(text: string) {
@@ -159,6 +234,12 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
     );
   }
 
+  /** Programado que todavía no toca: confirmar y elegir cuándo (ahora, 15 min antes o a una hora) */
+  async function sendEarly() {
+    const ok = await ask(`Todavía no es hora: este pedido es para ${scheduledLabel(d.scheduledFor!)}. ¿Seguro que quieres mandarlo a cocina?`, { ok: "Sí", cancel: "No" });
+    if (ok) setChoosingWhen(true);
+  }
+
   async function reject() {
     const reason = await askText("¿Por qué no puedes tomar el pedido? (se le muestra al cliente)", { defaultValue: "Por ahora no podemos tomar tu pedido. ¡Disculpa!", ok: "Rechazar pedido", cancel: "Volver" });
     if (reason === null) return;
@@ -199,7 +280,14 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       {d.scheduledFor && (
         <p className="mt-3 rounded-2xl border border-sky-500/50 bg-sky-500/10 px-3 py-2 text-sm font-black text-sky-300">
           📅 Programado para {scheduledLabel(d.scheduledFor)}
-          {later && <span className="block text-xs font-bold text-sky-200/80">Se manda solo a cocina {menu.scheduling.leadMinutes} min antes (con caja abierta).</span>}
+          {later && (
+            <span className="block text-xs font-bold text-sky-200/80">
+              {d.kitchenAt ? `Se manda solo a cocina a las ${hhmm(kitchenTime(d, menu.scheduling.leadMinutes))}` : `Se manda solo a cocina ${menu.scheduling.leadMinutes} min antes (${hhmm(kitchenTime(d, menu.scheduling.leadMinutes))})`} (con caja abierta).
+              <button type="button" onClick={() => setChoosingWhen(true)} className="ml-2 underline">
+                Cambiar hora
+              </button>
+            </span>
+          )}
           {!order.account_id && <span className="block text-xs font-bold text-yellow-300">⚠️ Sin cuenta del cliente</span>}
         </p>
       )}
@@ -301,7 +389,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
             </select>
           </label>
           )}
-          <button disabled={busy} onClick={() => void accept()} className="flex-1 rounded-2xl bg-emerald-500 px-5 py-3 font-black text-black disabled:opacity-50">
+          <button disabled={busy} onClick={() => void (later ? sendEarly() : accept())} className="flex-1 rounded-2xl bg-emerald-500 px-5 py-3 font-black text-black disabled:opacity-50">
             {busy ? "..." : later ? "👨‍🍳 Mandar a cocina ya" : "✅ Aceptar y mandar a cocina"}
           </button>
           <button disabled={busy} onClick={() => void reject()} className="rounded-2xl border border-red-500/60 px-4 py-3 font-black text-red-300 disabled:opacity-50">
@@ -342,6 +430,20 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         </div>
       )}
       {copied && <CopiedModal copied={copied} onClose={() => setCopied(null)} />}
+      {choosingWhen && d.scheduledFor && (
+        <KitchenWhenModal
+          order={order}
+          onClose={() => setChoosingWhen(false)}
+          onNow={() => {
+            setChoosingWhen(false);
+            void accept();
+          }}
+          onSaved={() => {
+            setChoosingWhen(false);
+            onChanged();
+          }}
+        />
+      )}
       {message && <p className="mt-3 text-sm font-bold text-yellow-200">{message}</p>}
       {dispatching && <DispatchModal info={onlineDispatchInfo(order)} saleId={order.sale_order_id || undefined} onClose={() => setDispatching(false)} />}
     </div>
