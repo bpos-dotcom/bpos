@@ -30,6 +30,7 @@ import { clearDrawerSuspect, drawerShouldOpen } from "@/lib/cash-drawer";
 import { paidShiftTag } from "@/lib/cash-register";
 import { openCashDrawer } from "@/lib/localService";
 import { discountInventoryByOrder } from "@/lib/inventory";
+import { appendRoundToOrder } from "@/lib/held-orders";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { ClubPanel } from "@/components/club/ClubPanel";
 import { getLoyalty } from "@/lib/loyalty";
@@ -99,6 +100,8 @@ function PosScreen() {
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   /** Cuenta en espera que se está cobrando (abre el mismo cobro) */
   const [payingOrder, setPayingOrder] = useState<SavedOrder | null>(null);
+  /** Cuenta en espera a la que se le están agregando productos (lo marcado se suma y va a cocina) */
+  const [addingToId, setAddingToId] = useState<SavedOrder["id"] | null>(null);
   const [comboToChoose, setComboToChoose] = useState<Product | null>(null);
   const [, setShiftVersion] = useState(0);
   // Terminal Mercado Pago: con tarjeta, el monto se manda solo a la terminal
@@ -359,35 +362,26 @@ function PosScreen() {
     document.getElementById("productos")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 
-  /** Otra ronda a una cuenta de mesa: solo lo nuevo va a cocina; el total crece */
+  /** Otra ronda a una cuenta abierta (mesa o cuenta en espera): solo lo nuevo va a cocina; el total crece */
   function appendRound(order: SavedOrder) {
-    const round = (order.rounds || 1) + 1;
-    const newItems: CartItem[] = cart.map((item) => ({ ...item, round }));
-    const items: CartItem[] = [...order.items.map((item) => ({ ...item, kdsDone: true })), ...newItems];
-    const nextSubtotal = items.reduce((sum, item) => sum + item.price * item.quantity, 0);
-    const updated = {
-      ...order,
-      items,
-      subtotal: nextSubtotal,
-      total: Math.max(0, nextSubtotal - (order.details.discount || 0)) + (order.details.deliveryFee || 0),
-      rounds: round,
-      // Vuelve a aparecer en cocina como nuevo, solo con lo de esta ronda
-      kdsCompleted: false,
-      kdsCompletedAt: undefined,
-      status: "Nuevo",
-    } as SavedOrder;
+    const next = appendRoundToOrder<CartItem, SavedOrder>(order, cart);
+    const { round, newItems } = next;
+    const updated = next.updated as SavedOrder;
     saveOrders(orders.map((o) => (o.id === order.id ? updated : o)));
     window.dispatchEvent(new Event("bpos:orders-updated"));
     notifyKdsUpdated(order.id);
-    discountInventoryByOrder(`${order.id}-r${round}`, cart);
+    discountInventoryByOrder(next.inventoryId(order.id), cart);
     void printSale({ ...updated, items: newItems }, { stations: saleStations({ ...updated, items: newItems }), customer: false }, true)
       .then((failed) => {
-        if (failed.length) notify(`Ronda mandada, pero no salió en: ${failed.join(" · ")}. Reimprime desde Historial de pedidos.`, "error");
+        if (failed.length) notify(`${order.details.table ? "Ronda mandada" : "Productos agregados"}, pero no salió en: ${failed.join(" · ")}. Reimprime desde Historial de pedidos.`, "error");
       })
-      .catch(() => notify("Ronda guardada, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado.", "error"));
-    addAuditEvent({ category: "Venta", action: "sale.round", description: `${currentUser?.name || "Usuario"} mandó la ronda ${round} de ${tableLabel(order.details.table)} (Pedido #${formatOrderNumber(updated as SavedOrder & { localOrderNumber?: number })}): ${cart.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { round, total: updated.total } });
+      .catch(() => notify(`${order.details.table ? "Ronda guardada" : "Productos agregados"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado.`, "error"));
+    const number = formatOrderNumber(updated as SavedOrder & { localOrderNumber?: number });
+    const where = order.details.table ? tableLabel(order.details.table) : `Pedido #${number}`;
+    addAuditEvent({ category: "Venta", action: "sale.round", description: `${currentUser?.name || "Usuario"} ${order.details.table ? `mandó la ronda ${round} de ${where} (Pedido #${number})` : `agregó productos al ${where} en espera`}: ${cart.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { round, total: updated.total } });
     void clearDrawerSuspect(cart.reduce((sum, item) => sum + item.price * item.quantity, 0), "espera");
-    notify(`Ronda ${round} de ${tableLabel(order.details.table)} mandada a cocina. Total de la mesa: $${updated.total.toFixed(2)}.`);
+    notify(order.details.table ? `Ronda ${round} de ${where} mandada a cocina. Total de la mesa: $${updated.total.toFixed(2)}.` : `Se agregó al ${where} y se mandó a cocina. Total de la cuenta: $${updated.total.toFixed(2)}.`);
+    setAddingToId(null);
     setCart([]);
     setDetails({ orderType: "Mostrador", customerName: "", customerPhone: "", customerAddress: "", paymentMethod: "Efectivo", discount: 0 });
   }
@@ -549,6 +543,17 @@ function PosScreen() {
    * de mandar a preparar); los demás tipos se guardan directo.
    */
   function holdOrder() {
+    // Agregando a una cuenta en espera: lo marcado se suma a esa cuenta (no se pide cliente ni tipo otra vez)
+    if (addingToId !== null) {
+      const target = orders.find((o) => o.id === addingToId && o.pendingPayment && !o.cancelled);
+      if (!target) {
+        setAddingToId(null);
+        notify("Esa cuenta ya se cobró o se canceló. El pedido sigue aquí para mandarlo como uno nuevo.", "error");
+        return;
+      }
+      if (cart.length) appendRound(target);
+      return;
+    }
     if (!localStorage.getItem("bpos_active_shift")) {
       alert("Primero debes abrir la caja.");
       window.location.href = "/caja";
@@ -1100,6 +1105,10 @@ function PosScreen() {
               onHold={holdOrder}
               orderType={details.orderType}
               tableName={details.table?.name}
+              addingTo={(() => {
+                const target = addingToId !== null ? orders.find((o) => o.id === addingToId && o.pendingPayment && !o.cancelled) : undefined;
+                return target ? { label: nameOf(target), total: target.total, onCancel: () => setAddingToId(null) } : undefined;
+              })()}
             />
             </div>
             {/* Cuentas en espera (mesas, domicilio por cobrar, pedidos del menú que pagan al recoger) */}
@@ -1157,6 +1166,18 @@ function PosScreen() {
                             {order.details.table && (
                               <button onClick={() => printPrecuenta(order)} title="Imprimir precuenta" className="rounded-xl border border-zinc-700 bg-black px-3 py-2 text-sm font-black text-white">
                                 🧾
+                              </button>
+                            )}
+                            {!(order as { externalOrderKey?: string }).externalOrderKey && (
+                              <button
+                                onClick={() => {
+                                  setAddingToId(order.id);
+                                  document.getElementById("productos")?.scrollIntoView({ behavior: "smooth", block: "start" });
+                                }}
+                                title="Agregar más productos a esta cuenta (van a cocina y se suman al total)"
+                                className={`rounded-xl border px-3 py-2 text-sm font-black ${addingToId === order.id ? "border-yellow-400 bg-yellow-400/20 text-yellow-100" : "border-yellow-500/50 bg-black text-yellow-200"}`}
+                              >
+                                ➕ Agregar
                               </button>
                             )}
                             <button onClick={() => setPayingOrder(order)} className="rounded-xl bg-yellow-400 px-4 py-2 text-sm font-black text-black">
