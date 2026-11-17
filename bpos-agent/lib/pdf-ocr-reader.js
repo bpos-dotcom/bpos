@@ -45,6 +45,23 @@ function normalizeOcrText(text) {
     .trim();
 }
 
+/**
+ * Renglones de producto que leyó el OCR ("1x Combo Especial MX$189.00",
+ * "[2x] Aderezo especial", "1X Hamburguesa Polaca."). Sin ninguno, la lectura
+ * se brincó el bloque de productos (pasó con el DiDi #4: llegó dirección y
+ * totales pero ni un producto) y hay que leer otra vez de otra forma.
+ */
+function countProductLines(text) {
+  return (String(text || "").match(/^\s*\[?\d{1,2}\s*[xX]\]?\s+\S/gm) || []).length;
+}
+
+/**
+ * Modos de Tesseract a probar si la primera lectura (modo 4, una columna por
+ * renglones) no trajo productos: 6 (un solo bloque), 3 (automático) y 11
+ * (texto suelto). Se queda con la lectura que más productos encuentre.
+ */
+const RETRY_PAGESEG_MODES = ["6", "3", "11"];
+
 function findOrderNumber(text) {
   const lines = String(text || "")
     .replace(/\r/g, "")
@@ -154,6 +171,7 @@ async function ocrPages(pages) {
   const worker = await getOcrWorker();
   const temporaryFiles = [];
   const pageTexts = [];
+  const pageImages = [];
 
   let detectedOrderNumber = null;
   let detectedHeaderText = "";
@@ -175,6 +193,7 @@ fs.writeFileSync(
 );
 
 temporaryFiles.push(fullImagePath);
+pageImages.push(fullImagePath);
 
 // OCR GENERAL DEL TICKET
 // Modo 4 (una columna, por renglones): cada producto queda con su precio en
@@ -239,6 +258,25 @@ const headerResult = await worker.recognize(headerImagePath);
 
     let finalText = normalizeOcrText(pageTexts.join("\n"));
 
+    // La lectura se brincó los productos: se lee otra vez con otros modos
+    if (countProductLines(finalText) === 0 && pageImages.length) {
+      let best = { text: finalText, count: 0 };
+      for (const mode of RETRY_PAGESEG_MODES) {
+        await worker.setParameters({ tessedit_pageseg_mode: mode, tessedit_char_whitelist: "" });
+        const texts = [];
+        for (const image of pageImages) {
+          const result = await worker.recognize(image);
+          texts.push(normalizeOcrText(result?.data?.text));
+        }
+        const text = normalizeOcrText(texts.join("\n"));
+        const count = countProductLines(text);
+        console.log(`OCR sin productos: modo ${mode} encontró ${count} renglón(es) de producto`);
+        if (count > best.count) best = { text, count };
+        if (count > 0) break;
+      }
+      finalText = best.text;
+    }
+
     // Si encontramos el número, lo agregamos al principio para
     // que el parser existente pueda detectarlo.
     if (detectedOrderNumber) {
@@ -288,6 +326,7 @@ async function terminateOcrWorker() {
 }
 
 module.exports = {
+  countProductLines,
   extractPdfTextWithOcr,
   ocrPages,
   terminateOcrWorker,

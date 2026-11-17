@@ -320,7 +320,7 @@ export function interpretOrder(input: {
   if (lines.length === 0) {
     errors.push({
       code: "NO_QUANTIFIED_LINES",
-      message: "No se encontraron líneas con formato cantidad + x.",
+      message: "El ticket llegó sin productos: la lectura de la impresión no encontró ningún renglón \"1x …\". Vuelve a imprimir el pedido desde la app de la plataforma para que se lea otra vez.",
     });
   }
 
