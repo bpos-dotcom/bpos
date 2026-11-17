@@ -62,6 +62,43 @@ function countProductLines(text) {
  */
 const RETRY_PAGESEG_MODES = ["6", "3", "11"];
 
+/**
+ * Copia del ticket sin las líneas separadoras (punteadas o sólidas): DiDi
+ * encierra cada producto y el Subtotal entre líneas punteadas, y Tesseract a
+ * veces toma esa franja como dibujo y se brinca el renglón ("1x Hamburguesa
+ * Kansas City." del DiDi #4). Un renglón de pixeles que va oscuro en más del
+ * 35% del ancho es una línea, no texto: se pinta de blanco.
+ */
+function withoutRuleLines(canvas) {
+  const { width, height } = canvas;
+  const clean = createCanvas(width, height);
+  const ctx = clean.getContext("2d");
+  ctx.drawImage(canvas, 0, 0);
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  const isRule = new Uint8Array(height);
+  for (let y = 0; y < height; y += 1) {
+    let dark = 0;
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      if (data[i] + data[i + 1] + data[i + 2] < 384) dark += 1;
+    }
+    if (dark / width > 0.35) isRule[y] = 1;
+  }
+  let removed = 0;
+  for (let y = 0; y < height; y += 1) {
+    // La línea y un pixel arriba y abajo (bordes suavizados)
+    if (!isRule[y] && !isRule[y - 1] && !isRule[y + 1]) continue;
+    removed += 1;
+    for (let x = 0; x < width; x += 1) {
+      const i = (y * width + x) * 4;
+      data[i] = data[i + 1] = data[i + 2] = 255;
+    }
+  }
+  ctx.putImageData(image, 0, 0);
+  return { canvas: clean, removed };
+}
+
 function findOrderNumber(text) {
   const lines = String(text || "")
     .replace(/\r/g, "")
@@ -193,7 +230,7 @@ fs.writeFileSync(
 );
 
 temporaryFiles.push(fullImagePath);
-pageImages.push(fullImagePath);
+pageImages.push({ original: fullImagePath, canvas: fullCanvas });
 
 // OCR GENERAL DEL TICKET
 // Modo 4 (una columna, por renglones): cada producto queda con su precio en
@@ -259,18 +296,31 @@ const headerResult = await worker.recognize(headerImagePath);
     let finalText = normalizeOcrText(pageTexts.join("\n"));
 
     // La lectura se brincó los productos: se lee otra vez con otros modos
+    // Primero sin las líneas punteadas (la causa del DiDi #4), luego otros modos
     if (countProductLines(finalText) === 0 && pageImages.length) {
+      const cleanImages = pageImages.map((page, index) => {
+        const { canvas } = withoutRuleLines(page.canvas);
+        const file = path.join(os.tmpdir(), `bpos-clean-${Date.now()}-${index + 1}.png`);
+        fs.writeFileSync(file, canvas.toBuffer("image/png"));
+        temporaryFiles.push(file);
+        return file;
+      });
+      const attempts = [
+        { images: cleanImages, mode: "4", label: "sin líneas, modo 4" },
+        { images: cleanImages, mode: "6", label: "sin líneas, modo 6" },
+        ...RETRY_PAGESEG_MODES.map((mode) => ({ images: pageImages.map((p) => p.original), mode, label: `modo ${mode}` })),
+      ];
       let best = { text: finalText, count: 0 };
-      for (const mode of RETRY_PAGESEG_MODES) {
-        await worker.setParameters({ tessedit_pageseg_mode: mode, tessedit_char_whitelist: "" });
+      for (const attempt of attempts) {
+        await worker.setParameters({ tessedit_pageseg_mode: attempt.mode, tessedit_char_whitelist: "" });
         const texts = [];
-        for (const image of pageImages) {
+        for (const image of attempt.images) {
           const result = await worker.recognize(image);
           texts.push(normalizeOcrText(result?.data?.text));
         }
         const text = normalizeOcrText(texts.join("\n"));
         const count = countProductLines(text);
-        console.log(`OCR sin productos: modo ${mode} encontró ${count} renglón(es) de producto`);
+        console.log(`OCR sin productos: ${attempt.label} encontró ${count} renglón(es) de producto`);
         if (count > best.count) best = { text, count };
         if (count > 0) break;
       }
@@ -327,6 +377,7 @@ async function terminateOcrWorker() {
 
 module.exports = {
   countProductLines,
+  withoutRuleLines,
   extractPdfTextWithOcr,
   ocrPages,
   terminateOcrWorker,
