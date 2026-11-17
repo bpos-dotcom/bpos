@@ -34,7 +34,7 @@ import { appendRoundToOrder } from "@/lib/held-orders";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
 import { ClubPanel } from "@/components/club/ClubPanel";
 import { getLoyalty } from "@/lib/loyalty";
-import { claimWelcomeGift, earnLoyalty, findMembers, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
+import { claimWelcomeGift, earnLoyalty, offerClubWhatsapp, findMembers, redeemLoyalty, type ClubMember } from "@/lib/loyalty-pos";
 import { BackButton } from "@/components/layout/BackButton";
 import { TablesModal } from "@/components/pos/TablesModal";
 import { getTables, openTableOrder, TABLES_EVENT, tableLabel, type Table } from "@/lib/tables";
@@ -604,7 +604,7 @@ function PosScreen() {
     void clearDrawerSuspect(paid.total, "cobro");
     if (pay.couponCode) countCouponUse(pay.couponCode);
     if (order.clubAccountId) {
-      void earnLoyalty(order.clubAccountId, paid.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, currentUser?.name || "").catch((e) =>
+      void earnLoyalty(order.clubAccountId, paid.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, currentUser?.name || "").then((r) => offerClubWhatsapp(order.details.customerPhone || "", order.details.customerName || "", r)).catch((e) =>
         alert(`Cobrado, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`)
       );
     }
@@ -803,7 +803,10 @@ function PosScreen() {
       void (async () => {
         try {
           if (clubCash > 0) await redeemLoyalty(member.account_id, { cashback: clubCash }, `Saldo usado en Pedido #${formatOrderNumber(newOrder)}`, ref, currentUser?.name || "");
-          if (!data.pending) await earnLoyalty(member.account_id, total, ref, currentUser?.name || "");
+          if (!data.pending) {
+            const earned = await earnLoyalty(member.account_id, total, ref, currentUser?.name || "");
+            void offerClubWhatsapp(member.phone, member.name, earned);
+          }
         } catch (e) {
           alert(`Venta cobrada, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`);
         }

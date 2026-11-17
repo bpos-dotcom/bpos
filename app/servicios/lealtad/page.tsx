@@ -14,7 +14,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { ClubPanel } from "@/components/club/ClubPanel";
 import { getCurrentUser } from "@/lib/auth";
 import { LOYALTY_EVENT, balanceLabel, clubName, getLoyalty, type LoyaltyConfig } from "@/lib/loyalty";
-import { earnLoyalty, type ClubMember } from "@/lib/loyalty-pos";
+import { clubWhatsappLink, earnLoyalty, type ClubMember } from "@/lib/loyalty-pos";
 import { DIGITAL_MENU_EVENT, getDigitalMenu } from "@/lib/digital-menu";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { PUSH_SERVER as PUBLIC_SITE } from "@/lib/push/rules";
@@ -29,7 +29,7 @@ export default function LoyaltyCapturePage() {
   const [amount, setAmount] = useState("");
   const [ticket, setTicket] = useState("");
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [message, setMessage] = useState<{ ok: boolean; text: string; whatsapp?: string } | null>(null);
 
   useEffect(() => {
     const load = () => {
@@ -64,7 +64,7 @@ export default function LoyaltyCapturePage() {
       const next = { ...member, points: r.points ?? member.points, stamps: r.stamps ?? member.stamps, cashback: r.cashback ?? member.cashback };
       setMember(next);
       const earned = r.earned ? balanceLabel(config!, r.earned) : "";
-      setMessage({ ok: true, text: `✅ Compra de ${mxn(total)} sumada a ${member.name || member.phone}${earned ? `: +${earned}` : ""}. Ahora tiene ${balanceLabel(config!, next)}.` });
+      setMessage({ ok: true, text: `✅ Compra de ${mxn(total)} sumada a ${member.name || member.phone}${earned ? `: +${earned}` : ""}. Ahora tiene ${balanceLabel(config!, next)}.`, whatsapp: clubWhatsappLink(member.phone, member.name, r) });
       setAmount("");
       setTicket("");
     } catch (e) {
@@ -125,7 +125,16 @@ export default function LoyaltyCapturePage() {
                     <p className="mt-2 text-xs text-zinc-500">Con el folio de tu ticket, la misma compra no se suma dos veces.</p>
                   </section>
                 )}
-                {message && <p className={`rounded-2xl border p-3 text-sm ${message.ok ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-red-500/40 bg-red-500/10 text-red-200"}`}>{message.text}</p>}
+                {message && (
+                  <div className={`rounded-2xl border p-3 text-sm ${message.ok ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-200" : "border-red-500/40 bg-red-500/10 text-red-200"}`}>
+                    <p>{message.text}</p>
+                    {message.whatsapp && (
+                      <a href={message.whatsapp} target="_blank" rel="noreferrer" className="mt-3 inline-block rounded-2xl bg-emerald-500 px-5 py-3 font-black text-black">
+                        📲 Avisarle por WhatsApp
+                      </a>
+                    )}
+                  </div>
+                )}
               </>
             )}
           </div>

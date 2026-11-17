@@ -9,7 +9,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { paidShiftTag } from "@/lib/cash-register";
 import type { CurrentUser } from "@/lib/auth";
 import { getBusinessSettings } from "@/lib/business-settings";
-import { earnLoyalty } from "@/lib/loyalty-pos";
+import { earnLoyalty, offerClubWhatsapp } from "@/lib/loyalty-pos";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { authorizeWithAdminPin, requirePermissionOrAdmin } from "@/lib/permissions";
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
@@ -256,7 +256,7 @@ export async function markSavedOrderPaid(order: SavedOrder, method: string, user
   const paid: SavedOrder = { ...order, pendingPayment: false, paidAt: new Date().toISOString(), ...paidShiftTag(), details: { ...order.details, paymentMethod: method, payments: { [method]: order.total } } };
   replaceOrder(paid);
   if (order.clubAccountId) {
-    void earnLoyalty(order.clubAccountId, order.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, user?.name || "").catch((e) =>
+    void earnLoyalty(order.clubAccountId, order.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, user?.name || "").then((r) => offerClubWhatsapp(order.details.customerPhone || "", order.details.customerName || "", r)).catch((e) =>
       alert(`Cobrado, pero no se pudo sumar al club: ${e instanceof Error ? e.message : "sin internet"}`)
     );
   }
