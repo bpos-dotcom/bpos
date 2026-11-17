@@ -205,6 +205,37 @@ export function movementMessage(c: LoyaltyConfig, mv: LoyaltyMovement, m: { poin
   return { header: `Canjeaste ${mv.note || "tu premio"}`, body: `Te quedan ${plural(Math.floor(m.points), "punto", "puntos")}. ¡Gracias por venir!` };
 }
 
+/**
+ * WhatsApp para el socio después de sumar (gratis, se abre con wa.me y el
+ * cajero da enviar): qué juntó, cuánto lleva, cuánto le falta y dónde ver
+ * su tarjeta (su cuenta o Google Wallet). "" si no sumó nada.
+ */
+export function earnedWhatsappText(
+  c: LoyaltyConfig,
+  earned: { points: number; stamps: number; cashback: number },
+  balance: { points: number; stamps: number; cashback: number },
+  opts: { name?: string; business: string; clubLink?: string }
+) {
+  const message = movementMessage(c, { tipo: "suma", ...earned }, balance);
+  if (!message) return "";
+  const first = String(opts.name || "").trim().split(/\s+/)[0];
+  const unit = c.kind === "sellos" ? "sellos" : c.kind === "cashback" ? "saldo" : "puntos";
+  const what =
+    c.kind === "sellos"
+      ? earned.stamps === 1
+        ? "un nuevo sello"
+        : `${earned.stamps} sellos nuevos`
+      : c.kind === "cashback"
+        ? `${money(earned.cashback)} de saldo`
+        : `${Math.floor(earned.points)} puntos`;
+  return [
+    `¡Hola${first && first !== "Cliente" ? ` ${first}` : ""}! 🧡 Juntaste ${what} en *${clubName(c, opts.business)}* de ${opts.business}.`,
+    message.body,
+    `💳 Puedes verificar tus ${unit} en tu cuenta o en tu tarjeta de Google Wallet${opts.clubLink ? `: ${opts.clubLink}` : "."}`,
+    "¡Gracias por tu compra!",
+  ].join("\n");
+}
+
 // ------------------------------------------------------------ en B-POS
 
 const KEY = "bpos_loyalty";

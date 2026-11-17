@@ -4,9 +4,36 @@
  * tarjeta), sumarle por la venta y canjear premios o saldo. Todo pasa por
  * funciones de la nube que revisan que sea del negocio (migración 0016).
  */
+import { ask } from "@/components/layout/Dialogs";
 import { aiFetch } from "@/lib/ai/client";
-import type { LoyaltyMovement } from "@/lib/loyalty";
+import { getBusinessSettings } from "@/lib/business-settings";
+import { getDigitalMenu, whatsappNumber } from "@/lib/digital-menu";
+import { earnedWhatsappText, getLoyalty, type LoyaltyMovement } from "@/lib/loyalty";
+import { PUSH_SERVER } from "@/lib/push/rules";
 import { getSupabase } from "@/lib/supabase/client";
+
+type EarnResult = { member: boolean; points?: number; stamps?: number; cashback?: number; earned?: { points: number; stamps: number; cashback: number } } | null | undefined;
+
+/** Liga de WhatsApp (wa.me) con el aviso de lo que sumó; "" si no sumó nada o el teléfono no sirve */
+export function clubWhatsappLink(phone: string, name: string, result: EarnResult) {
+  const to = whatsappNumber(phone);
+  if (!to || !result?.member || !result.earned) return "";
+  const slug = getDigitalMenu().slug;
+  const text = earnedWhatsappText(
+    getLoyalty(),
+    result.earned,
+    { points: Number(result.points) || 0, stamps: Number(result.stamps) || 0, cashback: Number(result.cashback) || 0 },
+    { name, business: getBusinessSettings().businessName || "nosotros", clubLink: slug ? `${PUSH_SERVER}/fidelidad/${slug}` : "" }
+  );
+  return text ? `https://wa.me/${to}?text=${encodeURIComponent(text)}` : "";
+}
+
+/** Al cobrar: ofrece abrir WhatsApp con el aviso del sello/puntos ya escrito */
+export async function offerClubWhatsapp(phone: string, name: string, result: EarnResult) {
+  const link = clubWhatsappLink(phone, name, result);
+  if (!link) return;
+  if (await ask(`Se le sumó al club a ${name || phone}. ¿Avisarle por WhatsApp?`, { ok: "📲 Avisarle por WhatsApp", cancel: "No" })) window.open(link, "_blank");
+}
 
 export type ClubMember = {
   account_id: string;
