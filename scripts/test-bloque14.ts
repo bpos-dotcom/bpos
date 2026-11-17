@@ -73,6 +73,17 @@ check("reimpresión de venta guardada sin 'Usuario'", venta.customer === null);
   check("'Strawberry Cream' sigue eligiendo el Strawberry Cream", pickOptions(["Strawberry Cream"], [{ key: "a", name: "Dr Pepper Strawberry Cream" }, { key: "b", name: "Dr Pepper" }, { key: "c", name: "Coca Cola" }]).join() === "a");
   check("'Ranch No, Gracias' no elige Ranch", pickOptions(["Ranch No, Gracias"], [{ key: "r", name: "Ranch" }]).length === 0);
   check("'Sin cebolla' no elige Cebolla", pickOptions(["Sin cebolla"], [{ key: "c", name: "Cebolla" }]).length === 0);
+  {
+    const burgers = ["Hamburguesa Mexicana", "Hamburguesa Kansas City", "Hamburguesa Hawaiana", "Hamburguesa Italiana", "Hamburguesa Polaca", "Hamburguesa Si Racha"].map((name, i) => ({ key: `h${i}`, name }));
+    check("DiDi 'Sriracha' elige 'Hamburguesa Si Racha'", pickOptions(["Sriracha"], burgers).join() === "h5", pickOptions(["Sriracha"], burgers));
+    check("'Hamburguesa Sriracha' elige 'Hamburguesa Si Racha'", pickOptions(["Hamburguesa Sriracha"], burgers).join() === "h5", pickOptions(["Hamburguesa Sriracha"], burgers));
+    check("'Kansas Cty' (con error) elige Kansas City", pickOptions(["Kansas Cty"], burgers).join() === "h1", pickOptions(["Kansas Cty"], burgers));
+    check("pedido DiDi #1: Sriracha + Si + Cherry no elige otra hamburguesa", pickOptions(["Sriracha", "Si", "Cherry (dr pepper o mtn dew)"], burgers).join() === "h5", pickOptions(["Sriracha", "Si", "Cherry (dr pepper o mtn dew)"], burgers));
+    check("'Si' sigue sin elegir 'Si Racha'", pickOptions(["Si"], burgers).length === 0);
+    check("palabras cortas no se confunden ('Polaco' de 6 letras sí, 'Pola' no)", optionNameMatches("Polaco", "Hamburguesa Polaca") && !optionNameMatches("Pola", "Hamburguesa Polaca"));
+    check("dos letras distintas no cuentan", !optionNameMatches("Mexicanos", "Hamburguesa Mexicana"));
+    check("'Ranch No, Gracias' sigue sin elegir Ranch", pickOptions(["Ranch No, Gracias"], [{ key: "r", name: "Ranch Jalapeño" }, { key: "s", name: "Ranch" }]).length === 0);
+  }
   check("'Queso amarillo' elige Queso Amarillo", pickOptions(["Queso amarillo"], [{ key: "q", name: "Queso Amarillo" }, { key: "r", name: "Ranch" }]).join() === "q");
 }
 
