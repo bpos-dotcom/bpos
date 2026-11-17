@@ -11,7 +11,7 @@
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import { adjustInventory, getInventory } from "@/lib/inventory";
-import { getLatestIngredientCost } from "@/lib/purchases";
+import { getLatestIngredientCost, getPurchases } from "@/lib/purchases";
 
 export const TASKS_KEY = "bpos_productivity_tasks";
 export const LOG_KEY = "bpos_productivity_log";
@@ -120,7 +120,7 @@ export type BlindCount = {
   /** La hora que tocaba (o cuando el dueño lo pidió) */
   slot: string;
   /** pendiente: lo pidió el dueño y nadie lo ha empezado */
-  status: "pendiente" | "en curso" | "enviado" | "ajustado" | "revisado" | "cancelado";
+  status: "pendiente" | "en curso" | "enviado" | "ajustado" | "revisado" | "cancelado" | "anulado";
   requestedBy?: string;
   startedAt?: string;
   startedBy?: string;
@@ -131,6 +131,14 @@ export type BlindCount = {
   reviewedBy?: string;
   cancelledAt?: string;
   cancelledBy?: string;
+  /** Compras registradas después de contar que el dueño dijo que ya estaban en el local */
+  latePurchases?: string[];
+  /** Lo que se le sumó (+) o restó (−) al inventario al ajustar, para poder deshacerlo */
+  applied?: { ingredientId: number; delta: number }[];
+  /** El dueño lo eliminó (conteo mal hecho): se deshizo su ajuste y se puede pedir otro */
+  annulledAt?: string;
+  annulledBy?: string;
+  annulReason?: string;
 };
 
 export const DEFAULT_SETTINGS: ProductivitySettings = {
@@ -479,7 +487,7 @@ export function blindSlotToday(now = new Date()): string | null {
   return when <= now ? when.toISOString() : null;
 }
 
-const CLOSED: BlindCount["status"][] = ["enviado", "ajustado", "revisado", "cancelado"];
+const CLOSED: BlindCount["status"][] = ["enviado", "ajustado", "revisado", "cancelado", "anulado"];
 
 /**
  * El inventario ciego que les toca ahora: uno empezado o pedido por el dueño,
@@ -548,21 +556,60 @@ export function setBlindLine(countId: string, ingredientId: number, counted: num
   });
 }
 
-export type BlindRow = BlindLine & { diff: number; money: number; state: "cuadra" | "falta" | "sobra" | "sin contar" };
+export type BlindRow = BlindLine & {
+  diff: number;
+  money: number;
+  state: "cuadra" | "falta" | "sobra" | "sin contar";
+  /** Compras registradas después de contar que sí se toman como ya en el local */
+  late: number;
+};
 
 const round3 = (n: number) => Math.round(n * 1000) / 1000;
 
-export function blindRows(count: BlindCount): BlindRow[] {
+export type LatePurchase = { id: string; folio: string; supplier: string; createdAt: string; items: { ingredientId: number; name: string; quantity: number; unit: string }[] };
+
+/**
+ * Compras que se registraron DESPUÉS de que contaron ese insumo. Si la
+ * mercancía ya estaba en el local cuando contaron (se compró antes y se
+ * registró tarde), lo contado ya la incluye: hay que sumarla a lo que decía
+ * el sistema o se cuenta dos veces.
+ */
+export function blindLatePurchases(count: BlindCount, until = count.reviewedAt || new Date().toISOString()): LatePurchase[] {
+  const countedAt = new Map(count.lines.filter((l) => l.counted !== null && l.at).map((l) => [Number(l.ingredientId), String(l.at)]));
+  if (!countedAt.size) return [];
+  return getPurchases()
+    .filter((p) => p.status === "confirmed" && p.createdAt <= until)
+    .map((p) => ({
+      id: p.id,
+      folio: p.folio,
+      supplier: p.supplier,
+      createdAt: p.createdAt,
+      items: p.items
+        .filter((i) => countedAt.has(Number(i.ingredientId)) && p.createdAt > countedAt.get(Number(i.ingredientId))! && Number(i.inventoryQuantity) > 0)
+        .map((i) => ({ ingredientId: Number(i.ingredientId), name: i.ingredientName, quantity: Number(i.inventoryQuantity), unit: i.unit })),
+    }))
+    .filter((p) => p.items.length > 0)
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+}
+
+/** include: ids de las compras tardías que ya estaban en el local (de fábrica, las que se eligieron al ajustar) */
+export function blindRows(count: BlindCount, include: string[] = count.latePurchases || []): BlindRow[] {
+  const late = new Map<number, number>();
+  if (include.length) {
+    const chosen = new Set(include);
+    for (const p of blindLatePurchases(count)) if (chosen.has(p.id)) for (const i of p.items) late.set(i.ingredientId, (late.get(i.ingredientId) || 0) + i.quantity);
+  }
   return count.lines.map((l) => {
-    if (l.counted === null || l.expected === undefined) return { ...l, diff: 0, money: 0, state: "sin contar" as const };
-    const diff = round3(l.counted - l.expected);
+    if (l.counted === null || l.expected === undefined) return { ...l, diff: 0, money: 0, state: "sin contar" as const, late: 0 };
+    const extra = round3(late.get(Number(l.ingredientId)) || 0);
+    const diff = round3(l.counted - (l.expected + extra));
     const state = Math.abs(diff) < 0.0005 ? "cuadra" : diff < 0 ? "falta" : "sobra";
-    return { ...l, diff, money: Math.round(diff * (l.unitCost || 0) * 100) / 100, state };
+    return { ...l, diff, money: Math.round(diff * (l.unitCost || 0) * 100) / 100, state, late: extra };
   });
 }
 
-export function blindSummary(count: BlindCount) {
-  const rows = blindRows(count);
+export function blindSummary(count: BlindCount, include?: string[]) {
+  const rows = blindRows(count, include);
   const of = (s: BlindRow["state"]) => rows.filter((r) => r.state === s);
   return {
     rows,
@@ -596,13 +643,15 @@ export function submitBlind(countId: string) {
  * El dueño está de acuerdo con lo que contó el personal: cada insumo queda en
  * lo contado más lo que se movió desde que lo contaron (ventas, compras).
  */
-export function adjustBlindToCounted(countId: string) {
+export function adjustBlindToCounted(countId: string, latePurchases: string[] = []) {
   const count = getBlindCounts().find((c) => c.id === countId);
   if (!count || count.status !== "enviado") throw new Error("Este inventario ya se revisó.");
   const when = new Date(count.submittedAt || count.slot).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
   let changed = 0;
-  for (const row of blindRows(count)) {
+  const applied: { ingredientId: number; delta: number }[] = [];
+  for (const row of blindRows(count, latePurchases)) {
     if (row.state !== "falta" && row.state !== "sobra") continue;
+    applied.push({ ingredientId: row.ingredientId, delta: row.diff });
     adjustInventory({
       ingredientId: row.ingredientId,
       quantity: Math.abs(row.diff),
@@ -611,7 +660,7 @@ export function adjustBlindToCounted(countId: string) {
     });
     changed++;
   }
-  saveBlind({ ...count, status: "ajustado", reviewedAt: new Date().toISOString(), reviewedBy: who() });
+  saveBlind({ ...count, status: "ajustado", reviewedAt: new Date().toISOString(), reviewedBy: who(), latePurchases, applied });
   addAuditEvent({ category: "Inventario", action: "blind.adjusted", description: `${who()} ajustó ${changed} insumo(s) a lo contado en el inventario ciego del ${when}`, userName: who(), entityId: count.id });
   return changed;
 }
@@ -643,4 +692,43 @@ export function cancelBlind(target: { countId?: string; slot?: string } | string
     entityId: saved.id,
   });
   return saved;
+}
+
+/**
+ * Eliminar un inventario ciego ya subido (contaron mal): si se ajustó, el
+ * inventario regresa a como estaba (se deshace exactamente lo que se le sumó o
+ * restó, con su movimiento en el Kardex) y queda "anulado" en el historial.
+ * Después se puede pedir otro y contar bien.
+ */
+export function annulBlind(countId: string, by = who(), reason = "") {
+  const count = getBlindCounts().find((c) => c.id === countId);
+  if (!count) throw new Error("No se encontró ese inventario ciego.");
+  if (count.status !== "enviado" && count.status !== "ajustado" && count.status !== "revisado") throw new Error("Ese inventario ciego no se ha subido o ya se eliminó.");
+  const when = new Date(count.submittedAt || count.slot).toLocaleDateString("es-MX", { weekday: "short", day: "numeric", month: "short" });
+  const note = reason.trim();
+  // Los ajustados antes de guardar "applied" se deshacen con las mismas diferencias que se aplicaron entonces
+  const applied =
+    count.status !== "ajustado"
+      ? []
+      : count.applied || blindRows(count, []).filter((r) => r.state === "falta" || r.state === "sobra").map((r) => ({ ingredientId: r.ingredientId, delta: r.diff }));
+  let reverted = 0;
+  for (const a of applied) {
+    if (!a.delta || !getInventory().some((i) => Number(i.id) === Number(a.ingredientId))) continue;
+    adjustInventory({
+      ingredientId: a.ingredientId,
+      quantity: Math.abs(a.delta),
+      adjustmentType: a.delta > 0 ? "Ajuste negativo" : "Ajuste positivo",
+      reason: `Se eliminó el inventario ciego del ${when} (${by})${note ? `: ${note}` : ""}`,
+    });
+    reverted++;
+  }
+  const saved = saveBlind({ ...count, status: "anulado", annulledAt: new Date().toISOString(), annulledBy: by, annulReason: note || undefined });
+  addAuditEvent({
+    category: "Inventario",
+    action: "blind.annulled",
+    description: `${by} eliminó el inventario ciego del ${when}${reverted ? ` y deshizo el ajuste de ${reverted} insumo(s)` : ""}${note ? `: ${note}` : ""}`,
+    userName: by,
+    entityId: count.id,
+  });
+  return { count: saved, reverted };
 }
