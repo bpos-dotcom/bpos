@@ -239,10 +239,42 @@ function isOptionOf(product: CatalogProduct, products: CatalogProduct[], externa
   );
 }
 
+/** Distancia de edición (letras que cambian, sobran o faltan) */
+function editDistance(a: string, b: string) {
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= b.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[b.length];
+}
+
+/**
+ * ¿Algún tramo de palabras seguidas de "long", sin espacios, es casi igual a
+ * "short" sin espacios? A lo más una letra distinta y desde 6 letras:
+ * "Sriracha" ↔ "Hamburguesa Si Racha", "Kansas Cty" ↔ "Kansas City".
+ */
+function nearlyContains(short: string, long: string) {
+  const s = short.replace(/ /g, "");
+  if (s.length < 6) return false;
+  const w = long.split(" ");
+  for (let i = 0; i < w.length; i++) {
+    for (let j = i + 1; j <= w.length; j++) {
+      const piece = w.slice(i, j).join("");
+      if (piece.length > s.length + 1) break;
+      if (piece.length >= s.length - 1 && editDistance(s, piece) <= 1) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * ¿Lo que dice el ticket nombra esta opción? Igual, o una contiene a la otra
  * en palabras completas ("Polaca" ↔ "Hamburguesa Polaca"). Lo contenido debe
  * tener al menos 4 letras: "Si" (catsup aparte) no es la hamburguesa "Si Racha".
+ * Si no, casi igual (desde 6 letras, sin espacios, una letra de diferencia):
+ * la plataforma escribe "Sriracha" y en el POS se llama "Si Racha".
  */
 export function optionNameMatches(said: string, option: string) {
   const words = (s: string) => normalize(s).replace(/[^a-z0-9ñ]+/g, " ").trim();
@@ -251,7 +283,8 @@ export function optionNameMatches(said: string, option: string) {
   if (!a || !b) return false;
   if (a === b) return true;
   const [short, long] = a.length < b.length ? [a, b] : [b, a];
-  return short.replace(/ /g, "").length >= 4 && ` ${long} `.includes(` ${short} `);
+  if (short.replace(/ /g, "").length >= 4 && ` ${long} `.includes(` ${short} `)) return true;
+  return nearlyContains(a, b) || nearlyContains(b, a);
 }
 
 function findCatalogEntry<T extends { id: string | number }>(
