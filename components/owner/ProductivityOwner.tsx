@@ -9,7 +9,9 @@
  *  - ve lo que se atendió hoy (con fotos) y lo que sigue pendiente.
  */
 import { useEffect, useMemo, useState } from "react";
-import { ask, notify } from "@/components/layout/Dialogs";
+import { ask, askText, notify } from "@/components/layout/Dialogs";
+import { getCurrentUser } from "@/lib/auth";
+import { authorizeAdmin } from "@/lib/permissions";
 import { ItemPhotos } from "@/components/productivity/ItemPhotos";
 import { getInventory } from "@/lib/inventory";
 import { blindEmail } from "@/lib/productivity-remote";
@@ -18,6 +20,8 @@ import {
   PRODUCTIVITY_EVENT,
   REPEAT_OPTIONS,
   adjustBlindToCounted,
+  annulBlind,
+  blindLatePurchases,
   blindSummary,
   cancelBlind,
   deleteMessage,
@@ -378,9 +382,13 @@ function HistoryView({ onOpen, tick }: { onOpen: (url: string) => void; tick: un
 
 // ------------------------------------------------------------ inventario ciego
 
-function BlindReport({ count }: { count: BlindCount }) {
+function BlindReport({ count, onRequestNew }: { count: BlindCount; onRequestNew: () => void }) {
   const [open, setOpen] = useState(count.status === "enviado");
-  const s = blindSummary(count);
+  const annulled = count.status === "anulado";
+  // Compras registradas después de contar: de fábrica se toman como ya en el local (se compraron antes y se registraron tarde)
+  const late = useMemo(() => (count.status === "enviado" ? blindLatePurchases(count) : []), [count]);
+  const [include, setInclude] = useState<string[]>(() => late.map((p) => p.id));
+  const s = blindSummary(count, count.status === "enviado" ? include : undefined);
   const order = ["falta", "sobra", "sin contar", "cuadra"];
   const rows = s.rows.slice().sort((a, b) => order.indexOf(a.state) - order.indexOf(b.state) || a.money - b.money);
   const when = new Date(count.submittedAt || count.slot).toLocaleString("es-MX", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
@@ -388,18 +396,39 @@ function BlindReport({ count }: { count: BlindCount }) {
   async function adjust() {
     if (!(await ask(`¿Ajustar ${s.falta + s.sobra} insumo(s) a lo que contó el personal? Cada uno queda en lo contado más lo que se movió desde que lo contaron.`, { ok: "Sí, ajustar todo", cancel: "No" }))) return;
     try {
-      const n = adjustBlindToCounted(count.id);
+      const n = adjustBlindToCounted(count.id, include);
       notify(`Listo: ${n} insumo(s) ajustados a lo contado.`);
     } catch (e) {
       notify(e instanceof Error ? e.message : "No se pudo.", "error");
     }
   }
 
+  async function remove() {
+    const admin = await authorizeAdmin("eliminar un inventario ciego", getCurrentUser());
+    if (!admin) return;
+    const reason = await askText(
+      count.status === "ajustado"
+        ? "Se va a eliminar este inventario ciego y el inventario regresa a como estaba antes de ajustarlo. ¿Por qué lo eliminas? (opcional)"
+        : "Se va a eliminar este inventario ciego. El inventario no cambia. ¿Por qué lo eliminas? (opcional)",
+      { placeholder: "Ej. contaron mal las papas", ok: "Eliminar" }
+    );
+    if (reason === null) return;
+    try {
+      const { reverted } = annulBlind(count.id, admin, reason);
+      notify(reverted ? `Inventario ciego eliminado: ${reverted} insumo(s) regresaron a como estaban.` : "Inventario ciego eliminado.");
+      if (await ask("¿Pedir otro inventario ciego ahora para que cuenten bien?", { ok: "Sí, pedirlo", cancel: "Después" })) onRequestNew();
+    } catch (e) {
+      notify(e instanceof Error ? e.message : "No se pudo.", "error");
+    }
+  }
+
+  const badge = count.status === "enviado" ? "Por revisar" : count.status === "ajustado" ? "Ajustado" : annulled ? "Eliminado" : "Revisado";
+
   return (
-    <div className={`rounded-2xl border p-4 ${count.status === "enviado" ? "border-orange-500/60 bg-orange-500/10" : "border-zinc-800 bg-zinc-950"}`}>
+    <div className={`rounded-2xl border p-4 ${count.status === "enviado" ? "border-orange-500/60 bg-orange-500/10" : annulled ? "border-zinc-800 bg-zinc-950 opacity-60" : "border-zinc-800 bg-zinc-950"}`}>
       <button onClick={() => setOpen((o) => !o)} className="flex w-full items-start justify-between gap-3 text-left">
-        <div>
-          <p className="font-black">📦 {when}</p>
+        <div className="min-w-0">
+          <p className={`font-black ${annulled ? "line-through" : ""}`}>📦 {when}</p>
           <p className="text-xs text-zinc-400">
             Contó {count.submittedBy || count.startedBy} · {s.cuadra} cuadran · {s.falta} faltan · {s.sobra} sobran{s.sinContar ? ` · ${s.sinContar} sin contar` : ""}
           </p>
@@ -407,10 +436,34 @@ function BlindReport({ count }: { count: BlindCount }) {
             <b className="text-red-400">Faltante {money(s.faltante)}</b> · <b className="text-sky-400">Sobrante {money(s.sobrante)}</b>
           </p>
         </div>
-        <span className="shrink-0 rounded-lg border border-zinc-700 px-2 py-1 text-xs font-black text-zinc-300">{count.status === "enviado" ? "Por revisar" : count.status === "ajustado" ? "Ajustado" : "Revisado"}</span>
+        <span className="shrink-0 rounded-lg border border-zinc-700 px-2 py-1 text-xs font-black text-zinc-300">{badge}</span>
       </button>
       {open && (
         <>
+          {late.length > 0 && (
+            <div className="mt-3 rounded-xl border border-sky-500/40 bg-sky-500/5 p-3 text-sm">
+              <p className="font-black text-sky-300">🧾 Compras registradas después de que contaron</p>
+              <p className="mt-1 text-xs text-zinc-400">
+                Si la mercancía ya estaba en el local cuando contaron (se compró antes y se registró tarde), déjala marcada: se suma a lo que decía el sistema para no contarla dos veces. Si llegó después del conteo, desmárcala.
+              </p>
+              <div className="mt-2 space-y-1">
+                {late.map((p) => (
+                  <label key={p.id} className="flex items-start gap-2 rounded-lg px-1 py-1">
+                    <input
+                      type="checkbox"
+                      checked={include.includes(p.id)}
+                      onChange={() => setInclude((list) => (list.includes(p.id) ? list.filter((x) => x !== p.id) : [...list, p.id]))}
+                      className="mt-0.5 h-5 w-5 shrink-0 accent-sky-500"
+                    />
+                    <span className="min-w-0 break-words">
+                      <b>{p.folio}</b> · {p.supplier} · registrada {new Date(p.createdAt).toLocaleString("es-MX", { weekday: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}
+                      <span className="block text-xs text-zinc-400">{p.items.map((i) => `${i.name} ${i.quantity} ${i.unit}`).join(" · ")} — ya estaba en el local</span>
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
           <div className="mt-3 overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -426,7 +479,10 @@ function BlindReport({ count }: { count: BlindCount }) {
                   <tr key={r.ingredientId} className="border-t border-zinc-800">
                     <td className="py-1.5 font-bold">{r.name}</td>
                     <td className="py-1.5 text-right">{r.counted === null ? "—" : `${r.counted} ${r.unit}`}</td>
-                    <td className="py-1.5 text-right text-zinc-400">{r.expected === undefined ? "—" : `${Math.round(r.expected * 1000) / 1000} ${r.unit}`}</td>
+                    <td className="py-1.5 text-right text-zinc-400">
+                      {r.expected === undefined ? "—" : `${Math.round((r.expected + r.late) * 1000) / 1000} ${r.unit}`}
+                      {r.late > 0 && <span className="block text-[11px] text-sky-400">incluye compra +{r.late}</span>}
+                    </td>
                     <td className={`py-1.5 text-right font-black ${r.state === "falta" ? "text-red-400" : r.state === "sobra" ? "text-sky-400" : r.state === "cuadra" ? "text-emerald-400" : "text-zinc-500"}`}>
                       {r.state === "falta" || r.state === "sobra" ? `${r.diff > 0 ? "+" : ""}${r.diff} ${r.unit}${r.money ? ` (${money(r.money)})` : ""}` : r.state === "cuadra" ? "Cuadra" : "Sin contar"}
                     </td>
@@ -445,7 +501,18 @@ function BlindReport({ count }: { count: BlindCount }) {
               </button>
             </div>
           )}
-          {count.reviewedBy && <p className="mt-2 text-xs text-zinc-500">{count.status === "ajustado" ? "Ajustó" : "Revisó"} {count.reviewedBy} · {count.reviewedAt ? new Date(count.reviewedAt).toLocaleString("es-MX") : ""}</p>}
+          {count.reviewedBy && <p className="mt-2 text-xs text-zinc-500">{count.applied || count.status === "ajustado" ? "Ajustó" : "Revisó"} {count.reviewedBy} · {count.reviewedAt ? new Date(count.reviewedAt).toLocaleString("es-MX") : ""}</p>}
+          {annulled && (
+            <p className="mt-2 text-xs text-zinc-400">
+              🗑️ Lo eliminó {count.annulledBy} · {count.annulledAt ? new Date(count.annulledAt).toLocaleString("es-MX") : ""}
+              {count.annulReason ? ` · ${count.annulReason}` : ""}
+            </p>
+          )}
+          {!annulled && (
+            <button onClick={() => void remove()} className="mt-3 w-full rounded-2xl border border-red-500/40 px-4 py-3 text-sm font-black text-red-300 hover:bg-red-500/10">
+              🔒 Eliminar este inventario ciego{count.status === "ajustado" ? " y deshacer su ajuste" : ""}
+            </button>
+          )}
         </>
       )}
     </div>
@@ -537,7 +604,7 @@ export function ProductivityOwner() {
   const [email, setEmail] = useState(data.settings.email);
   const [msgRepeat, setMsgRepeat] = useState(data.settings.messageRepeatMinutes);
   const openBlind = data.counts.find((c) => c.status === "pendiente" || c.status === "en curso");
-  const reports = data.counts.filter((c) => c.status === "enviado" || c.status === "ajustado" || c.status === "revisado").sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)));
+  const reports = data.counts.filter((c) => c.status === "enviado" || c.status === "ajustado" || c.status === "revisado" || c.status === "anulado").sort((a, b) => String(b.submittedAt).localeCompare(String(a.submittedAt)));
   const toReview = reports.filter((c) => c.status === "enviado").length;
 
   function send() {
@@ -701,7 +768,7 @@ export function ProductivityOwner() {
           <p className="font-black">Reportes</p>
           {reports.length === 0 && <p className="text-sm text-zinc-500">Todavía no hay inventarios ciegos subidos.</p>}
           {reports.map((c) => (
-            <BlindReport key={c.id} count={c} />
+            <BlindReport key={c.id} count={c} onRequestNew={requestNow} />
           ))}
         </>
       )}
