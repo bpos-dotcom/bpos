@@ -193,6 +193,8 @@ type CartPanelProps = {
   orderType?: string;
   /** Pedido de mesa: su nombre, para el botón de mandar a cocina */
   tableName?: string;
+  /** Agregando productos a una cuenta en espera: lo marcado se suma a esa cuenta (onHold) y va a cocina */
+  addingTo?: { label: string; total: number; onCancel: () => void };
 };
 
 export function CartPanel({
@@ -208,6 +210,7 @@ export function CartPanel({
   onHold,
   orderType,
   tableName,
+  addingTo,
 }: CartPanelProps) {
   const subtotal = items.reduce(
     (total, item) => total + item.price * item.quantity,
@@ -232,6 +235,16 @@ export function CartPanel({
           </button>
         )}
       </div>
+
+      {addingTo && (
+        <div className="mt-3 rounded-2xl border border-yellow-500/60 bg-yellow-500/10 p-3">
+          <p className="font-black text-yellow-200">➕ Agregando a {addingTo.label}</p>
+          <p className="mt-0.5 text-xs text-zinc-400">Marca lo que quieren de más. Va a cocina solo lo nuevo y se suma a la cuenta (lleva ${addingTo.total.toFixed(2)}).</p>
+          <button onClick={addingTo.onCancel} className="mt-2 rounded-xl border border-zinc-700 px-3 py-1.5 text-xs font-black text-zinc-300 hover:border-yellow-400">
+            Ya no agregar
+          </button>
+        </div>
+      )}
 
       {/* Lista chica con su propio scroll: así caben abajo los detalles y el Club */}
       <div className="mt-3 max-h-[30dvh] space-y-2 overflow-y-auto bpos-scroll pr-1 md:max-h-[28dvh]">
@@ -274,7 +287,15 @@ export function CartPanel({
           </span>
         </div>
 
-        {orderType === "Mesa" ? (
+        {addingTo ? (
+          <button
+            onClick={onHold}
+            disabled={items.length === 0}
+            className="mt-3 w-full rounded-2xl bg-yellow-400 py-3 font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            ➕ Agregar a {addingTo.label} · mandar a cocina
+          </button>
+        ) : orderType === "Mesa" ? (
           <>
             <button
               onClick={onHold}
@@ -329,7 +350,7 @@ export function CartPanel({
           </>
         )}
 
-        {!canCheckout && (
+        {!canCheckout && !addingTo && (
           <p className="text-center text-xs text-zinc-500">
             {validationMessage}
           </p>
