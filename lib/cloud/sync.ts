@@ -231,6 +231,34 @@ function saveDirty() {
   safeSet(DIRTY_KEY, JSON.stringify([...dirty]));
 }
 
+/** Lo que se puede recortar si la memoria se llena */
+const DISPOSABLE_KEYS = ["bpos_audit_log", "bpos_operations_center_alerts"];
+
+/** Últimos 200 de la auditoría; de los avisos, solo los que siguen sin resolver */
+export function trimmedDisposable(key: string, raw: string): string {
+  try {
+    const list = JSON.parse(raw);
+    if (!Array.isArray(list)) return raw;
+    if (key === "bpos_audit_log") return JSON.stringify(list.slice(0, 200));
+    return JSON.stringify(list.filter((a: { status?: string }) => a?.status !== "resolved").slice(0, 100));
+  } catch {
+    return raw;
+  }
+}
+
+function freeDisposableSpace(storage: Storage, set: Storage["setItem"], except: string) {
+  for (const key of DISPOSABLE_KEYS) {
+    if (key === except) continue;
+    const raw = Storage.prototype.getItem.call(storage, key);
+    if (!raw) continue;
+    try {
+      set.call(storage, key, trimmedDisposable(key, raw));
+    } catch {
+      /* si ni así cabe, se deja */
+    }
+  }
+}
+
 /** Aligera las ventas ya guardadas. Regresa true si cambió algo. */
 function compactOrders() {
   const raw = rawGet(ORDERS_COLLECTION);
@@ -857,7 +885,14 @@ export function startSync(acc: ReadyAccount) {
       if (!isLocal || !isQuotaError(e)) throw e;
       originalRemove.call(this, SHADOW_KEY);
       shadow = {};
-      originalSet.call(this, key, next);
+      try {
+        originalSet.call(this, key, next);
+      } catch (e2) {
+        // Sigue llena: se recortan la auditoría (su copia completa está en la nube) y los avisos resueltos
+        if (!isQuotaError(e2)) throw e2;
+        freeDisposableSpace(this, originalSet, key);
+        originalSet.call(this, key, DISPOSABLE_KEYS.includes(key) ? trimmedDisposable(key, next) : next);
+      }
     }
     if (this === window.localStorage && shouldSync(key)) markDirty(key);
   };

@@ -12,7 +12,11 @@ export type AuditEvent = {
 };
 
 const AUDIT_KEY = "bpos_audit_log";
-const MAX_EVENTS = 5000;
+/**
+ * En la caja solo se quedan los más recientes: la copia completa (que nadie
+ * puede borrar) está en la nube. Con 5000 se llenaba la memoria del navegador.
+ */
+const MAX_EVENTS = 1000;
 
 function readAudit(): AuditEvent[] {
   if (typeof window === "undefined") return [];
@@ -41,8 +45,20 @@ export function addAuditEvent(
   };
 
   if (typeof window !== "undefined") {
-    const next = [saved, ...readAudit()].slice(0, MAX_EVENTS);
-    localStorage.setItem(AUDIT_KEY, JSON.stringify(next));
+    // Nunca debe trabar la caja: si la memoria está llena se guardan menos
+    let next = [saved, ...readAudit()].slice(0, MAX_EVENTS);
+    for (;;) {
+      try {
+        localStorage.setItem(AUDIT_KEY, JSON.stringify(next));
+        break;
+      } catch (e) {
+        if (next.length <= 50) {
+          console.warn("[auditoría] no se pudo guardar en la caja (ya va a la nube)", e);
+          break;
+        }
+        next = next.slice(0, Math.floor(next.length / 2));
+      }
+    }
     window.dispatchEvent(new Event("bpos:audit-updated"));
     // Copia en la nube que nadie puede editar ni borrar
     queueCloudAudit(saved);

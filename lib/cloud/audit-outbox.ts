@@ -27,7 +27,20 @@ function readQueue(): AuditEvent[] {
 }
 
 function writeQueue(queue: AuditEvent[]) {
-  localStorage.setItem(OUTBOX_KEY, JSON.stringify(queue.slice(-MAX_QUEUE)));
+  // Memoria llena: se guardan los más recientes que quepan; nunca traba la caja
+  let list = queue.slice(-MAX_QUEUE);
+  for (;;) {
+    try {
+      localStorage.setItem(OUTBOX_KEY, JSON.stringify(list));
+      return;
+    } catch (e) {
+      if (list.length <= 1) {
+        console.warn("[auditoría] no cupo en la fila para la nube", e);
+        return;
+      }
+      list = list.slice(-Math.floor(list.length / 2));
+    }
+  }
 }
 
 export function pendingCloudAudit() {
