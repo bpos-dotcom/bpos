@@ -26,6 +26,14 @@ import { addAuditEvent } from "@/lib/audit";
 import { downloadXlsx } from "@/lib/xlsx";
 import { exportInventory, exportKardex } from "@/lib/exports";
 import { CheckChips, MoveCard, MovesList, StockBadge, checkItems, isLow, isMovesCheck, isOut, qty, stockMoves, type StockCheck } from "@/components/inventory/StockCheck";
+import { KARDEX_LOCAL_DAYS, mergeKardex } from "@/lib/kardex-archive";
+import { archivedKardexNotice, useArchivedKardex } from "@/lib/use-archived-kardex";
+
+/** A las 00:00 de hace n días (fijo durante el día, para no volver a pedir a la nube a cada rato) */
+function daysAgo(n: number) {
+  const now = new Date();
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - n);
+}
 
 export default function InventarioPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -33,6 +41,7 @@ export default function InventarioPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [recipes, setRecipes] = useState<RecipeItem[]>([]);
   const [kardex, setKardex] = useState<InventoryMovement[]>([]);
+  const [kardexDays, setKardexDays] = useState(KARDEX_LOCAL_DAYS);
 
   const [ingredientId, setIngredientId] = useState("");
   const [adjustmentType, setAdjustmentType] = useState<
@@ -88,8 +97,12 @@ export default function InventarioPage() {
     }
   }
 
+  // En la caja solo están los últimos días del kardex; lo anterior se pide a la nube al elegirlo
+  const cloudKardex = useArchivedKardex(kardexDays > KARDEX_LOCAL_DAYS ? daysAgo(kardexDays) : null);
+  const fullKardex = useMemo(() => mergeKardex(kardex, cloudKardex.rows), [kardex, cloudKardex.rows]);
+
   // De lo más nuevo a lo más viejo, con los cambios que no dejaron movimiento
-  const kardexRows = useMemo(() => kardexWithGaps(kardex).reverse(), [kardex]);
+  const kardexRows = useMemo(() => kardexWithGaps(fullKardex).reverse(), [fullKardex]);
 
   const lowStock = ingredients.filter(
     (ingredient) => ingredient.stock <= ingredient.minimum
@@ -111,7 +124,7 @@ export default function InventarioPage() {
         <Metric title="Ingredientes" value={ingredients.length.toString()} />
         <Metric title="Alertas" value={lowStock.length.toString()} />
         <Metric title="Recetas" value={products.length.toString()} />
-        <Metric title="Movimientos" value={kardex.length.toString()} />
+        <Metric title="Movimientos" value={fullKardex.length.toString()} />
       </div>
 
       <section className="mt-6 rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
@@ -183,9 +196,9 @@ export default function InventarioPage() {
         )}
       </section>
 
-      <WasteSection kardex={kardex} />
+      <WasteSection kardex={fullKardex} />
 
-      <InventoryCheckPanel ingredients={ingredients} kardex={kardex} />
+      <InventoryCheckPanel ingredients={ingredients} kardex={fullKardex} />
 
       <ListPanel
         title="Kardex de inventario"
@@ -195,11 +208,19 @@ export default function InventarioPage() {
         empty="Todavía no hay movimientos de inventario."
         filters={KARDEX_FILTERS}
         actions={
-          kardex.length > 0 && (
-            <button onClick={() => exportKardex(kardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
-              📥 Excel
-            </button>
-          )
+          <div className="flex flex-wrap items-center gap-2">
+            <select value={kardexDays} onChange={(e) => setKardexDays(Number(e.target.value))} className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-bold" aria-label="Periodo del kardex">
+              <option value={KARDEX_LOCAL_DAYS}>Últimos {KARDEX_LOCAL_DAYS} días</option>
+              <option value={30}>Últimos 30 días ☁️</option>
+              <option value={90}>Últimos 90 días ☁️</option>
+            </select>
+            {fullKardex.length > 0 && (
+              <button onClick={() => exportKardex(fullKardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">
+                📥 Excel
+              </button>
+            )}
+            {archivedKardexNotice(cloudKardex) && <span className={`text-sm font-bold ${cloudKardex.error ? "text-red-400" : "text-sky-400"}`}>{archivedKardexNotice(cloudKardex)}</span>}
+          </div>
         }
         render={(movement) => {
           const gap = movement.type === "Sin registro";

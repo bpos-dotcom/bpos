@@ -12,6 +12,8 @@ import { getCurrentUser } from "@/lib/auth";
 import { requirePermission } from "@/lib/permissions";
 import { mergeOrders } from "@/lib/order-archive";
 import { archivedNotice, useArchivedOrders } from "@/lib/use-archived-orders";
+import { mergeKardex } from "@/lib/kardex-archive";
+import { archivedKardexNotice, useArchivedKardex } from "@/lib/use-archived-kardex";
 import {
   equivalenceWarnings,
   expectedUse,
@@ -108,6 +110,9 @@ export default function EquivaladorPage() {
   const fromMs = from.getTime();
   const endMs = endExclusive.getTime();
   const archived = useArchivedOrders(validRange ? from : null, validRange ? endExclusive : null);
+  // La existencia de cada día se calcula hacia atrás desde hoy: hace falta el kardex desde "from" (lo viejo está en la nube)
+  const archivedKardex = useArchivedKardex(validRange ? from : null, null);
+  const fullKardex = useMemo(() => mergeKardex(kardex, archivedKardex.rows), [kardex, archivedKardex.rows]);
   const sales = useMemo(() => (validRange ? salesInRange(mergeOrders(orders, archived.orders as EquivalenceOrder[]), new Date(fromMs), new Date(endMs)) : []), [orders, archived.orders, validRange, fromMs, endMs]);
 
   // Insumos que sale a cuenta equivaler: los que lleva alguna receta u opción
@@ -176,6 +181,7 @@ export default function EquivaladorPage() {
             <p className="mt-3 text-sm font-bold text-red-400">La fecha &quot;desde&quot; debe ser antes de &quot;hasta&quot;.</p>
           )}
           {archivedNotice(archived) && <p className={`mt-2 text-sm font-bold ${archived.error ? "text-red-400" : "text-sky-400"}`}>{archivedNotice(archived)}</p>}
+          {archivedKardexNotice(archivedKardex) && <p className={`mt-2 text-sm font-bold ${archivedKardex.error ? "text-red-400" : "text-sky-400"}`}>{archivedKardexNotice(archivedKardex)}</p>}
         </section>
 
         <section className="mt-4 rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
@@ -213,7 +219,7 @@ export default function EquivaladorPage() {
               input={rows[ing.id] || defaultRow()}
               onInput={(next) => setRows((r) => ({ ...r, [ing.id]: next }))}
               onRemove={() => setPicked(picks.filter((id) => id !== Number(ing.id)))}
-              kardex={kardex}
+              kardex={fullKardex}
               sales={sales}
               recipes={recipes}
               products={products}
