@@ -56,8 +56,24 @@ function readJson<T>(key: string, fallback: T): T {
   }
 }
 
+/**
+ * Las resueltas solo se guardan una semana (y no más de 200 en total): con
+ * cientos de avisos viejos la memoria del navegador se llenaba y la caja se
+ * trababa ("exceeded the quota").
+ */
+export function keepAlerts(alerts: OperationsAlert[], now = Date.now()) {
+  const weekAgo = now - 7 * 24 * 60 * 60 * 1000;
+  return alerts
+    .filter((a) => a.status !== "resolved" || new Date(a.resolvedAt || a.createdAt).getTime() > weekAgo)
+    .slice(0, 200);
+}
+
 function writeAlerts(alerts: OperationsAlert[]) {
-  localStorage.setItem(ALERTS_KEY, JSON.stringify(alerts.slice(0, 500)));
+  try {
+    localStorage.setItem(ALERTS_KEY, JSON.stringify(keepAlerts(alerts)));
+  } catch (e) {
+    console.warn("[avisos] no se pudo guardar", e);
+  }
   window.dispatchEvent(new Event(EVENT_NAME));
 }
 
