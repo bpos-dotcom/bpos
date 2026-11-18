@@ -275,7 +275,23 @@ function nearlyContains(short: string, long: string) {
  * tener al menos 4 letras: "Si" (catsup aparte) no es la hamburguesa "Si Racha".
  * Si no, casi igual (desde 6 letras, sin espacios, una letra de diferencia):
  * la plataforma escribe "Sriracha" y en el POS se llama "Si Racha".
+ * O el nombre corto completo, en orden, con palabras de relleno en medio
+ * (desde 2 palabras y 6 letras): "Refresco Coca Cola ORIGINAL 600ml" es la
+ * "Coca-Cola 600ml".
  */
+function wordsInOrder(short: string, long: string) {
+  const s = short.split(" ");
+  if (s.length < 2 || short.replace(/ /g, "").length < 6) return false;
+  const l = long.split(" ");
+  let at = 0;
+  for (const w of s) {
+    const i = l.indexOf(w, at);
+    if (i < 0) return false;
+    at = i + 1;
+  }
+  return true;
+}
+
 export function optionNameMatches(said: string, option: string) {
   const words = (s: string) => normalize(s).replace(/[^a-z0-9ñ]+/g, " ").trim();
   const a = words(said);
@@ -284,6 +300,7 @@ export function optionNameMatches(said: string, option: string) {
   if (a === b) return true;
   const [short, long] = a.length < b.length ? [a, b] : [b, a];
   if (short.replace(/ /g, "").length >= 4 && ` ${long} `.includes(` ${short} `)) return true;
+  if (wordsInOrder(short, long)) return true;
   return nearlyContains(a, b) || nearlyContains(b, a);
 }
 

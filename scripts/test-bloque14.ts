@@ -82,6 +82,14 @@ check("reimpresión de venta guardada sin 'Usuario'", venta.customer === null);
     check("'Si' sigue sin elegir 'Si Racha'", pickOptions(["Si"], burgers).length === 0);
     check("palabras cortas no se confunden ('Polaco' de 6 letras sí, 'Pola' no)", optionNameMatches("Polaco", "Hamburguesa Polaca") && !optionNameMatches("Pola", "Hamburguesa Polaca"));
     check("dos letras distintas no cuentan", !optionNameMatches("Mexicanos", "Hamburguesa Mexicana"));
+    {
+      const drinks = ["Dr Pepper Strawberry Cream", "MTN DEW", "Dr Pepper", "Dr Pepper BlackBerry", "Dr Pepper Cherry", "Dr Pepper Cream Soda", "Coca-Cola 600ml"].map((name, i) => ({ key: `d${i}`, name }));
+      const coca = pickOptions(["Refresco Coca Cola ORIGINAL 600ml"], drinks);
+      check("DiDi #11 'Refresco Coca Cola ORIGINAL 600ml' elige 'Coca-Cola 600ml'", coca.join() === "d6", coca);
+      check("'Dr Pepper' sigue eligiendo Dr Pepper", pickOptions(["Dr Pepper"], drinks).join() === "d2");
+      check("'Dr Pepper Strawberry Cream' sigue exacto", pickOptions(["Dr Pepper Strawberry Cream"], drinks).join() === "d0");
+      check("en desorden no cuenta ('Cola Coca')", !optionNameMatches("Cola Coca 600ml", "Coca-Cola 600ml"));
+    }
     check("'Ranch No, Gracias' sigue sin elegir Ranch", pickOptions(["Ranch No, Gracias"], [{ key: "r", name: "Ranch Jalapeño" }, { key: "s", name: "Ranch" }]).length === 0);
   }
   check("'Queso amarillo' elige Queso Amarillo", pickOptions(["Queso amarillo"], [{ key: "q", name: "Queso Amarillo" }, { key: "r", name: "Ranch" }]).join() === "q");
