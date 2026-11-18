@@ -12,9 +12,10 @@
  *
  * Funciona sin internet: los cambios quedan pendientes y se suben al
  * volver la conexión.
- */
+ */
 import { isQuotaError, slimOrdersText } from "@/lib/order-slim";
 import { isArchivedOrder, localOrdersCutoff } from "@/lib/order-archive";
+import { archiveIds, KARDEX_ARCHIVE_COLLECTION, localKardexCutoff, splitKardex } from "@/lib/kardex-archive";
 import type { ReadyAccount } from "@/lib/cloud/account";
 import { friendlyError, getSupabase } from "@/lib/supabase/client";
 
@@ -302,6 +303,86 @@ function pruneArchivedOrders() {
   shadow[ORDERS_COLLECTION] = keyShadow;
   saveShadow();
   notifyApp([ORDERS_COLLECTION]);
+}
+
+const KARDEX_KEY = "bpos_inventory_kardex";
+
+/**
+ * El kardex viejo (antes de los últimos días) se sube a la nube en una
+ * colección aparte y se quita de la caja (ver lib/kardex-archive.ts). Solo
+ * se quita lo que la nube confirmó; si algo falla, se queda para la próxima.
+ */
+async function archiveOldKardex() {
+  if (!account) return;
+  if (typeof navigator !== "undefined" && !navigator.onLine) return;
+  const parsed = parseValue(rawGet(KARDEX_KEY));
+  if (parsed.mode === "missing") return;
+  const list = parsed.mode === "records" ? parsed.list : Array.isArray(parsed.value) ? (parsed.value as unknown[]) : null;
+  if (!list) return;
+  const cutoff = localKardexCutoff();
+  const { old } = splitKardex(list, cutoff);
+  if (!old.length) return;
+  const ids = archiveIds(old);
+  const scope = scopeFor(KARDEX_KEY);
+  const device = getDeviceId();
+  try {
+    for (let i = 0; i < old.length; i += UPSERT_BATCH) {
+      const rows = old.slice(i, i + UPSERT_BATCH).map((data, j) => ({
+        business_id: account!.businessId,
+        scope,
+        collection: KARDEX_ARCHIVE_COLLECTION,
+        record_id: ids[i + j],
+        data,
+        deleted: false,
+        updated_by: device,
+      }));
+      const { error } = await getSupabase().from("sync_records").upsert(rows, { onConflict: "business_id,scope,collection,record_id" });
+      if (error) throw new Error(friendlyError(error));
+    }
+  } catch (e) {
+    console.warn("[sync] no se pudo guardar el kardex viejo en la nube", e);
+    return;
+  }
+  // Mientras subía pudo llegar otro movimiento: se vuelve a leer y solo se quita lo que ya está en la nube
+  const now = parseValue(rawGet(KARDEX_KEY));
+  const current = now.mode === "records" ? now.list : now.mode === "doc" && Array.isArray(now.value) ? (now.value as unknown[]) : null;
+  if (!current) return;
+  const uploaded = new Set(ids);
+  const split = splitKardex(current, cutoff);
+  const oldIds = archiveIds(split.old);
+  const left = split.old.filter((_, i) => !uploaded.has(oldIds[i]));
+  try {
+    rawSet(KARDEX_KEY, JSON.stringify([...left, ...split.keep]));
+  } catch (e) {
+    console.warn("[sync] no se pudo aligerar el kardex", e);
+    return;
+  }
+  markDirty(KARDEX_KEY);
+  notifyApp([KARDEX_KEY]);
+}
+
+/** Kardex de la nube de esta sucursal entre dos fechas (lo que ya no está en la caja) */
+export async function fetchCloudKardex(from: Date, to: Date): Promise<unknown[]> {
+  if (!account) return [];
+  const all: unknown[] = [];
+  for (let page = 0; ; page += 1) {
+    const { data, error } = await getSupabase()
+      .from("sync_records")
+      .select("data")
+      .eq("business_id", account.businessId)
+      .eq("scope", account.branchId)
+      .eq("collection", KARDEX_ARCHIVE_COLLECTION)
+      .eq("deleted", false)
+      .gte("data->>createdAt", from.toISOString())
+      .lt("data->>createdAt", to.toISOString())
+      .order("record_id", { ascending: true })
+      .range(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE - 1);
+    if (error) throw new Error(friendlyError(error));
+    const rows = (data ?? []) as { data: unknown }[];
+    rows.forEach((r) => r.data && all.push(r.data));
+    if (rows.length < PAGE_SIZE) break;
+  }
+  return all;
 }
 
 /** Ventas de la nube de esta sucursal entre dos fechas (lo que ya no está en la caja) */
@@ -700,6 +781,7 @@ async function fetchSince(since: number): Promise<Row[]> {
       .select("collection, record_id, data, deleted, seq")
       .eq("business_id", account!.businessId)
       .in("scope", [account!.branchId, "business"])
+      .neq("collection", KARDEX_ARCHIVE_COLLECTION) // el kardex viejo se queda en la nube
       .gt("seq", cursor)
       .order("seq", { ascending: true })
       .limit(PAGE_SIZE);
@@ -917,6 +999,9 @@ export function startSync(acc: ReadyAccount) {
   }, 60000);
   // Al cambiar de mes, el mes antepasado se va a la nube
   setInterval(() => void enqueue(async () => pruneArchivedOrders()), 60 * 60 * 1000);
+  // El kardex viejo se va a la nube (al abrir y cada hora)
+  void enqueue(() => archiveOldKardex());
+  setInterval(() => void enqueue(() => archiveOldKardex()), 60 * 60 * 1000);
   window.addEventListener("online", () => {
     void flush();
     schedulePull(100);
