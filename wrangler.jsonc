@@ -9,5 +9,10 @@
     "binding": "ASSETS"
   },
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "bpos" }],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // Valores que no son secretos (los secretos se guardan en el panel de Cloudflare)
+  "vars": {
+    "GOOGLE_WALLET_ISSUER_ID": "3388000000023229508",
+    "MP_CLIENT_ID": "5461571198046273"
+  }
 }

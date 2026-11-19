@@ -5,13 +5,15 @@ import { domainRedirects } from "./lib/domain-redirects";
 // Publicación que está corriendo (las pantallas abiertas la comparan para avisar
 // que hay versión nueva). Vercel y Cloudflare la dan; si no, se lee de git.
 function buildSha() {
-  const fromHost = process.env.VERCEL_GIT_COMMIT_SHA || process.env.WORKERS_CI_COMMIT_SHA || "";
-  if (fromHost) return fromHost;
+  const isSha = (v: string) => /^[0-9a-f]{40}$/i.test(v);
+  for (const v of [process.env.VERCEL_GIT_COMMIT_SHA || "", process.env.WORKERS_CI_COMMIT_SHA || ""]) if (isSha(v)) return v;
   try {
-    return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    const head = execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+    if (isSha(head)) return head;
   } catch {
-    return "";
+    // sin git
   }
+  return process.env.WORKERS_CI_COMMIT_SHA || "";
 }
 const BUILD_SHA = buildSha();
 
