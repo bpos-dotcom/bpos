@@ -94,7 +94,31 @@ export type Product = {
   noPackaging?: boolean;
   /** Multimarca (Configuración → Marcas): de qué marca es; sin marca = la principal, "all" = todas las marcas */
   brandId?: string;
+
+  // --- Tienda y ferretería (lib/retail.ts) ---
+  /** Código de barras (el que trae el empaque, o uno de la tienda que empieza con 20) */
+  barcode?: string;
+  /** Otros códigos del mismo artículo (ej. la lata y el paquete de 6 de otra marca de empaque) */
+  extraBarcodes?: string[];
+  /** "granel": se vende por kilo, litro o metro y al venderlo se pregunta cuánto; sin dato = por pieza */
+  sellBy?: "pieza" | "granel";
+  /** Unidad del precio y de la existencia: pza, kg, g, L o m */
+  unit?: RetailUnit;
+  /** Lo que le cuesta a la tienda (por unidad): para la ganancia */
+  cost?: number;
+  /** De quién se compra (para el pedido sugerido) */
+  supplier?: string;
+  /** Mayoreo: desde esta cantidad cada unidad cuesta este precio */
+  wholesale?: { minQty: number; price: number };
+  /** Insumo del inventario que es la existencia de este artículo (se crea solo) */
+  stockItemId?: number;
+  /** No lleva existencias (ej. un servicio o "Varios") */
+  noStock?: boolean;
+  /** Precio libre: se escribe el importe al venderlo ("Varios") */
+  openPrice?: boolean;
 };
+
+export type RetailUnit = "pza" | "kg" | "g" | "L" | "m";
 
 export const products: Product[] = [
   {

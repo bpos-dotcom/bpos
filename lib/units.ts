@@ -17,15 +17,17 @@ export const UNITS: { value: Unit; label: string }[] = [
   { value: "kg", label: "kg (kilos)" },
   { value: "ml", label: "ml (mililitros)" },
   { value: "L", label: "L (litros)" },
+  { value: "m", label: "m (metros)" },
 ];
 
 /** Cuántas unidades base vale 1 (g para peso, ml para volumen) */
-const BASE: Record<Unit, { group: "pieza" | "peso" | "volumen"; size: number }> = {
+const BASE: Record<Unit, { group: "pieza" | "peso" | "volumen" | "longitud"; size: number }> = {
   pza: { group: "pieza", size: 1 },
   g: { group: "peso", size: 1 },
   kg: { group: "peso", size: 1000 },
   ml: { group: "volumen", size: 1 },
   L: { group: "volumen", size: 1000 },
+  m: { group: "longitud", size: 1 },
 };
 
 /** Por cuánto se multiplica una cantidad al pasar de una unidad a otra (null si no se puede: kg → pza) */

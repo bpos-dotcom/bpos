@@ -77,6 +77,9 @@ type Picks = Record<string, string[]>;
 
 const money = (n: number) => `$${n.toFixed(2)}`;
 const price = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
+/** Tienda a granel: "$32/kg" */
+const priceTag = (p: { price: number | string; sellBy?: string; unit?: string }): string =>
+  `${priceTag(p)}${p.sellBy === "granel" && p.unit && p.unit !== "pza" ? `/${p.unit}` : ""}`;
 const waLink = (number: string, text: string) => `https://api.whatsapp.com/send/?phone=${number}&text=${encodeURIComponent(text)}`;
 
 export function PublicMenu({ slug, kiosk, onKioskDone }: { slug: string; kiosk?: KioskSession; onKioskDone?: () => void }) {
@@ -264,7 +267,7 @@ function Menu({
   const visible = useMemo(
     () =>
       sortProducts(
-        data.products.filter((p) => !p.notSoldAlone && isAvailableOnline(menu, p, now) && !onlineGroups(p, data.products, menu, now).blocked),
+        data.products.filter((p) => !p.notSoldAlone && !(p as { soldOut?: boolean }).soldOut && isAvailableOnline(menu, p, now) && !onlineGroups(p, data.products, menu, now).blocked),
         menu.categoryOrder,
         menu.productOrder
       ),
@@ -393,7 +396,7 @@ function Menu({
       <span className="flex flex-1 flex-col p-2">
         <span className="line-clamp-2 text-xs font-black leading-tight md:text-sm">{p.name}</span>
         <span className="mt-auto flex items-center justify-between pt-1">
-          <span className="text-sm font-black" style={{ color }}>{price(Number(p.price))}</span>
+          <span className="text-sm font-black" style={{ color }}>{priceTag(p)}</span>
           {canOrder && plusBtn(p)}
         </span>
       </span>
@@ -413,7 +416,7 @@ function Menu({
       <span className="min-w-0 flex-1">
         <span className="line-clamp-2 text-sm font-black leading-tight">{p.name}</span>
         {p.description && <span className="mt-0.5 line-clamp-2 text-xs text-zinc-500">{p.description}</span>}
-        <span className="mt-1 block text-sm font-black" style={{ color }}>{price(Number(p.price))}</span>
+        <span className="mt-1 block text-sm font-black" style={{ color }}>{priceTag(p)}</span>
       </span>
       {canOrder && plusBtn(p)}
     </button>
@@ -432,7 +435,7 @@ function Menu({
         <span className="line-clamp-2 font-black leading-tight">{p.name}</span>
         {p.description && <span className="mt-1 line-clamp-2 text-xs text-zinc-500">{p.description}</span>}
         <span className="mt-auto flex items-center justify-between pt-2">
-          <span className="font-black" style={{ color }}>{price(Number(p.price))}</span>
+          <span className="font-black" style={{ color }}>{priceTag(p)}</span>
           {canOrder && plusBtn(p)}
         </span>
       </span>

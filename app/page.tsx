@@ -7,12 +7,12 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { ThemeToggle } from "@/components/layout/TopCorner";
-import { PLANS, TRIAL_DAYS, type PlanId } from "@/lib/plans";
+import { PLANS, TRIAL_DAYS, planPrice, type PlanId } from "@/lib/plans";
 import { SERVICES } from "@/lib/services";
 
 export const metadata: Metadata = {
-  title: "B-POS · Punto de venta para restaurantes",
-  description: "Caja, cocina, inventario y pedidos de Rappi, Uber Eats y DiDi Food en un solo sistema. Prueba gratis.",
+  title: "B-POS · Punto de venta para restaurantes, tiendas y ferreterías",
+  description: "Caja, cocina, inventario y pedidos de Rappi, Uber Eats y DiDi Food en un solo sistema. También para tiendas y ferreterías: código de barras, granel y fiado. Prueba gratis.",
 };
 
 const FEATURES = [
@@ -26,6 +26,16 @@ const FEATURES = [
   ["🤖", "Inteligencia artificial", "Sube la foto de tu menú y B-POS registra tus productos (plan Max)."],
 ] as const;
 
+/** Tienda y ferretería: lo mismo de B-POS, con lo que necesita un negocio de artículos */
+const RETAIL_FEATURES = [
+  ["📷", "Código de barras", "Escanea con el lector y el artículo se agrega solo. Al darlo de alta, B-POS busca su nombre y foto."],
+  ["⚖️", "A granel", "Jitomate por kilo, cable por metro, pintura por litro: escribe los gramos o \"$20 de jitomate\" y B-POS calcula."],
+  ["📦", "Existencias de cada artículo", "Cada venta descuenta, cada compra suma (también con foto del ticket o factura) y te avisa lo que se está acabando."],
+  ["📒", "Fiado", "La cuenta de cada cliente: lo que se le fió, sus abonos, su límite y un recordatorio por WhatsApp."],
+  ["🚚", "Pedido sugerido", "Qué comprar según lo que vendes, por proveedor, listo para mandarlo por WhatsApp."],
+  ["🏷️", "Mayoreo y etiquetas", "Precio de mayoreo desde X piezas y etiquetas de precio con código de barras."],
+] as const;
+
 const STEPS = [
   ["1", "Crea tu cuenta", `Da de alta tu negocio. ${TRIAL_DAYS} días gratis, sin tarjeta.`],
   ["2", "Conecta tus impresoras", "Desde Configuración → Sistema descargas B-POS Agent para la computadora de las impresoras: imprime las comandas y lee los pedidos de delivery. Se actualiza solo."],
@@ -34,7 +44,8 @@ const STEPS = [
 
 const FAQ = [
   ["¿Necesito tarjeta para la prueba?", `No. Tienes ${TRIAL_DAYS} días gratis y eliges tu plan cuando quieras.`],
-  ["¿Cómo se paga?", "Cada mes con Mercado Pago, por sucursal. Cancelas cuando quieras desde Mi plan."],
+  ["¿Cómo se paga?", "Con Mercado Pago, por sucursal: cada mes, o un año por adelantado con 2 meses gratis. Cancelas cuando quieras desde Mi plan."],
+  ["¿Sirve para mi tienda o ferretería?", "Sí. Al crear tu cuenta elige Tienda o Ferretería: vendes con lector de código de barras, a granel (kilo, litro o metro), con existencias por artículo, mayoreo y fiado. Puedes subir tu catálogo desde Excel."],
   ["¿Tengo que instalar algo?", "Para vender no: B-POS funciona en el navegador. Solo en la computadora de las impresoras se instala B-POS Agent, que descargas desde tu cuenta en Configuración → Sistema."],
   ["¿Necesita internet?", "Sí, B-POS trabaja en la nube (igual que las plataformas de delivery). Así ves tus ventas en vivo desde cualquier lugar."],
   ["¿Qué impresoras usa?", "Impresoras térmicas de tickets (USB o red). Puedes tener una por estación de cocina."],
@@ -67,7 +78,7 @@ export default function BposLanding() {
 
       <section className="mx-auto grid max-w-6xl items-center gap-10 px-4 pb-16 pt-8 sm:px-6 lg:grid-cols-[1.2fr_1fr] lg:pt-16">
         <div>
-          <p className="font-black text-orange-500">Punto de venta para restaurantes</p>
+          <p className="font-black text-orange-500">Punto de venta para restaurantes, tiendas y ferreterías</p>
           <h1 className="mt-3 text-4xl font-black leading-tight sm:text-6xl">
             Caja, cocina y delivery <span className="text-orange-500">en un solo lugar.</span>
           </h1>
@@ -105,10 +116,30 @@ export default function BposLanding() {
         </div>
       </section>
 
-      <section id="planes" className="py-16">
+      <section id="tiendas" className="py-16">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6">
+          <p className="font-black text-orange-500">🛒 Tiendas · 🔩 Ferreterías</p>
+          <h2 className="mt-2 text-3xl font-black sm:text-4xl">¿Tienes una tienda o ferretería? También es para ti</h2>
+          <p className="mt-3 max-w-2xl text-zinc-400">
+            Al crear tu cuenta elige &quot;Tienda&quot; o &quot;Ferretería&quot;: B-POS esconde lo de cocina y te da lo de un negocio de artículos.
+            Caja, inventario, compras, productividad, menú digital con pedidos para recoger o a domicilio, y club de clientes.
+          </p>
+          <div className="mt-8 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {RETAIL_FEATURES.map(([icon, title, text]) => (
+              <div key={title} className="rounded-3xl border border-zinc-800 bg-zinc-950 p-5">
+                <p className="text-4xl">{icon}</p>
+                <h3 className="mt-3 text-lg font-black text-orange-500">{title}</h3>
+                <p className="mt-2 text-sm leading-6 text-zinc-400">{text}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <section id="planes" className="border-t border-zinc-800 py-16">
         <div className="mx-auto max-w-6xl px-4 sm:px-6">
           <h2 className="text-3xl font-black sm:text-4xl">Planes</h2>
-          <p className="mt-2 text-zinc-400">Precio por sucursal al mes, en pesos mexicanos. Todos empiezan con {TRIAL_DAYS} días gratis.</p>
+          <p className="mt-2 text-zinc-400">Precio por sucursal al mes, en pesos mexicanos; pagando el año completo te regalamos 2 meses. Todos empiezan con {TRIAL_DAYS} días gratis.</p>
           <div className="mt-8 grid gap-4 md:grid-cols-3">
             {(Object.keys(PLANS) as PlanId[]).map((id) => {
               const plan = PLANS[id];
@@ -120,6 +151,7 @@ export default function BposLanding() {
                   <p className="mt-2 text-4xl font-black text-orange-400">
                     ${plan.price} <span className="text-sm font-bold text-zinc-400">/ sucursal / mes</span>
                   </p>
+                  <p className="mt-1 text-sm font-bold text-orange-300">o ${planPrice(id, "annual").toLocaleString("es-MX")} al año, 2 meses gratis</p>
                   <ul className="mt-5 flex-1 space-y-2 text-sm text-zinc-300">
                     {plan.features.map((f) => (
                       <li key={f}>✓ {f}</li>
@@ -203,7 +235,7 @@ export default function BposLanding() {
           <span>·</span>
           <Link href="/privacidad" className="hover:text-orange-300 hover:underline">Aviso de privacidad</Link>
         </p>
-        <p className="mt-2">© {new Date().getFullYear()} B-POS · Punto de venta para restaurantes</p>
+        <p className="mt-2">© {new Date().getFullYear()} B-POS · Punto de venta para restaurantes y tiendas</p>
       </footer>
     </main>
   );

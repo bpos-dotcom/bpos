@@ -7,6 +7,7 @@ import {
   type SoldModifier,
   type SoldPart,
 } from "@/lib/compound";
+import { formatQty, isBulk, unitShort } from "@/lib/retail";
 
 export type CartItem = Product & {
   quantity: number;
@@ -98,6 +99,10 @@ function CartRow({
   onDecrease,
   onComment,
 }: RowActions & { item: CartItem; big?: boolean }) {
+  // Artículo de tienda: sin estación de cocina; a granel se ve "0.25 kg × Jitomate"
+  const retail = item.sellBy !== undefined || item.openPrice === true;
+  const bulk = isBulk(item);
+  const fixedLine = bulk || item.openPrice === true;
   return (
     <div
       className={`rounded-2xl border border-zinc-800 bg-black ${big ? "p-4" : "p-3"}`}
@@ -105,9 +110,9 @@ function CartRow({
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className={big ? "text-lg font-bold" : "font-bold"}>
-            {item.quantity} × {item.name}
+            {bulk ? formatQty(item.quantity, item.unit) : item.quantity} × {item.name}
           </p>
-          <p className="text-sm text-zinc-400">${item.price.toFixed(2)} c/u</p>
+          <p className="text-sm text-zinc-400">${item.price.toFixed(2)} {bulk ? `/ ${unitShort(item.unit)}` : "c/u"}</p>
           {item.modifiers?.length ? (
             <p className="mt-1 text-xs text-zinc-300">
               {modifiersText(item.modifiers)}
@@ -133,7 +138,7 @@ function CartRow({
                 </li>
               ))}
             </ul>
-          ) : (
+          ) : retail ? null : (
             <p className="mt-1 text-xs text-orange-400">
               👨‍🍳{" "}
               {[
@@ -150,7 +155,7 @@ function CartRow({
         </div>
 
         <p className="font-black text-orange-500">
-          ${(item.price * item.quantity).toFixed(2)}
+          ${(Math.round(item.price * item.quantity * 100) / 100).toFixed(2)}
         </p>
       </div>
 
@@ -162,12 +167,14 @@ function CartRow({
           -
         </button>
 
-        <button
-          onClick={() => onIncrease(cartLineId(item))}
-          className="h-9 w-9 rounded-xl bg-orange-500 font-black text-black"
-        >
-          +
-        </button>
+        {!fixedLine && (
+          <button
+            onClick={() => onIncrease(cartLineId(item))}
+            className="h-9 w-9 rounded-xl bg-orange-500 font-black text-black"
+          >
+            +
+          </button>
+        )}
 
         <CommentBox
           comment={item.comment}
@@ -213,13 +220,14 @@ export function CartPanel({
   addingTo,
 }: CartPanelProps) {
   const subtotal = items.reduce(
-    (total, item) => total + item.price * item.quantity,
+    (total, item) => total + Math.round(item.price * item.quantity * 100) / 100,
     0,
   );
 
   const total = Math.max(subtotal - discount, 0);
   const [expanded, setExpanded] = useState(false);
-  const count = items.reduce((n, item) => n + item.quantity, 0);
+  // A granel cuenta como un artículo (no 0.25)
+  const count = items.reduce((n, item) => n + (isBulk(item) ? 1 : item.quantity), 0);
 
   return (
     <aside className="rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5">

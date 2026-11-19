@@ -23,6 +23,8 @@ import { DeleteProductModal, type DeliveryAlias } from "@/components/products/De
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { ImportProductsModal } from "@/components/products/ImportProductsModal";
 import Link from "next/link";
+import { isRetailType, useBusinessType, wordsFor } from "@/lib/business-type";
+import { ArticlesAdmin } from "@/components/retail/ArticlesAdmin";
 import { ALL_BRANDS, BRANDS_EVENT, MAIN_BRAND, getBrands, productBrandId, type Brand } from "@/lib/brands";
 
 /** Precios que ya tenía el producto (el suyo y los de sus opciones); lo nuevo sin permiso de precios va en $0 */
@@ -45,7 +47,22 @@ type DraftProduct = Product;
 
 const stations: KitchenStation[] = ["Parrilla", "Freidora", "Barra", "Cocina"];
 
-export default function ProductosAdminPage() {
+/** Tienda o ferretería: Artículos (código de barras, existencias, granel); restaurante: Productos */
+export default function ProductosPage() {
+  const type = useBusinessType();
+  if (isRetailType(type)) {
+    return (
+      <RequirePermission permission="products.manage">
+        <AppShell title={wordsFor(type).products} subtitle="Da de alta con el lector de código de barras: precio, costo, existencias, a granel y mayoreo.">
+          <ArticlesAdmin />
+        </AppShell>
+      </RequirePermission>
+    );
+  }
+  return <ProductosAdminPage />;
+}
+
+function ProductosAdminPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [draft, setDraft] = useState<DraftProduct | null>(null);

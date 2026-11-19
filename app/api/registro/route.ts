@@ -39,7 +39,7 @@ async function sendCode(email: string, code: string) {
   <p>Tu código para crear la cuenta de tu negocio es:</p>
   <p style="font-size:36px;font-weight:900;letter-spacing:8px;margin:16px 0;color:#f97316">${code}</p>
   <p style="color:#71717a;font-size:13px">Vence en ${CODE_MINUTES} minutos. Si tú no lo pediste, ignora este correo.</p>
-  <p style="color:#a1a1aa;font-size:12px;margin-top:24px">B-POS · Punto de venta para restaurantes · bpos.com.mx</p>
+  <p style="color:#a1a1aa;font-size:12px;margin-top:24px">B-POS · Punto de venta para restaurantes y tiendas · bpos.com.mx</p>
 </div>`;
   const ok = await sendEmail({
     to: email,
@@ -59,6 +59,7 @@ export async function POST(request: NextRequest) {
     businessName?: string;
     address?: string;
     phone?: string;
+    businessType?: string;
   };
   const db = supabaseAdmin();
   const email = cleanEmail(body.email);
@@ -85,6 +86,7 @@ export async function POST(request: NextRequest) {
       const businessName = String(body.businessName || "").trim().slice(0, 60);
       const address = String(body.address || "").trim().slice(0, 200);
       const phone = String(body.phone || "").replace(/\D/g, "");
+      const businessType = ["tienda", "ferreteria"].includes(String(body.businessType)) ? String(body.businessType) : "restaurante";
       if (password.length < 6) throw new Friendly("La contraseña debe tener al menos 6 caracteres.");
       if (businessName.length < 2) throw new Friendly("Escribe el nombre del negocio.");
       if (address.length < 5) throw new Friendly("Escribe la dirección del negocio.");
@@ -108,7 +110,7 @@ export async function POST(request: NextRequest) {
         email,
         password,
         email_confirm: true,
-        user_metadata: { business_name: businessName, address, phone },
+        user_metadata: { business_name: businessName, address, phone, business_type: businessType },
       });
       if (error) {
         const m = error.message.toLowerCase();

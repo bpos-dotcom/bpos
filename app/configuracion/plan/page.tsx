@@ -2,7 +2,7 @@
 import { ask } from "@/components/layout/Dialogs";
 /**
  * Configuración → Mi plan (bloque 15): plan del negocio, prueba gratis, pago
- * mensual con Mercado Pago (contratar, revisar y cancelar). El plan solo lo
+ * mensual o anual (2 meses gratis) con Mercado Pago (contratar, revisar y cancelar). El plan solo lo
  * cambia la nube (pago o administrador).
  */
 import { useCallback, useEffect, useState } from "react";
@@ -11,7 +11,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { loadCloudAccount } from "@/lib/cloud/account";
 import { getSupabase } from "@/lib/supabase/client";
 import { aiFetch } from "@/lib/ai/client";
-import { PLANS, TRIAL_DAYS, planAccess, type PlanId } from "@/lib/plans";
+import { ANNUAL_MONTHS_CHARGED, PLANS, TRIAL_DAYS, periodLabel, planAccess, planPrice, type BillingPeriod, type PlanId } from "@/lib/plans";
 
 type BusinessPlan = {
   name: string;
@@ -22,6 +22,8 @@ type BusinessPlan = {
   branches_paid: number;
   mp_preapproval_id: string | null;
   mp_payer_email: string | null;
+  /** Solo existe con 0043_bpos_plan_anual.sql */
+  billing_period?: BillingPeriod | null;
 };
 
 const STATUS: Record<string, string> = {
@@ -45,6 +47,7 @@ export default function PlanPage() {
   const [error, setError] = useState("");
   const [choice, setChoice] = useState<PlanId>("basic");
   const [branches, setBranches] = useState(1);
+  const [period, setPeriod] = useState<BillingPeriod>("monthly");
   const [email, setEmail] = useState("");
   const [busy, setBusy] = useState("");
   const [message, setMessage] = useState("");
@@ -57,11 +60,10 @@ export default function PlanPage() {
       setError("Inicia sesión con la cuenta del negocio para ver tu plan.");
       return null;
     }
-    const { data, error } = await getSupabase()
-      .from("businesses")
-      .select("name, plan, plan_status, trial_ends_at, paid_until, branches_paid, mp_preapproval_id, mp_payer_email")
-      .eq("id", account.businessId)
-      .maybeSingle();
+    const columns = "name, plan, plan_status, trial_ends_at, paid_until, branches_paid, mp_preapproval_id, mp_payer_email";
+    let { data, error } = await getSupabase().from("businesses").select(`${columns}, billing_period`).eq("id", account.businessId).maybeSingle();
+    // Sin 0043_bpos_plan_anual.sql todavía no hay billing_period: se lee lo demás
+    if (error && /billing_period/.test(error.message)) ({ data, error } = await getSupabase().from("businesses").select(columns).eq("id", account.businessId).maybeSingle());
     if (error || !data) {
       setInfo(null);
       setError(/plan_status/.test(error?.message || "") ? "Falta aplicar 0006_bpos_planes.sql en Supabase." : "No se pudo leer tu plan.");
@@ -95,6 +97,7 @@ export default function PlanPage() {
       if (!plan) return;
       setChoice(plan.plan);
       setBranches(Math.max(1, plan.branches_paid || 1));
+      if (plan.billing_period === "annual") setPeriod("annual");
       if (new URLSearchParams(window.location.search).get("pago") === "listo") void sync();
     })();
   }, [load, sync]);
@@ -103,7 +106,7 @@ export default function PlanPage() {
     setMessage("");
     setBusy("subscribe");
     try {
-      const r = await cloudPost("/api/mp/subscribe", { plan: choice, branches, email });
+      const r = await cloudPost("/api/mp/subscribe", { plan: choice, branches, email, period });
       window.open(r.url, "_blank");
       setPendingId(r.id || "");
       setMessage("Se abrió Mercado Pago. Cuando termines de pagar, regresa aquí y presiona \"Ya pagué\".");
@@ -114,7 +117,7 @@ export default function PlanPage() {
   }
 
   async function cancel() {
-    if (!(await ask("¿Cancelar tu suscripción? Ya no se cobrará el próximo mes y B-POS sigue funcionando hasta lo que ya pagaste.", { ok: "Cancelar suscripción", cancel: "Volver" }))) return;
+    if (!(await ask(`¿Cancelar tu suscripción? Ya no se cobrará ${info?.billing_period === "annual" ? "el próximo año" : "el próximo mes"} y B-POS sigue funcionando hasta lo que ya pagaste.`, { ok: "Cancelar suscripción", cancel: "Volver" }))) return;
     setMessage("");
     setBusy("cancel");
     try {
@@ -130,11 +133,12 @@ export default function PlanPage() {
   const access = info ? planAccess(info) : null;
   const daysLeft = info?.plan_status === "trial" ? Math.max(0, Math.ceil((new Date(info.trial_ends_at).getTime() - Date.now()) / 86_400_000)) : null;
   const subscribed = info?.plan_status === "active" && Boolean(info.mp_preapproval_id);
-  const total = PLANS[choice].price * branches;
+  const total = planPrice(choice, period) * branches;
+  const annual = period === "annual";
 
   return (
     <RequireRole allow={["Admin"]}>
-      <AppShell title="Mi plan" subtitle="Tu suscripción a B-POS: plan, sucursales y pago mensual.">
+      <AppShell title="Mi plan" subtitle="Tu suscripción a B-POS: plan, sucursales y pago mensual o anual.">
         <div className="max-w-5xl space-y-6">
           <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
             {info === undefined ? (
@@ -157,6 +161,7 @@ export default function PlanPage() {
                         ? `${info.plan_status === "active" ? "Pagado" : "Funciona"} hasta el ${new Date(info.paid_until).toLocaleDateString("es-MX")}.`
                         : ""}{" "}
                     {info.branches_paid} sucursal(es).
+                    {info.plan_status === "active" && info.billing_period ? ` Pago ${periodLabel(info.billing_period).toLowerCase()}.` : ""}
                   </p>
                   {access?.locked && <p className="mt-2 text-sm font-black text-red-300">Tu plan no está activo. Contrata abajo para seguir usando B-POS.</p>}
                 </div>
@@ -176,10 +181,27 @@ export default function PlanPage() {
             )}
           </section>
 
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="inline-flex rounded-2xl border border-zinc-800 bg-zinc-950 p-1" role="group" aria-label="Periodo de pago">
+              {(["monthly", "annual"] as BillingPeriod[]).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPeriod(p)}
+                  aria-pressed={period === p}
+                  className={`rounded-xl px-5 py-2 font-black transition ${period === p ? "bg-orange-500 text-black" : "text-zinc-300 hover:text-white"}`}
+                >
+                  {periodLabel(p)}
+                </button>
+              ))}
+            </div>
+            <span className="rounded-full bg-orange-500/15 px-3 py-1 text-sm font-black text-orange-300">Anual: 2 meses gratis</span>
+          </div>
+
           <section className="grid gap-4 md:grid-cols-3">
             {(Object.keys(PLANS) as PlanId[]).map((id) => {
               const plan = PLANS[id];
               const current = info?.plan === id && info.plan_status !== "trial";
+              const currentPeriod = current && info?.billing_period ? ` · ${periodLabel(info.billing_period)}` : "";
               const selected = choice === id;
               return (
                 <button
@@ -189,14 +211,21 @@ export default function PlanPage() {
                 >
                   <p className="text-xl font-black">{plan.name}</p>
                   <p className="mt-1 text-3xl font-black text-orange-400">
-                    ${plan.price} <span className="text-sm font-bold text-zinc-400">MXN / sucursal / mes</span>
+                    ${planPrice(id, period).toLocaleString("es-MX")} <span className="text-sm font-bold text-zinc-400">MXN / sucursal / {annual ? "año" : "mes"}</span>
                   </p>
+                  {annual ? (
+                    <p className="mt-1 text-sm font-bold text-orange-300">
+                      2 meses gratis · equivale a ${Math.round(planPrice(id, "annual") / 12).toLocaleString("es-MX")} al mes
+                    </p>
+                  ) : (
+                    <p className="mt-1 text-sm text-zinc-500">o ${planPrice(id, "annual").toLocaleString("es-MX")} al año (2 meses gratis)</p>
+                  )}
                   <ul className="mt-4 space-y-1 text-sm text-zinc-300">
                     {plan.features.map((f) => (
                       <li key={f}>✓ {f}</li>
                     ))}
                   </ul>
-                  {current && <p className="mt-4 text-sm font-black text-orange-300">Tu plan actual</p>}
+                  {current && <p className="mt-4 text-sm font-black text-orange-300">Tu plan actual{currentPeriod}</p>}
                 </button>
               );
             })}
@@ -206,7 +235,7 @@ export default function PlanPage() {
             <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
               <h3 className="text-xl font-black">{subscribed ? "Cambiar de plan" : "Contratar con Mercado Pago"}</h3>
               <p className="mt-1 text-sm text-zinc-400">
-                Pago mensual automático con tarjeta. {subscribed ? "Al quedar pagado el plan nuevo, el anterior se cancela solo: nunca pagas doble." : "Puedes cancelar cuando quieras."}
+                {annual ? `Pago anual automático con tarjeta: pagas ${ANNUAL_MONTHS_CHARGED} meses y usas 12.` : "Pago mensual automático con tarjeta."} {subscribed ? "Al quedar pagado el plan nuevo, el anterior se cancela solo: nunca pagas doble." : "Puedes cancelar cuando quieras."}
               </p>
               <div className="mt-4 grid gap-4 md:grid-cols-[1fr_160px]">
                 <label className="block">
@@ -220,7 +249,7 @@ export default function PlanPage() {
               </div>
               <div className="mt-4 flex flex-wrap items-center justify-between gap-4">
                 <p className="text-lg font-black">
-                  Plan {PLANS[choice].name} · {branches} sucursal(es) = <span className="text-orange-400">${total.toLocaleString("es-MX")} MXN al mes</span>
+                  Plan {PLANS[choice].name} · {branches} sucursal(es) = <span className="text-orange-400">${total.toLocaleString("es-MX")} MXN {annual ? "al año" : "al mes"}</span>
                 </p>
                 <div className="flex flex-wrap gap-2">
                   {pendingId && (

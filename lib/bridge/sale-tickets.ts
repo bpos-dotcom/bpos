@@ -1,5 +1,6 @@
 "use client";
-import type { ExtraStation, KitchenStation } from "@/data/products";
+import type { ExtraStation, KitchenStation, Product } from "@/data/products";
+import { formatQty, isBulk } from "@/lib/retail";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { platformLabel, realCustomerName, type DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { paperWidth, qrSvg, type OrderTicket } from "@/lib/bridge/order-tickets";
@@ -70,12 +71,15 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
     ...(delivery && localNumber ? { localNumber } : {}),
     customer: realCustomerName(sale.details?.customerName),
     receivedAt: sale.createdAt,
-    items: sale.items.map((item, index) => ({
+    items: sale.items.map((item, index) => {
+      // Tienda a granel: "0.25 kg Jitomate" (una línea, con lo que costó)
+      const measured = isBulk(item as Pick<Product, "sellBy" | "unit">);
+      return {
       index,
-      qty: Number(item.quantity) || 1,
-      name: item.name,
+      qty: measured ? 1 : Number(item.quantity) || 1,
+      name: measured ? `${formatQty(Number(item.quantity), (item as Pick<Product, "unit">).unit)} ${item.name}` : item.name,
       // El precio del renglón trae sumadas las opciones: en el ticket van aparte
-      price: (Number(item.price) - extrasPrice(item.modifiers, item.parts)) * (Number(item.quantity) || 1),
+      price: Math.round((Number(item.price) - extrasPrice(item.modifiers, item.parts)) * (Number(item.quantity) || 1) * 100) / 100,
       // Opciones (repetidas juntas: "2x BBQ") y, si pasó de las incluidas, el renglón de cobro
       choices: [
         ...groupedPicks(item.modifiers).map((r) => {
@@ -107,7 +111,8 @@ export function saleTicket(sale: SaleForTickets): DeliveryTicket {
             })),
           }
         : {}),
-    })),
+      };
+    }),
     charges: discount > 0 ? [{ label: "Subtotal", amount: subtotal }, { label: "Descuento", amount: -discount }] : [],
     total: Number(sale.total),
     payment: delivery || sale.staffMeal ? undefined : sale.details?.paymentMethod,
@@ -132,6 +137,8 @@ function precuentaRows(sale: SaleForTickets): { label: string; value: string }[]
 
 /** Estaciones que tienen algo en la venta. */
 export function saleStations(sale: SaleForTickets): KitchenStation[] {
+  // Tienda o ferretería: no hay cocina, solo el ticket del cliente
+  if (getBusinessSettings().businessType !== "restaurante") return [];
   const used = new Set(saleTicket(sale).items.flatMap((i) => i.stations));
   return STATIONS.filter((s) => used.has(s));
 }

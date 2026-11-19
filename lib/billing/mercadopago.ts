@@ -1,5 +1,5 @@
 /**
- * Bloque 15 · Cobro mensual con Mercado Pago (suscripciones / preapproval).
+ * Bloque 15 · Cobro mensual o anual con Mercado Pago (suscripciones / preapproval).
  * Corre solo en Vercel. Necesita en Vercel → Environment Variables:
  *   MP_ACCESS_TOKEN            Access Token de producción de Mercado Pago
  *   SUPABASE_SERVICE_ROLE_KEY  para activar el plan del negocio (el dueño no puede)
@@ -12,7 +12,7 @@
  */
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { SUPABASE_URL } from "@/lib/supabase/client";
-import { PLANS, type PlanId } from "@/lib/plans";
+import { PLANS, parseReference, planPrice, referenceFor, type BillingPeriod, type PlanId } from "@/lib/plans";
 import { sendEmail } from "@/lib/email/send";
 import { planActiveEmail } from "@/lib/email/welcome";
 import { PUSH_SERVER as CLOUD_SERVER } from "@/lib/push/rules";
@@ -50,26 +50,20 @@ async function mp<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-/** external_reference: "negocio|plan|sucursales" */
-export function referenceFor(businessId: string, plan: PlanId, branches: number) {
-  return `${businessId}|${plan}|${branches}`;
-}
+// external_reference: "negocio|plan|sucursales" (mensual) o "negocio|plan|sucursales|annual" (ver lib/plans)
+export { referenceFor, parseReference };
 
-export function parseReference(ref?: string) {
-  const [businessId, plan, branches] = String(ref || "").split("|");
-  return { businessId, plan: (plan in PLANS ? plan : "basic") as PlanId, branches: Math.max(1, Number(branches) || 1) };
-}
-
-/** Crea la suscripción mensual y regresa la liga de pago de Mercado Pago. */
-export async function createSubscription(opts: { businessId: string; businessName: string; plan: PlanId; branches: number; email: string }) {
+/** Crea la suscripción (mensual o anual) y regresa la liga de pago de Mercado Pago. */
+export async function createSubscription(opts: { businessId: string; businessName: string; plan: PlanId; branches: number; email: string; period?: BillingPeriod }) {
   const plan = PLANS[opts.plan];
+  const period: BillingPeriod = opts.period === "annual" ? "annual" : "monthly";
   return mp<Preapproval>("/preapproval", {
     method: "POST",
     body: JSON.stringify({
-      reason: `B-POS ${plan.name} · ${opts.businessName} · ${opts.branches} sucursal(es)`,
-      external_reference: referenceFor(opts.businessId, opts.plan, opts.branches),
+      reason: `B-POS ${plan.name}${period === "annual" ? " anual" : ""} · ${opts.businessName} · ${opts.branches} sucursal(es)`,
+      external_reference: referenceFor(opts.businessId, opts.plan, opts.branches, period),
       payer_email: opts.email,
-      auto_recurring: { frequency: 1, frequency_type: "months", transaction_amount: plan.price * opts.branches, currency_id: "MXN" },
+      auto_recurring: { frequency: period === "annual" ? 12 : 1, frequency_type: "months", transaction_amount: planPrice(opts.plan, period) * opts.branches, currency_id: "MXN" },
       back_url: `${CLOUD_SERVER}/configuracion/plan?pago=listo`,
       status: "pending",
     }),
@@ -88,7 +82,7 @@ export const getAuthorizedPayment = (id: string) => mp<{ preapproval_id?: string
  * Los avisos de una suscripción que ya no es la del negocio se ignoran.
  */
 export async function applyPreapproval(pre: Preapproval) {
-  const { businessId, plan, branches } = parseReference(pre.external_reference);
+  const { businessId, plan, branches, period } = parseReference(pre.external_reference);
   if (!businessId) throw new Error("La suscripción no trae el negocio.");
   const admin = supabaseAdmin();
   const { data: current } = await admin.from("businesses").select("mp_preapproval_id, plan, plan_status, name, owner_id").eq("id", businessId).maybeSingle();
@@ -97,13 +91,14 @@ export async function applyPreapproval(pre: Preapproval) {
 
   const update: Record<string, unknown> = {};
   if (pre.status === "authorized") {
-    const next = pre.next_payment_date ? new Date(pre.next_payment_date) : new Date(Date.now() + 30 * 86_400_000);
+    const next = pre.next_payment_date ? new Date(pre.next_payment_date) : new Date(Date.now() + (period === "annual" ? 365 : 30) * 86_400_000);
     Object.assign(update, {
       mp_preapproval_id: pre.id,
       mp_payer_email: pre.payer_email || null,
       plan,
       branches_paid: branches,
       plan_status: "active",
+      billing_period: period,
       paid_until: new Date(next.getTime() + GRACE_DAYS * 86_400_000).toISOString(),
     });
     if (!isCurrent) await cancelPreapproval(previous!).catch(() => undefined);
@@ -116,7 +111,12 @@ export async function applyPreapproval(pre: Preapproval) {
   } else {
     return { businessId, status: pre.status };
   }
-  const { error } = await admin.from("businesses").update(update).eq("id", businessId);
+  let { error } = await admin.from("businesses").update(update).eq("id", businessId);
+  // Sin 0043_bpos_plan_anual.sql todavía no existe billing_period: se guarda lo demás
+  if (error && "billing_period" in update && /billing_period/.test(error.message)) {
+    delete update.billing_period;
+    ({ error } = await admin.from("businesses").update(update).eq("id", businessId));
+  }
   if (error) throw new Error(error.message);
 
   // Plan recién activado o cambiado: correo al dueño con lo que incluye (y a qué puede subir)

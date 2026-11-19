@@ -21,7 +21,7 @@ function layout(title: string, body: string) {
       ${body}
     </div>
     <div style="padding:18px 28px;border-top:1px solid #e4e4e7;color:#71717a;font-size:12px">
-      B-POS · Punto de venta para restaurantes · <a href="${SITE}" style="color:${ORANGE}">bpos.com.mx</a> · soporte@bpos.com.mx
+      B-POS · Punto de venta para restaurantes y tiendas · <a href="${SITE}" style="color:${ORANGE}">bpos.com.mx</a> · soporte@bpos.com.mx
     </div>
   </div>
 </div>`;
@@ -42,7 +42,7 @@ export function welcomeEmail(input: { businessName: string; address: string; pho
   const name = esc(input.businessName);
   const subject = `¡Bienvenido a B-POS, ${input.businessName}! Tu cuenta está lista`;
   const html = layout(
-    "Bienvenido a B-POS, el mejor punto de venta para restaurantes de México",
+    "Bienvenido a B-POS, el mejor punto de venta para restaurantes y tiendas de México",
     [
       p(`Tu cuenta ya está creada. Tienes <b>${TRIAL_DAYS} días de prueba gratis con todo B-POS</b>, sin tarjeta: cobra, manda comandas a cocina, recibe delivery y vende desde tu propio menú digital. Al terminar la prueba eliges el plan que más te convenga.`),
       button(`${SITE}/pos`, "Entrar a B-POS →"),

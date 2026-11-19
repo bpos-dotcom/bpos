@@ -15,6 +15,7 @@ import { authorizeWithAdminPin, requirePermissionOrAdmin } from "@/lib/permissio
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import { revertInventoryForOrder, type InventoryOrderLike } from "@/lib/inventory";
 import { openWhatsapp, whatsappLink } from "@/lib/whatsapp";
+import { reverseCreditForOrder } from "@/lib/customer-credit";
 
 export function printSaleTicket(order: SavedOrder) {
   const ticketWindow = window.open("", "_blank", "width=380,height=700");
@@ -238,6 +239,9 @@ export async function cancelSavedOrder(order: SavedOrder, user: CurrentUser | nu
   const by = user?.name || "Usuario";
   replaceOrder(cancelSale(order, reason, by));
   const result = revertInventoryForOrder(order as unknown as InventoryOrderLike, stock, reason.trim());
+  // Venta fiada: se quita de la cuenta del cliente
+  const unCredited = reverseCreditForOrder(order.id, reason.trim());
+  if (unCredited > 0) notify(`Se quitaron $${unCredited.toFixed(2)} del fiado del cliente.`);
   addAuditEvent({
     category: "Venta",
     action: "sale.cancelled",
@@ -271,6 +275,11 @@ export async function markSavedOrderPaid(order: SavedOrder, method: string, user
 export async function changeSavedOrderPayment(order: SavedOrder, method: string, user: CurrentUser | null): Promise<boolean> {
   const before = order.details.paymentMethod || "Sin método";
   if (before === method || isCancelled(order) || order.pendingPayment) return false;
+  // Fiado: la deuda está en la cuenta del cliente; se paga con un abono (Caja → Fiado)
+  if (order.details.payments?.Fiado) {
+    notify("Esta venta es fiada: cuando el cliente pague, registra su abono en Caja → Fiado.", "error");
+    return false;
+  }
   if (!(await authorizeWithAdminPin(`cambiar el pago del pedido #${formatOrderNumber(order)} de ${before} a ${method}`, user))) return false;
   const tip = Number(order.tip) || 0;
   const updated: SavedOrder = {
