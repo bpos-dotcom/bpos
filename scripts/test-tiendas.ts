@@ -180,6 +180,29 @@ async function main() {
   }
   check("para fiar hace falta el nombre", noName);
 
+  // --- Utilidad (el Food cost de la tienda) ---
+  const prof = await import("../lib/retail-profit");
+  check("tienda ve Utilidad en lugar de Food cost", tiendaNav.some((gr) => gr.tabs.some((t) => t.href === "/configuracion/food-cost" && t.label === "Utilidad")) && !bt.hiddenForType("/configuracion/food-cost", "tienda"));
+  check("restaurante sigue con Food cost", restNav.some((gr) => gr.tabs.some((t) => t.href === "/configuracion/food-cost" && t.label === "Food cost")));
+  const varios: Product = { id: 13, name: "Varios", category: "Varios", price: 0, emoji: "🏷️", station: "Cocina", sellBy: "pieza", openPrice: true, noStock: true };
+  const sinCosto: Product = { id: 14, name: "Chicle", category: "Dulces", price: 2, emoji: "🍬", station: "Cocina", sellBy: "pieza" };
+  const result = prof.retailProfit(
+    [coca, jitomate, varios, sinCosto],
+    [
+      { items: [{ id: 12, price: 17, quantity: 12 }, { id: 10, price: 32, quantity: 0.25 }] },
+      { items: [{ id: 12, price: 20, quantity: 2 }, { id: 13, price: 15, quantity: 1 }, { id: 14, price: 2, quantity: 5 }], details: { discount: 4 } },
+    ],
+    (p) => (p.id === 10 ? 22 : p.cost ?? null)
+  );
+  const row = (id: number) => result.rows.find((r) => r.product.id === id)!;
+  // Coca: 12×17 + 2×20 = 244 de venta, 14×13 = 182 de costo → 62
+  check("utilidad con precio real (mayoreo)", row(12).sales === 244 && row(12).costOfSales === 182 && row(12).profit === 62, row(12));
+  check("deja c/u y margen", row(12).unitProfit === 7 && row(12).margin === 35);
+  check("granel: 0.25 kg", row(10).sold === 0.25 && row(10).sales === 8 && row(10).profit === 2.5, row(10));
+  check("precio libre sin costo", row(13).profit === null && row(13).sales === 15);
+  check("sin costo avisa", row(14).cost === null && result.totals.missingCost === 1 && result.totals.salesWithoutCost === 25);
+  check("total: ganancia menos descuentos", result.totals.profit === 60.5 && result.totals.sales === 277, result.totals);
+
   // --- Lector de código de barras ---
   check("lector: teclas seguidas", scan.looksScanned([0, 10, 22, 30, 41, 55]));
   check("persona tecleando no es lector", !scan.looksScanned([0, 180, 400, 620]));
