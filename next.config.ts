@@ -1,7 +1,22 @@
 import type { NextConfig } from "next";
+import { execSync } from "node:child_process";
 import { domainRedirects } from "./lib/domain-redirects";
 
+// Publicación que está corriendo (las pantallas abiertas la comparan para avisar
+// que hay versión nueva). Vercel y Cloudflare la dan; si no, se lee de git.
+function buildSha() {
+  const fromHost = process.env.VERCEL_GIT_COMMIT_SHA || process.env.WORKERS_CI_COMMIT_SHA || "";
+  if (fromHost) return fromHost;
+  try {
+    return execSync("git rev-parse HEAD", { stdio: ["ignore", "pipe", "ignore"] }).toString().trim();
+  } catch {
+    return "";
+  }
+}
+const BUILD_SHA = buildSha();
+
 const nextConfig: NextConfig = {
+  env: { BPOS_BUILD_SHA: BUILD_SHA, NEXT_PUBLIC_BPOS_BUILD_SHA: BUILD_SHA },
   // Permite abrir B-POS desde el celular o tablet en la misma red WiFi
   // (ej. http://192.168.1.13:3000) mientras corre con INICIAR-BPOS.
   allowedDevOrigins: ["192.168.1.13", "192.168.*.*", "10.*.*.*"],

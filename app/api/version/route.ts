@@ -10,8 +10,8 @@ export function GET() {
       name: "B-POS",
       version: process.env.BPOS_APP_VERSION || pkg.version,
       desktop: Boolean(process.env.BPOS_APP_VERSION),
-      // Publicación de Vercel: las pantallas abiertas la comparan para saber si hay versión nueva
-      build: process.env.VERCEL_GIT_COMMIT_SHA || "",
+      // Publicación (commit): las pantallas abiertas la comparan para saber si hay versión nueva
+      build: process.env.BPOS_BUILD_SHA || "",
     },
     { headers: { "Cache-Control": "no-store" } }
   );
