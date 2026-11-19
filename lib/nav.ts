@@ -147,7 +147,13 @@ export function visibleNav(user: CurrentUser | null, services?: ServiceId[] | nu
 function retailTabs(tabs: NavTab[], type: BusinessType): NavTab[] {
   if (!isRetailType(type)) return tabs;
   const words = wordsFor(type);
-  return tabs.map((t) => (t.href === "/configuracion/productos" ? { ...t, label: words.products, icon: words.productsIcon } : t));
+  return tabs.map((t) =>
+    t.href === "/configuracion/productos"
+      ? { ...t, label: words.products, icon: words.productsIcon }
+      : t.href === "/configuracion/food-cost"
+        ? { ...t, label: "Utilidad", icon: "📈" }
+        : t
+  );
 }
 
 const matches = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);

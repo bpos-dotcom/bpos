@@ -25,6 +25,8 @@ import {
 import { getIngredientCostHistory } from "@/lib/purchases";
 import { MenuProgress } from "@/components/products/MenuProgress";
 import { buildReport, loadReportSources, makeCostLookup } from "@/lib/reports";
+import { isRetailType, useBusinessType } from "@/lib/business-type";
+import { RetailProfit } from "@/components/retail/RetailProfit";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-5";
 const money = (n: number) => `${n < 0 ? "-" : ""}$${Math.abs(n).toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -35,7 +37,20 @@ const NO_CATEGORY = "Sin categoría";
 
 type Sort = "nombre" | "bruta" | "foodcost" | "vendidos";
 
-export default function FoodCostPage() {
+/** Tienda o ferretería: Utilidad (qué artículo deja más); restaurante: Food cost */
+export default function FoodCostOrProfitPage() {
+  const type = useBusinessType();
+  if (isRetailType(type)) {
+    return (
+      <AppShell title="Utilidad" subtitle="Cuánto te deja cada artículo y tu negocio, antes y después de los gastos fijos.">
+        <RetailProfit />
+      </AppShell>
+    );
+  }
+  return <FoodCostPage />;
+}
+
+function FoodCostPage() {
   const [period, setPeriod] = useState<FinancePeriod>("semana-pasada");
   const [custom, setCustom] = useState(() => {
     const d = new Date();

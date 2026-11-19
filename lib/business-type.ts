@@ -53,7 +53,6 @@ const RESTAURANT_ONLY = [
   "/configuracion/personal",
   "/configuracion/kds",
   "/configuracion/recetas",
-  "/configuracion/food-cost",
   "/configuracion/packaging",
   "/configuracion/ingredientes",
   "/configuracion/delivery-equivalencias",
