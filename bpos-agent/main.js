@@ -55,7 +55,10 @@ server.use((req, res, next) => {
   next();
 });
 // Los tickets propios llevan el logo dentro (imagen): más que el límite de 100 KB por omisión
-server.use(express.json({ limit: "5mb" }));
+const jsonSmall = express.json({ limit: "5mb" });
+// Pasar la caja del navegador al programa trae todo lo guardado (puede pasar de 10 MB)
+const jsonImport = express.json({ limit: "200mb" });
+server.use((req, res, next) => (req.path === "/caja-local/import" ? jsonImport : jsonSmall)(req, res, next));
 
 // Permiso de uso (candado contra usar B-POS sin pagar): sin permiso vigente no se imprime ni se
 // abre el cajón por la vía local (la que funciona sin internet). Ver lib/license.js.
@@ -76,8 +79,28 @@ server.get("/", (req, res) => {
     service: "B-POS Agent",
     status: "running",
     version: app.getVersion(),
+    cajaLocal: cajaLocal.info(),
     ...(linkInfo ? { agentId: linkInfo.agentId, branchName: linkInfo.branchName } : {}),
   });
+});
+
+// Caja local (lib/caja-local.js): B-POS en la ventana del Agent con los datos en el disco.
+// Solo B-POS puede llamarlas (mismo filtro de origen de arriba).
+const cajaLocal = require("./lib/caja-local");
+server.post("/caja-local/import", (req, res) => {
+  try {
+    const result = cajaLocal.importEntries(req.body?.entries, { replace: req.body?.replace === true });
+    if (!result.ok) return res.status(409).json({ success: false, conflict: true, error: "La caja local ya tiene datos." });
+    cajaLocal.openCaja("/inicio");
+    res.json({ success: true, count: result.count });
+  } catch (error) {
+    res.status(400).json({ success: false, error: error.message });
+  }
+});
+server.post("/caja-local/open", (req, res) => {
+  if (!cajaLocal.isEnabled()) return res.status(404).json({ success: false, error: "La caja local no está activada." });
+  cajaLocal.openCaja("/inicio");
+  res.json({ success: true });
 });
 
 let printQueue = [];

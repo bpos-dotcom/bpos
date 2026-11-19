@@ -261,7 +261,8 @@ export function trimmedDisposable(key: string, raw: string): string {
 function freeDisposableSpace(storage: Storage, set: Storage["setItem"], except: string) {
   for (const key of DISPOSABLE_KEYS) {
     if (key === except) continue;
-    const raw = Storage.prototype.getItem.call(storage, key);
+    // Del prototipo del propio almacén: en la caja local (B-POS Agent) no es un Storage del navegador
+    const raw = (Object.getPrototypeOf(storage) as Storage).getItem.call(storage, key);
     if (!raw) continue;
     try {
       set.call(storage, key, trimmedDisposable(key, raw));
@@ -522,7 +523,12 @@ function notifyApp(keys: string[]) {
   keys.forEach((key) => {
     try {
       window.dispatchEvent(
-        new StorageEvent("storage", { key, newValue: rawGet(key), storageArea: window.localStorage })
+        // storageArea solo acepta el Storage del navegador (la caja local guarda en el disco)
+        new StorageEvent("storage", {
+          key,
+          newValue: rawGet(key),
+          ...(typeof Storage !== "undefined" && window.localStorage instanceof Storage ? { storageArea: window.localStorage } : {}),
+        })
       );
     } catch {
       window.dispatchEvent(new Event("storage"));
