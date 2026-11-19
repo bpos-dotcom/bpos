@@ -1,6 +1,6 @@
 /**
  * Dominios propios de los negocios que llevan a su página en B-POS (menú,
- * club…). Se configuran en Vercel con la variable DOMAIN_REDIRECTS:
+ * club…). Se configuran con la variable DOMAIN_REDIRECTS (en Cloudflare: variables de la compilación) y el dominio va en "routes" de wrangler.jsonc:
  *   "burger.com.mx=/m/burger,otro.mx=/fidelidad/otro"
  * El dominio (con o sin www) y cualquier ruta suya (ej. el /Landing-Page/ de
  * un QR ya impreso) caen en esa página de www.bpos.com.mx.

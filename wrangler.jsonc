@@ -14,7 +14,10 @@
   "workers_dev": true,
   "routes": [
     { "pattern": "www.bpos.com.mx", "custom_domain": true },
-    { "pattern": "bpos.com.mx", "custom_domain": true }
+    { "pattern": "bpos.com.mx", "custom_domain": true },
+    // Dominios propios de los negocios (a qué página llevan: variable DOMAIN_REDIRECTS de la compilación)
+    { "pattern": "burgerplanet.com.mx", "custom_domain": true },
+    { "pattern": "www.burgerplanet.com.mx", "custom_domain": true }
   ],
   // Valores que no son secretos (los secretos se guardan en el panel de Cloudflare)
   "vars": {
