@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "main": ".open-next/worker.js",
+  "main": "custom-worker.ts",
   "name": "bpos",
   "compatibility_date": "2026-11-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
@@ -10,6 +10,8 @@
   },
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "bpos" }],
   "observability": { "enabled": true },
+  // Tareas programadas (ver custom-worker.ts)
+  "triggers": { "crons": ["0 14 * * 1"] },
   // Dominio propio (la zona bpos.com.mx vive en Cloudflare)
   "workers_dev": true,
   "routes": [
