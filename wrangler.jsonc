@@ -10,6 +10,11 @@
   },
   "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "bpos" }],
   "observability": { "enabled": true },
+  // Dominio propio (la zona bpos.com.mx vive en Cloudflare)
+  "routes": [
+    { "pattern": "www.bpos.com.mx", "custom_domain": true },
+    { "pattern": "bpos.com.mx", "custom_domain": true }
+  ],
   // Valores que no son secretos (los secretos se guardan en el panel de Cloudflare)
   "vars": {
     "GOOGLE_WALLET_ISSUER_ID": "3388000000023229508",
