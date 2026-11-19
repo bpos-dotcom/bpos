@@ -10,6 +10,7 @@ const { getLogDir, getLogFile, tailLog } = require("./logger");
 const updater = require("./updater");
 const cloudLink = require("./cloud-link");
 const { repairInstallation, printerStatus } = require("./repair");
+const caja = require("./caja-local");
 
 let win = null;
 let tray = null;
@@ -77,6 +78,11 @@ function setAutoStart() {
 }
 
 function openBpos(route = "/") {
+  // Caja local activada: B-POS se abre en su ventana (datos en el disco), no en Chrome
+  if (caja.isEnabled()) {
+    caja.openCaja(route === "/" ? "/inicio" : route);
+    return Promise.resolve();
+  }
   return shell.openExternal(`${cloudLink.WEB_URL}${route}`);
 }
 
@@ -93,6 +99,7 @@ function state() {
     agent: { printerPort: 9100 },
     printer,
     lastRepair,
+    cajaLocal: caja.info(),
   };
 }
 
@@ -137,6 +144,9 @@ function refreshTray() {
     Menu.buildFromTemplate([
       { label: "Abrir B-POS", click: () => openBpos("/") },
       { label: "Ver estado", click: showWindow },
+      ...(caja.isEnabled()
+        ? [{ label: "Abrir B-POS en Chrome (no en la caja local)", click: () => shell.openExternal(`${cloudLink.WEB_URL}/inicio`) }]
+        : []),
       { type: "separator" },
       u.state === "ready"
         ? { label: `Reiniciar y actualizar a ${u.available}`, click: () => updater.installNow() }
@@ -180,6 +190,7 @@ async function confirmQuit() {
 }
 
 function registerIpc() {
+  caja.registerCajaIpc();
   ipcMain.handle("bpos:get-state", () => state());
   ipcMain.handle("bpos:open", (_e, route) => openBpos(typeof route === "string" && route.startsWith("/") ? route : "/"));
   ipcMain.handle("bpos:check-updates", () => updater.checkForUpdates());
@@ -234,6 +245,7 @@ function startDesktop({ onQuit, cloud }) {
     event.preventDefault();
     cleaned = true;
     cloudLink.stopCloudLink();
+    caja.flushCaja();
     await onQuit?.();
     // quit (no exit) para que el actualizador pueda instalar al cerrar
     app.quit();
@@ -262,7 +274,8 @@ function startDesktop({ onQuit, cloud }) {
     // Sin vincular siempre se muestra la ventana: ahí se escribe el código
     if (!hidden || !cloudLink.getStatus().linked) win.once("ready-to-show", () => win.show());
     // La primera vez (no al arrancar con Windows) se abre B-POS en el navegador
-    if (!hidden) void openBpos("/");
+    // Con la caja local activada se abre siempre (también al arrancar con Windows)
+    if (!hidden || caja.isEnabled()) void openBpos("/");
   });
 }
 

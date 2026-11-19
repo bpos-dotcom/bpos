@@ -5,6 +5,8 @@
  *   npx tsx scripts/test-devolver-inventario.ts
  */
 
+export {};
+
 // localStorage del navegador para las funciones de B-POS
 const store = new Map<string, string>();
 const g = globalThis as unknown as { window: unknown; localStorage: unknown; CustomEvent: unknown; Event: unknown };

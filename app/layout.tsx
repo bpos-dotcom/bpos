@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
 import { CloudGate } from "@/components/cloud/CloudGate";
+import { CajaLocalMoved } from "@/components/cloud/CajaLocalMoved";
 import { TouchKeyboard } from "@/components/TouchKeyboard";
 import { Dialogs } from "@/components/layout/Dialogs";
 import { OfflineSupport } from "@/components/layout/OfflineSupport";
@@ -45,7 +46,9 @@ export default function RootLayout({
         <Script id="bpos-theme" strategy="beforeInteractive">
           {THEME_BOOT_SCRIPT}
         </Script>
-        <CloudGate>{children}</CloudGate>
+        <CajaLocalMoved>
+          <CloudGate>{children}</CloudGate>
+        </CajaLocalMoved>
         <TouchKeyboard />
         <Dialogs />
         <OfflineSupport />

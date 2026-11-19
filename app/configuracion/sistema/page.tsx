@@ -11,6 +11,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { AgentCard } from "@/components/agent/AgentCard";
 import { BrandCard } from "@/components/settings/BrandCard";
 import { PrimaryDeviceCard } from "@/components/settings/PrimaryDeviceCard";
+import { CajaLocalCard } from "@/components/settings/CajaLocalCard";
 import { setTouchKeypad, setWhatsappApp, touchKeypadEnabled, whatsappAppEnabled } from "@/lib/device-settings";
 import { getTheme, setTheme, THEME_EVENT, type Theme } from "@/lib/theme";
 
@@ -42,6 +43,7 @@ export default function SistemaPage() {
       <AppShell title="Sistema" subtitle="Caja principal, apariencia, región, pantalla táctil, respaldos y B-POS Agent.">
         <div className="grid max-w-5xl gap-5 lg:grid-cols-2">
           <PrimaryDeviceCard className="lg:col-span-2" />
+          <CajaLocalCard className="lg:col-span-2" />
           <BrandCard className="lg:col-span-2" />
           <section className={card}>
             <h2 className="text-lg font-black">🎨 Apariencia (este dispositivo)</h2>
