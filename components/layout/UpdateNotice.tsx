@@ -16,7 +16,7 @@ const IDLE_MS = 2 * 60 * 1000;
 /** Pantallas donde recargar no pierde nada (el POS guarda el pedido en curso) */
 const SAFE_PATHS = ["/pos", "/inicio", "/caja", "/cocina", "/bridge", "/pedidos-en-linea", "/dashboard", "/dueno", "/impresiones", "/centro-operaciones"];
 /** Con la que se abrió esta pantalla (Vercel la pone al publicar) */
-const LOADED = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA || "";
+const LOADED = process.env.NEXT_PUBLIC_BPOS_BUILD_SHA || "";
 
 export function UpdateNotice() {
   const [outdated, setOutdated] = useState(false);
