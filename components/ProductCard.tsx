@@ -1,6 +1,13 @@
 "use client";
 import { useState } from "react";
 import { Product } from "@/data/products";
+import { isBulk, unitShort } from "@/lib/retail";
+
+/** "$18.00", "$32.00/kg" o "Precio libre" (tienda) */
+function priceLabel(product: Product) {
+  if (product.openPrice) return "Precio libre";
+  return `$${product.price.toFixed(2)}${isBulk(product) ? `/${unitShort(product.unit)}` : ""}`;
+}
 
 type ProductCardProps = {
   product: Product;
@@ -83,7 +90,7 @@ export function ProductCard({ product, onAdd, offSchedule, inCart = 0, layout = 
           <span className="line-clamp-2 text-sm font-black leading-tight">{product.name}</span>
           <span className="block truncate text-xs text-zinc-500">{offSchedule ? `🕒 ${offSchedule}` : product.category}</span>
         </span>
-        {!nameOnly && <span className={`shrink-0 text-sm font-black text-orange-500 sm:text-base ${choosing ? "pr-7" : ""}`}>${product.price.toFixed(2)}</span>}
+        {!nameOnly && <span className={`shrink-0 text-sm font-black text-orange-500 sm:text-base ${choosing ? "pr-7" : ""}`}>{priceLabel(product)}</span>}
       </button>
     );
   }
@@ -105,7 +112,7 @@ export function ProductCard({ product, onAdd, offSchedule, inCart = 0, layout = 
       {!nameOnly && (
         <>
           <p className="mt-1 hidden text-sm text-zinc-400 sm:block">{product.category}</p>
-          <p className="mt-1 text-lg font-black text-orange-500 sm:mt-3 sm:text-2xl">${product.price.toFixed(2)}</p>
+          <p className="mt-1 text-lg font-black text-orange-500 sm:mt-3 sm:text-2xl">{priceLabel(product)}</p>
         </>
       )}
       {offSchedule && <p className="mt-2 text-xs font-black text-zinc-300">🕒 {offSchedule}</p>}

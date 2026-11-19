@@ -91,6 +91,8 @@ const BUSINESS_KEYS = new Set([
   "bpos_coupons",
   "bpos_customers",
   "bpos_loyalty",
+  "bpos_customer_credit", // fiado: renglón por movimiento (lib/customer-credit.ts)
+  "bpos_customer_credit_settings",
   "bpos_photo_gallery",
 ]);
 

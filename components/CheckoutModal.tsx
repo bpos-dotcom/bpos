@@ -63,12 +63,14 @@ type CheckoutModalProps = {
   split?: { lines: SplitLine[]; fullTotal: number; partsPaid: number };
   /** Tipo de pedido (Mostrador, Domicilio…): decide si el cajón abre solo (Configuración → Impresoras) */
   orderType?: string;
+  /** Tienda: se puede fiar a este cliente (su saldo y lo que le queda de límite; null = sin límite) */
+  credit?: { name: string; balance: number; available: number | null };
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const money = (n: number) => `$${n.toFixed(2)}`;
 
-export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConfirm, delivery, heading, split, orderType }: CheckoutModalProps) {
+export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConfirm, delivery, heading, split, orderType, credit }: CheckoutModalProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [cashReceived, setCashReceived] = useState("");
   const [cardAmount, setCardAmount] = useState("");
@@ -210,12 +212,14 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
   const isCash = paymentMethod === "Efectivo";
   const isMixed = paymentMethod === "Mixto";
 
+  const isCredit = paymentMethod === "Fiado";
+  const overLimit = isCredit && credit?.available != null && toPay > credit.available + 0.001;
   const paidTotal = isCash ? cashNumber : isMixed ? round2(cashNumber + cardNumber + transferNumber) : toPay;
   const change = isCash || isMixed ? round2(Math.max(paidTotal - toPay, 0)) : 0;
 
   const missingAddress = isDelivery && address.trim() === "";
   const nothingPicked = Boolean(split) && splitMode === "items" && pickedSum <= 0;
-  const canConfirm = paidTotal >= toPay - 0.001 && !missingAddress && !nothingPicked && toPay > 0;
+  const canConfirm = paidTotal >= toPay - 0.001 && !missingAddress && !nothingPicked && toPay > 0 && (!isCredit || (Boolean(credit) && !overLimit));
 
   /** Venta y propina por método: en mixto primero tarjeta, luego transferencia y el resto efectivo */
   function breakdown() {
@@ -262,6 +266,10 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
     }
     if (nothingPicked) {
       alert("Marca qué productos se pagan ahora.");
+      return;
+    }
+    if (isCredit && overLimit) {
+      alert(`${credit?.name} ya no tiene crédito suficiente: le quedan ${money(credit?.available || 0)} de su límite.`);
       return;
     }
     if (!canConfirm) {
@@ -489,8 +497,20 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
             {availableMethods.map((method) => (
               <option key={method}>{method}</option>
             ))}
+            {credit && !split && <option value="Fiado">Fiado (a la cuenta de {credit.name})</option>}
           </select>
         </div>
+
+        {isCredit && credit && (
+          <div className={`mt-4 rounded-2xl border p-4 text-sm ${overLimit ? "border-red-500/60 bg-red-500/10 text-red-200" : "border-sky-500/50 bg-sky-500/10 text-sky-100"}`}>
+            <p className="font-black">📒 Fiado a {credit.name}</p>
+            <p className="mt-1">
+              Debe ahora {money(credit.balance)} · con esta venta debe {money(round2(credit.balance + toPay))}.
+            </p>
+            {credit.available !== null && <p className="mt-1">Le quedan {money(Math.max(0, credit.available))} de su límite.{overLimit ? " No alcanza para esta venta." : ""}</p>}
+            <p className="mt-1 text-xs opacity-80">No entra dinero al cajón. Cuando pague, registra su abono en Caja → Fiado.</p>
+          </div>
+        )}
 
         {(isCash || isMixed) && (
           <div className="mt-4">

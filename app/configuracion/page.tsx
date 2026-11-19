@@ -1,4 +1,6 @@
+"use client";
 import Link from "next/link";
+import { hiddenForType, isRetailType, useBusinessType, wordsFor } from "@/lib/business-type";
 import { AppShell } from "@/components/layout/AppShell";
 import RequireRole from "@/components/auth/RequireRole";
 import { PlatformAdminCard } from "@/components/admin/PlatformAdminCard";
@@ -157,6 +159,16 @@ const adminModules = [
 ];
 
 export default function ConfiguracionPage() {
+  const businessType = useBusinessType();
+  const words = wordsFor(businessType);
+  // Tienda o ferretería: sin lo de cocina, y "Productos" es "Artículos"
+  const modules = adminModules
+    .filter((m) => !hiddenForType(m.href, businessType))
+    .map((m) =>
+      m.href === "/configuracion/productos" && isRetailType(businessType)
+        ? { ...m, title: words.products, icon: words.productsIcon, description: "Alta con código de barras, precio, costo, existencias, a granel y mayoreo." }
+        : m
+    );
   return (
     <RequireRole allow={["Admin"]}>
       <AppShell
@@ -165,7 +177,7 @@ export default function ConfiguracionPage() {
       >
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
           <PlatformAdminCard />
-          {adminModules.map((module) => (
+          {modules.map((module) => (
             <Link
               key={module.title}
               href={module.href}

@@ -2,7 +2,7 @@ import type { KitchenStation } from "@/data/products";
 export type Ingredient = {
   id: number;
   name: string;
-  unit: "pza" | "g" | "kg" | "ml" | "L";
+  unit: "pza" | "g" | "kg" | "ml" | "L" | "m";
   stock: number;
   minimum: number;
   /** Categoría para ordenar la lista (Lácteos, Carnes, Bebidas...); sin categoría va en "Sin categoría" */
@@ -15,6 +15,8 @@ export type Ingredient = {
    * Packaging y se pone en el recuadro Packaging de cada producto (no en su receta).
    */
   kind?: "packaging";
+  /** Tienda: es la existencia de este artículo (lib/retail.ts); se le cambia el nombre junto con el artículo */
+  productId?: number;
 };
 
 export const isPackaging = (i: Pick<Ingredient, "kind">) => i.kind === "packaging";

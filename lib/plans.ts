@@ -26,6 +26,40 @@ export const PLANS: Record<PlanId, { name: string; price: number; features: stri
   },
 };
 
+/** Cobro mensual o anual. El anual cuesta 10 meses: 2 meses gratis. */
+export type BillingPeriod = "monthly" | "annual";
+export const ANNUAL_MONTHS_CHARGED = 10;
+
+export function isBillingPeriod(value: unknown): value is BillingPeriod {
+  return value === "monthly" || value === "annual";
+}
+
+/** Precio por sucursal del plan en el periodo (mensual = PLANS[plan].price; anual = 10 × mensual). */
+export function planPrice(plan: PlanId | string, period: BillingPeriod = "monthly") {
+  const monthly = PLANS[(plan as PlanId) in PLANS ? (plan as PlanId) : "basic"].price;
+  return period === "annual" ? monthly * ANNUAL_MONTHS_CHARGED : monthly;
+}
+
+export function periodLabel(period: string | null | undefined) {
+  return period === "annual" ? "Anual" : "Mensual";
+}
+
+/** external_reference de Mercado Pago: "negocio|plan|sucursales" (mensual) o "negocio|plan|sucursales|annual". */
+export function referenceFor(businessId: string, plan: PlanId, branches: number, period: BillingPeriod = "monthly") {
+  return period === "annual" ? `${businessId}|${plan}|${branches}|annual` : `${businessId}|${plan}|${branches}`;
+}
+
+/** Las referencias viejas de 3 partes son mensuales. */
+export function parseReference(ref?: string) {
+  const [businessId, plan, branches, period] = String(ref || "").split("|");
+  return {
+    businessId,
+    plan: (plan in PLANS ? plan : "basic") as PlanId,
+    branches: Math.max(1, Number(branches) || 1),
+    period: (period === "annual" ? "annual" : "monthly") as BillingPeriod,
+  };
+}
+
 /** Qué incluye cada plan además de lo básico (la prueba gratis incluye todo) */
 export type PlanFeature = "kds" | "delivery" | "ai";
 const FEATURES: Record<PlanId, PlanFeature[]> = { basic: [], pro: ["kds", "delivery"], max: ["kds", "delivery", "ai"] };

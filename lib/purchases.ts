@@ -6,6 +6,7 @@ import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import { upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
 import { whatsappLink } from "@/lib/whatsapp";
+import { applyPurchaseToArticles } from "@/lib/retail";
 
 export type Supplier = { id:string; name:string; phone?:string; whatsapp?:string; rfc?:string; notes?:string; active:boolean; createdAt:string; };
 export type PurchaseItem = { id:string; ticketName?:string; ingredientId:number; ingredientName:string; purchasedQuantity:number; inventoryQuantity:number; unit:Ingredient["unit"]; lineTotal:number; receivedQuantity?:number; };
@@ -50,6 +51,8 @@ export function registerPurchase(input:Omit<Purchase,"id"|"folio"|"createdAt"|"s
    }
  }
  write(COSTS_KEY,costHistory); write(PURCHASES_KEY,[...getPurchases(),purchase]);
+ // Tienda: el artículo toma el costo de esta compra (y el proveedor si no tenía)
+ applyPurchaseToArticles(purchase.items,purchase.supplier);
  addAuditEvent({category:"Compras",action:"purchase.created",description:`${purchase.folio} registrada con ${purchase.supplier} por $${purchase.total.toFixed(2)}`,userId:String(user.id),userName:user.name,entityId:purchase.id,metadata:{folio:purchase.folio,total:purchase.total,source:purchase.source,items:purchase.items.length}});
  return purchase;
 }

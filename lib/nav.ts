@@ -8,6 +8,7 @@
 import { hasPermission, permissionForPath } from "@/lib/permissions";
 import type { CurrentUser } from "@/lib/auth";
 import type { ServiceId } from "@/lib/services";
+import { hiddenForType, isRetailType, wordsFor, type BusinessType } from "@/lib/business-type";
 
 /**
  * aiBadge: la pestaña agrega [AI🟢] si el plan incluye IA (Max o prueba) o [AI🔴] si no.
@@ -42,6 +43,7 @@ export const NAV: NavGroup[] = [
     tabs: [
       { label: "Caja", href: "/caja", icon: "💵" },
       { label: "Historial de cortes", href: "/caja/historial", icon: "🧾" },
+      { label: "Fiado", href: "/caja/fiado", icon: "📒" },
     ],
   },
   { label: "Cocina KDS", icon: "👨‍🍳", tabs: [{ label: "Cocina KDS", href: "/cocina", icon: "👨‍🍳" }] },
@@ -54,6 +56,7 @@ export const NAV: NavGroup[] = [
       { label: "Inventario", href: "/inventario", icon: "📦", sub: "Inventario" },
       { label: "Packaging", href: "/configuracion/packaging", icon: "🥡", sub: "Inventario" },
       { label: "Compras", href: "/compras", icon: "🛍️", sub: "Inventario" },
+      { label: "Pedido sugerido", href: "/inventario/pedido", icon: "🚚", sub: "Inventario" },
       { label: "Ingredientes", href: "/configuracion/ingredientes", icon: "🧂", sub: "Inventario" },
       { label: "Productos", href: "/configuracion/productos", icon: "🍔" },
       { label: "Estudio Fotográfico", href: "/configuracion/estudio-ia", icon: "📸", aiBadge: true },
@@ -126,7 +129,7 @@ const SERVICE_NAV: Record<ServiceId, NavGroup> = {
  * Grupos que el usuario puede ver, solo con las pestañas que puede abrir.
  * `services`: la cuenta es de solo servicios y estos son los vigentes.
  */
-export function visibleNav(user: CurrentUser | null, services?: ServiceId[] | null): NavGroup[] {
+export function visibleNav(user: CurrentUser | null, services?: ServiceId[] | null, type: BusinessType = "restaurante"): NavGroup[] {
   const groups = services
     ? [
         { label: "Mis servicios", icon: "🧩", tabs: [{ label: "Mis servicios", href: "/servicios", icon: "🧩" }] },
@@ -135,7 +138,16 @@ export function visibleNav(user: CurrentUser | null, services?: ServiceId[] | nu
         { label: "Ayuda", icon: "❓", tabs: [{ label: "Ayuda", href: "/ayuda", icon: "❓" }] },
       ]
     : NAV;
-  return groups.map((g) => ({ ...g, tabs: g.tabs.filter((t) => canOpen(user, t.href)) })).filter((g) => g.tabs.length > 0);
+  return groups
+    .map((g) => ({ ...g, tabs: retailTabs(g.tabs, type).filter((t) => canOpen(user, t.href) && (services || !hiddenForType(t.href, type))) }))
+    .filter((g) => g.tabs.length > 0);
+}
+
+/** Tienda o ferretería: "Productos" se llama "Artículos" */
+function retailTabs(tabs: NavTab[], type: BusinessType): NavTab[] {
+  if (!isRetailType(type)) return tabs;
+  const words = wordsFor(type);
+  return tabs.map((t) => (t.href === "/configuracion/productos" ? { ...t, label: words.products, icon: words.productsIcon } : t));
 }
 
 const matches = (pathname: string, href: string) => pathname === href || pathname.startsWith(`${href}/`);

@@ -14,6 +14,7 @@ import {
 import type { DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { paperWidth, qrSvg } from "@/lib/bridge/order-tickets";
 import { bagTicketHtml, stationTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
+import { BUSINESS_TYPES, isRetailType } from "@/lib/business-type";
 
 /** Pedido de ejemplo para la vista previa de los tickets. */
 const SAMPLE: DeliveryTicket = {
@@ -180,6 +181,33 @@ export default function EmpresaConfigPage() {
               <span className="mt-2 block text-xs text-zinc-500">Guardado como: {formatWhatsappForDisplay(settings.ownerWhatsapp)}</span>
             </label>
           </div>
+
+          <h2 className="mt-10 text-2xl font-black text-orange-500">Tipo de negocio</h2>
+          <p className="mt-2 text-zinc-400">
+            Con tienda o ferretería, B-POS esconde lo de cocina (mesas, meseros, comandas, recetas) y los artículos llevan código de
+            barras, existencias y venta a granel. Lo que ya tienes no se borra: si regresas a restaurante, sigue ahí.
+          </p>
+          <div className="mt-6 grid gap-3 md:grid-cols-3">
+            {BUSINESS_TYPES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => set({ businessType: t.id })}
+                className={`rounded-2xl border p-4 text-left ${settings.businessType === t.id ? "border-orange-500 bg-orange-500/10" : "border-zinc-800 bg-black hover:border-zinc-600"}`}
+              >
+                <span className="text-3xl">{t.icon}</span>
+                <span className="mt-2 block text-lg font-black text-white">{t.label}</span>
+                <span className="mt-1 block text-xs text-zinc-400">{t.description}</span>
+              </button>
+            ))}
+          </div>
+          {isRetailType(settings.businessType) && (
+            <label className="mt-5 block max-w-md">
+              <span className={label}>Nombre para ventas sin cliente</span>
+              <input value={settings.walkInName} onChange={(e) => set({ walkInName: e.target.value })} className={input} placeholder="Público en general" />
+              <span className="mt-2 block text-xs text-zinc-500">En la caja no hace falta escribir el nombre del cliente: la venta queda a este nombre.</span>
+            </label>
+          )}
 
           <h2 className="mt-10 text-2xl font-black text-orange-500">Corte de caja</h2>
           <p className="mt-2 text-zinc-400">

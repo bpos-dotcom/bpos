@@ -55,6 +55,11 @@ import {
 import { openWhatsapp } from "@/lib/whatsapp";
 import { PendingNoticeButtons } from "@/components/pos/PendingNoticeButtons";
 import { BRANDS_EVENT, getBrands, isAppsOnly, type Brand } from "@/lib/brands";
+import { isRetailType, useBusinessType } from "@/lib/business-type";
+import { codesOf, findByBarcode, isBulk, unitPriceFor } from "@/lib/retail";
+import { RetailQtyModal } from "@/components/retail/RetailQtyModal";
+import { useBarcodeScanner } from "@/lib/barcode-scanner";
+import { accountKey, canCharge, chargeCredit } from "@/lib/customer-credit";
 
 const STORAGE_KEY = "bpos_orders";
 /** Pedido en curso (carrito y datos) para que no se pierda al cambiar de página */
@@ -103,6 +108,11 @@ function PosScreen() {
   /** Cuenta en espera a la que se le están agregando productos (lo marcado se suma y va a cocina) */
   const [addingToId, setAddingToId] = useState<SavedOrder["id"] | null>(null);
   const [comboToChoose, setComboToChoose] = useState<Product | null>(null);
+  // Tienda o ferretería: lector de código de barras, granel, precio libre, mayoreo y fiado
+  const businessType = useBusinessType();
+  const retail = isRetailType(businessType);
+  /** Artículo a granel o de precio libre esperando cuánto se lleva */
+  const [qtyFor, setQtyFor] = useState<Product | null>(null);
   const [, setShiftVersion] = useState(0);
   // Terminal Mercado Pago: con tarjeta, el monto se manda solo a la terminal
   const terminal = useTerminalCharge();
@@ -274,18 +284,15 @@ function PosScreen() {
       const matchesCategory =
         selectedCategory === "Todos" || product.category === selectedCategory;
 
-      const matchesSearch = product.name
-        .toLowerCase()
-        .includes(search.toLowerCase());
+      const q = search.trim().toLowerCase();
+      const matchesSearch = !q || product.name.toLowerCase().includes(q) || (retail && codesOf(product).some((c) => c.includes(q)));
 
       return matchesCategory && matchesSearch;
     });
-  }, [sellable, selectedCategory, search]);
+  }, [sellable, selectedCategory, search, retail]);
 
-  const subtotal = cart.reduce(
-    (total, item) => total + item.price * item.quantity,
-    0
-  );
+  // Cada renglón redondeado a centavos (a granel: 0.333 kg × $32)
+  const subtotal = Math.round(cart.reduce((total, item) => total + Math.round(item.price * item.quantity * 100) / 100, 0) * 100) / 100;
 
   // Al escribir un WhatsApp de 10 dígitos en Detalles, se busca al socio del club y se enrola solo
   const phoneDigits = details.customerPhone.replace(/\D/g, "");
@@ -315,17 +322,18 @@ function PosScreen() {
   const requiresDeliveryData =
     details.orderType === "Domicilio" || details.orderType === "WhatsApp";
 
-  // La dirección se pide al cobrar (solo a domicilio)
+  // La dirección se pide al cobrar (solo a domicilio). En la tienda no hace falta el nombre (va como "Público en general")
+  const walkIn = retail && !requiresDeliveryData;
   const hasRequiredDetails =
     cart.length > 0 &&
-    details.customerName.trim() !== "" &&
+    (walkIn || details.customerName.trim() !== "") &&
     details.orderType.trim() !== "" &&
     (!requiresDeliveryData || details.customerPhone.trim() !== "");
 
   const validationMessage =
     cart.length === 0
       ? "Agrega productos al pedido para cobrar."
-      : details.customerName.trim() === ""
+      : !walkIn && details.customerName.trim() === ""
       ? "Captura el nombre del cliente."
       : requiresDeliveryData
       ? "Captura el WhatsApp del cliente."
@@ -371,7 +379,7 @@ function PosScreen() {
     window.dispatchEvent(new Event("bpos:orders-updated"));
     notifyKdsUpdated(order.id);
     discountInventoryByOrder(next.inventoryId(order.id), cart);
-    void printSale({ ...updated, items: newItems }, { stations: saleStations({ ...updated, items: newItems }), customer: false }, true)
+    void printSale({ ...updated, items: newItems }, { stations: retail ? [] : saleStations({ ...updated, items: newItems }), customer: false }, true)
       .then((failed) => {
         if (failed.length) notify(`${order.details.table ? "Ronda mandada" : "Productos agregados"}, pero no salió en: ${failed.join(" · ")}. Reimprime desde Historial de pedidos.`, "error");
       })
@@ -414,12 +422,52 @@ function PosScreen() {
       alert(`${product.name} solo se vende: ${off}.`);
       return;
     }
+    // A granel o precio libre: primero cuánto
+    if (product.openPrice || isBulk(product)) {
+      setQtyFor(product);
+      return;
+    }
     if (needsChoices(product, products)) {
       setComboToChoose(product);
       return;
     }
     addLine(product, buildSelection(product, products));
   }
+
+  /** Mayoreo: el precio de cada pieza según cuántas lleva */
+  function repriced(item: CartItem): CartItem {
+    if (!item.wholesale || item.modifiers?.length || item.parts?.length || cartLineId(item).endsWith("|regalo")) return item;
+    const base = products.find((p) => p.id === item.id);
+    return base ? { ...item, price: unitPriceFor(base, item.quantity) } : item;
+  }
+
+  /** Granel o precio libre: siempre un renglón aparte con su cantidad y precio */
+  function addMeasuredLine(product: Product, quantity: number, price: number, comment?: string) {
+    const lineId = `${product.id}|g:${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+    setCart((current) => [...current, { ...product, price, quantity, lineId, ...(comment ? { comment } : {}) }]);
+  }
+
+  /** Código de barras escaneado (o escrito en el buscador con Enter) */
+  function addByCode(raw: string) {
+    const code = raw.replace(/s+/g, "");
+    const product = findByBarcode(sellable, code);
+    if (product) {
+      addToCart(product);
+      return true;
+    }
+    if (findByBarcode(products, code)) {
+      notify(`El código ${code} es de un artículo que no se vende solo.`, "error");
+      return true;
+    }
+    if (/^d{6,14}$/.test(code)) {
+      if (confirm(`El código ${code} no está dado de alta. ¿Darlo de alta ahora?`)) window.location.href = `/configuracion/productos?codigo=${code}`;
+      return true;
+    }
+    return false;
+  }
+  useBarcodeScanner((code) => {
+    addByCode(code);
+  }, retail);
 
   // El precio del renglón ya incluye lo que cuestan las opciones elegidas
   function addLine(product: Product, { parts, modifiers, ownTicket, comment, extraStations }: Pick<CartItem, "parts" | "modifiers" | "ownTicket" | "comment" | "extraStations">) {
@@ -432,7 +480,7 @@ function PosScreen() {
       if (existingItem) {
         return currentCart.map((item) =>
           cartLineId(item) === lineId
-            ? { ...item, quantity: item.quantity + 1 }
+            ? repriced({ ...item, quantity: item.quantity + 1 })
             : item
         );
       }
@@ -483,10 +531,10 @@ function PosScreen() {
   const welcomeInCart = cart.some((i) => cartLineId(i).endsWith("|regalo"));
 
   function increaseQuantity(lineId: string) {
-    if (lineId.endsWith("|regalo")) return; // el regalo es uno solo
+    if (lineId.endsWith("|regalo") || lineId.includes("|g:")) return; // el regalo es uno solo; a granel se vuelve a pesar
     setCart((currentCart) =>
       currentCart.map((item) =>
-        cartLineId(item) === lineId ? { ...item, quantity: item.quantity + 1 } : item
+        cartLineId(item) === lineId ? repriced({ ...item, quantity: item.quantity + 1 }) : item
       )
     );
   }
@@ -495,7 +543,7 @@ function PosScreen() {
     setCart((currentCart) =>
       currentCart
         .map((item) =>
-          cartLineId(item) === lineId ? { ...item, quantity: item.quantity - 1 } : item
+          cartLineId(item) === lineId ? (lineId.includes("|g:") ? { ...item, quantity: 0 } : repriced({ ...item, quantity: item.quantity - 1 })) : item
         )
         .filter((item) => item.quantity > 0)
     );
@@ -757,8 +805,10 @@ function PosScreen() {
       if (result === "cancelled") return;
     }
 
+    const walkInName = getBusinessSettings().walkInName;
     const nextDetails: OrderDetails = {
       ...details,
+      ...(walkIn && !details.customerName.trim() && !clubMember ? { customerName: walkInName } : {}),
       paymentMethod: data.paymentMethod,
       discount: data.discount,
       ...(data.address !== undefined ? { customerAddress: data.address } : {}),
@@ -795,6 +845,15 @@ function PosScreen() {
     } as SavedOrder & { localOrderNumber: number; shiftSessionId: string };
 
     saveOrders([...orders, newOrder]);
+    // Fiado: lo que se fió queda en la cuenta del cliente
+    const credited = round2((data.payments.Fiado || 0) + (data.tipPayments.Fiado || 0));
+    if (!data.pending && credited > 0) {
+      try {
+        chargeCredit({ name: nextDetails.customerName, phone: nextDetails.customerPhone, amount: credited, orderId: newOrder.id, folio: formatOrderNumber(newOrder) });
+      } catch (e) {
+        alert(`Venta guardada, pero no se pudo cargar al fiado: ${e instanceof Error ? e.message : "error"}. Regístralo en Caja → Fiado.`);
+      }
+    }
     if (nextDetails.couponCode) countCouponUse(nextDetails.couponCode);
     // Club: primero el saldo que usó, luego lo que gana por esta venta
     if (clubMember?.member) {
@@ -825,7 +884,7 @@ function PosScreen() {
     const drawerWanted = !data.pending && drawerShouldOpen(data.paymentMethod, nextDetails.orderType);
     const drawerOpened = data.drawerOpened || (drawerWanted && (await openCashDrawer()));
     // Comandas por estación y ticket del cliente en Caja, directo a las térmicas
-    void printSale(newOrder, { stations: saleStations(newOrder), customer: true, drawer: drawerWanted && !drawerOpened }, false)
+    void printSale(newOrder, { stations: retail ? [] : saleStations(newOrder), customer: true, drawer: drawerWanted && !drawerOpened }, false)
       .then((failed) => {
         if (failed.length) notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Historial de pedidos.`, "error");
       })
@@ -894,6 +953,15 @@ function PosScreen() {
         }}
         onConfirm={payingOrder ? payPending : confirmCheckout}
         orderType={payingOrder ? payingOrder.details.orderType : details.orderType}
+        credit={(() => {
+          // Fiado: solo en la tienda, con el nombre del cliente (o su socio del club)
+          if (!retail || payingOrder) return undefined;
+          const name = (details.customerName.trim() || clubMember?.name || "").trim();
+          if (!name || name === getBusinessSettings().walkInName) return undefined;
+          const account = accountKey(name, details.customerPhone || clubMember?.phone);
+          const c = canCharge(account, 0);
+          return { name, balance: c.balance, available: c.available };
+        })()}
         delivery={!payingOrder && details.orderType === "Domicilio" ? { address: details.customerAddress } : undefined}
         heading={payingOrder ? `Cobrar ${payingOrder.details.table ? tableLabel(payingOrder.details.table, payingOrder.details.diners) : "cuenta en espera"} · #${folio(payingOrder)}` : undefined}
       />
@@ -911,6 +979,17 @@ function PosScreen() {
           onPay={(order) => {
             setTablesOpen(false);
             setPayingOrder(order);
+          }}
+        />
+      )}
+
+      {qtyFor && (
+        <RetailQtyModal
+          product={qtyFor}
+          onClose={() => setQtyFor(null)}
+          onConfirm={({ quantity, price, comment }) => {
+            addMeasuredLine(qtyFor, quantity, price, comment);
+            setQtyFor(null);
           }}
         />
       )}
@@ -961,20 +1040,20 @@ function PosScreen() {
         <div className="grid grid-cols-1 gap-3 p-3 sm:gap-4 sm:p-6 md:h-[calc(100dvh-3.5rem)] md:grid-cols-[minmax(0,1fr)_minmax(300px,380px)] md:gap-3 md:p-3">
           <section id="productos" className="flex min-h-0 scroll-mt-3 flex-col rounded-3xl border border-zinc-800 bg-zinc-950 p-4 sm:p-5 md:overflow-hidden">
             <div className="flex items-center justify-between gap-3">
-              <h2 className="text-xl font-black">PRODUCTOS</h2>
+              <h2 className="text-xl font-black">{retail ? "ARTÍCULOS" : "PRODUCTOS"}</h2>
               <div className="flex items-center gap-2">
                 {details.table && (
                   <span className="rounded-xl border border-orange-500/50 bg-orange-500/10 px-3 py-1.5 text-sm font-black text-orange-300">
                     🍽️ {tableLabel(details.table, details.diners)}
                   </span>
                 )}
-                <button
+                {!retail && <button
                   onClick={() => setTablesOpen(true)}
                   title="Elegir mesa (comer aquí), agregar rondas, precuenta y cobro"
                   className="rounded-xl border border-zinc-700 bg-black px-4 py-2 text-sm font-black text-white hover:border-orange-500 hover:text-orange-400"
                 >
                   🪑 Mesas{openTables > 0 ? ` (${openTables})` : ""}
-                </button>
+                </button>}
               </div>
             </div>
             <p className="mt-1 hidden text-sm text-zinc-400 sm:block">
@@ -985,7 +1064,16 @@ function PosScreen() {
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Buscar producto..."
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" || !search.trim()) return;
+                  // Lector en el buscador, o clave escrita a mano; si solo queda uno, se agrega
+                  if (retail && addByCode(search)) return setSearch("");
+                  if (filteredProducts.length === 1) {
+                    addToCart(filteredProducts[0]);
+                    setSearch("");
+                  }
+                }}
+                placeholder={retail ? "Escanea o busca por nombre o código..." : "Buscar producto..."}
                 className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600"
               />
               <div className="flex shrink-0 overflow-hidden rounded-2xl border border-zinc-800" role="group" aria-label="Vista de productos">

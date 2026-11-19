@@ -11,6 +11,7 @@ import { useState } from "react";
 import { createBusiness, signIn } from "@/lib/cloud/account";
 import { PIN_RE, startNewBusinessHere } from "@/lib/cloud/new-business";
 import { TRIAL_DAYS } from "@/lib/plans";
+import { BUSINESS_TYPES, type BusinessType } from "@/lib/business-type";
 
 const input = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600";
 const primary = "w-full rounded-2xl bg-orange-500 py-4 font-black text-black transition hover:bg-orange-400 disabled:opacity-50";
@@ -31,6 +32,7 @@ async function registro(body: object) {
 export function SignupForm({ onDone, onCreated, forServices = false }: { onDone: () => void; onCreated?: () => Promise<void>; forServices?: boolean }) {
   const [step, setStep] = useState<"datos" | "codigo">("datos");
   const [businessName, setBusinessName] = useState("");
+  const [businessType, setBusinessType] = useState<BusinessType>("restaurante");
   const [address, setAddress] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
@@ -65,14 +67,14 @@ export function SignupForm({ onDone, onCreated, forServices = false }: { onDone:
     if (code.replace(/\D/g, "").length !== 6) return setMessage("Escribe los 6 dígitos del código.");
     setBusy(true);
     try {
-      await registro({ accion: "crear", email, code, password, businessName, address, phone });
+      await registro({ accion: "crear", email, code, password, businessName, address, phone, businessType });
       await signIn(email, password);
       await createBusiness(businessName.trim(), "Matriz");
       // Empieza en limpio: el dueño como administrador (su nombre y PIN) y lo capturado en la configuración
       await startNewBusinessHere({
         ownerName,
         pin,
-        settings: { businessName: businessName.trim(), address: address.trim(), businessEmail: email.trim(), ticketPhone: phone, ownerWhatsapp: phone },
+        settings: { businessName: businessName.trim(), businessType, address: address.trim(), businessEmail: email.trim(), ticketPhone: phone, ownerWhatsapp: phone },
       });
       if (onCreated) await onCreated();
       onDone();
@@ -115,9 +117,28 @@ export function SignupForm({ onDone, onCreated, forServices = false }: { onDone:
 
   return (
     <div className="mt-6 space-y-3">
+      {!forServices && (
+        <div>
+          <p className={label}>¿Qué tipo de negocio es?</p>
+          <div className="mt-1 grid grid-cols-3 gap-2">
+            {BUSINESS_TYPES.map((t) => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => setBusinessType(t.id)}
+                aria-pressed={businessType === t.id}
+                className={`rounded-2xl border px-2 py-3 text-center ${businessType === t.id ? "border-orange-500 bg-orange-500/15 text-white" : "border-zinc-800 bg-black text-zinc-400 hover:border-zinc-600"}`}
+              >
+                <span className="block text-2xl">{t.icon}</span>
+                <span className="mt-1 block text-sm font-black">{t.label}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <label className={label}>
         Nombre del negocio
-        <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} maxLength={60} placeholder="Ej. Tacos El Güero" className={`${input} mt-1`} />
+        <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} maxLength={60} placeholder={businessType === "tienda" ? "Ej. Abarrotes Lupita" : businessType === "ferreteria" ? "Ej. Ferretería El Tornillo" : "Ej. Tacos El Güero"} className={`${input} mt-1`} />
       </label>
       <label className={label}>
         Dirección del negocio

@@ -15,6 +15,7 @@ import { planIncludes } from "@/lib/plans";
 import { usePlanState } from "@/components/cloud/PlanGate";
 import { openServices } from "@/lib/services";
 import { useServicesState } from "@/lib/services-client";
+import { useBusinessType } from "@/lib/business-type";
 
 /** "Estudio Fotográfico [AI🟢]" con IA en el plan, "[AI🔴]" sin ella */
 export function aiTabLabel(label: string, hasAi: boolean) {
@@ -39,7 +40,8 @@ export function SectionTabs() {
   const pathname = usePathname() || "";
   const services = useServicesState();
   const serviceIds = services?.kind === "servicios" ? openServices(services.services).join(",") : null;
-  const here = useMemo(() => currentTab(pathname, visibleNav(getSessionUser(), serviceIds === null ? null : (serviceIds.split(",").filter(Boolean) as Parameters<typeof visibleNav>[1]))), [pathname, serviceIds]);
+  const businessType = useBusinessType();
+  const here = useMemo(() => currentTab(pathname, visibleNav(getSessionUser(), serviceIds === null ? null : (serviceIds.split(",").filter(Boolean) as Parameters<typeof visibleNav>[1]), businessType)), [pathname, serviceIds, businessType]);
   const plan = usePlanState();
   if (!here || here.group.tabs.length < 2) return null;
   const top = topTabs(here.group.tabs);

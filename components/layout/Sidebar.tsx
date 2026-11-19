@@ -35,6 +35,7 @@ import { UpdateNotice } from "@/components/layout/UpdateNotice";
 import { currentTab, visibleNav } from "@/lib/nav";
 import { openServices } from "@/lib/services";
 import { useServicesState } from "@/lib/services-client";
+import { useBusinessType } from "@/lib/business-type";
 
 const ACK_KEY = "bpos_bridge_pending_ack";
 const PINNED_KEY = "bpos_sidebar_pinned"; // solo de este dispositivo
@@ -262,7 +263,8 @@ export function Sidebar() {
   // Cuenta de solo servicios: el menú lleva solo sus servicios vigentes
   const services = useServicesState();
   const serviceIds = services?.kind === "servicios" ? openServices(services.services).join(",") : null;
-  const visibleGroups = useMemo(() => visibleNav(currentUser, serviceIds === null ? null : (serviceIds.split(",").filter(Boolean) as Parameters<typeof visibleNav>[1])), [currentUser, serviceIds]);
+  const businessType = useBusinessType();
+  const visibleGroups = useMemo(() => visibleNav(currentUser, serviceIds === null ? null : (serviceIds.split(",").filter(Boolean) as Parameters<typeof visibleNav>[1]), businessType), [currentUser, serviceIds, businessType]);
   const pathname = usePathname();
   const activeGroup = currentTab(pathname || "", visibleGroups)?.group.label;
 

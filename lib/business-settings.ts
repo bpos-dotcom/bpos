@@ -1,11 +1,16 @@
 "use client";
 
 import type { KitchenStation } from "@/data/products";
+import { normalizeBusinessType, type BusinessType } from "@/lib/business-type";
 
 const BUSINESS_SETTINGS_KEY = "bpos_business_settings";
 
 export type BusinessSettings = {
   businessName: string;
+  /** Restaurante, tienda o ferretería (lib/business-type.ts) */
+  businessType: BusinessType;
+  /** Tienda: si la venta no lleva nombre de cliente, va como este (ej. "Público en general") */
+  walkInName: string;
   /** Dirección y correo del negocio (se capturan al crear la cuenta) */
   address: string;
   businessEmail: string;
@@ -46,6 +51,8 @@ export const DEFAULT_TICKET_NOTICE =
 
 const DEFAULT_SETTINGS: BusinessSettings = {
   businessName: "Mi negocio",
+  businessType: "restaurante",
+  walkInName: "Público en general",
   address: "",
   businessEmail: "",
   ownerWhatsapp: "",
@@ -81,6 +88,8 @@ function normalize(parsed: Partial<BusinessSettings>): BusinessSettings {
   const text = (value: unknown, fallback: string) => (typeof value === "string" ? value : fallback);
   return {
     businessName: String(parsed.businessName || DEFAULT_SETTINGS.businessName).trim(),
+    businessType: normalizeBusinessType(parsed.businessType),
+    walkInName: text(parsed.walkInName, DEFAULT_SETTINGS.walkInName).trim().slice(0, 60) || DEFAULT_SETTINGS.walkInName,
     address: text(parsed.address, "").trim().slice(0, 200),
     businessEmail: text(parsed.businessEmail, "").trim().toLowerCase().slice(0, 120),
     ownerWhatsapp: normalizePhone(String(parsed.ownerWhatsapp || "")),
