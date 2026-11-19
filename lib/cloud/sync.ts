@@ -1093,17 +1093,19 @@ export function startSync(acc: ReadyAccount) {
     try {
       originalSet.call(this, key, next);
     } catch (e) {
-      // Memoria llena: se suelta lo que se puede volver a calcular y se intenta otra vez
+      // Memoria llena. Primero se recortan la auditoría (su copia completa está en la nube) y los avisos resueltos
       if (!isLocal || !isQuotaError(e)) throw e;
-      originalRemove.call(this, SHADOW_KEY);
-      shadow = {};
+      freeDisposableSpace(this, originalSet, key);
+      const value2 = DISPOSABLE_KEYS.includes(key) ? trimmedDisposable(key, next) : next;
       try {
-        originalSet.call(this, key, next);
+        originalSet.call(this, key, value2);
       } catch (e2) {
-        // Sigue llena: se recortan la auditoría (su copia completa está en la nube) y los avisos resueltos
+        // Sigue llena: se suelta la copia guardada de "lo ya subido", pero NO la de la memoria.
+        // Antes se olvidaba también y B-POS volvía a subir TODO (y todos los equipos lo bajaban):
+        // eso disparaba el tráfico de Supabase. Se vuelve a guardar en cuanto haya espacio.
         if (!isQuotaError(e2)) throw e2;
-        freeDisposableSpace(this, originalSet, key);
-        originalSet.call(this, key, DISPOSABLE_KEYS.includes(key) ? trimmedDisposable(key, next) : next);
+        originalRemove.call(this, SHADOW_KEY);
+        originalSet.call(this, key, value2);
       }
     }
     if (this === window.localStorage && shouldSync(key)) markDirty(key);
