@@ -16,6 +16,17 @@
 import { isQuotaError, slimOrdersText } from "@/lib/order-slim";
 import { isArchivedOrder, localOrdersCutoff } from "@/lib/order-archive";
 import { archiveIds, KARDEX_ARCHIVE_COLLECTION, localKardexCutoff, splitKardex } from "@/lib/kardex-archive";
+import {
+  applyRowChanges,
+  cloudCollection,
+  isRowKey,
+  LEGACY_DOC_COLLECTIONS,
+  localKeyOf,
+  rememberSeqs,
+  ROW_KEYS,
+  rowListOf,
+  unseenSeqs,
+} from "@/lib/cloud/row-keys";
 import type { ReadyAccount } from "@/lib/cloud/account";
 import { friendlyError, getSupabase } from "@/lib/supabase/client";
 
@@ -461,8 +472,16 @@ function parseValue(raw: string | null): Parsed {
 }
 
 /** Versión del valor que se guarda en la nube, id → contenido */
-function toEntries(parsed: Parsed): Map<string, unknown> {
+function toEntries(key: string, raw: string | null): Map<string, unknown> {
   const map = new Map<string, unknown>();
+  // Listas sin id único (kardex…): renglón por renglón con un id calculado (ver row-keys.ts)
+  if (isRowKey(key)) {
+    const list = rowListOf(raw);
+    const ids = ROW_KEYS[key](list);
+    list.forEach((item, i) => map.set(ids[i], item));
+    return map;
+  }
+  const parsed = parseValue(raw);
   if (parsed.mode === "records") parsed.list.forEach((item, i) => map.set(parsed.ids[i], item));
   if (parsed.mode === "doc") map.set(DOC_ID, parsed.value);
   return map;
@@ -601,12 +620,15 @@ function markDirty(key: string) {
 
 async function pushKey(key: string) {
   if (!account) return;
-  const current = toEntries(parseValue(rawGet(key)));
-  const previous = shadow[key] ?? {};
+  const current = toEntries(key, rawGet(key));
+  const previous = { ...(shadow[key] ?? {}) };
+  // El documento completo de antes no se borra de la nube: lo siguen usando los equipos sin actualizar
+  if (isRowKey(key)) delete previous[DOC_ID];
   const nextHashes: Record<string, string> = {};
   const rows: Record<string, unknown>[] = [];
   const device = getDeviceId();
   const scope = scopeFor(key);
+  const collection = cloudCollection(key);
 
   current.forEach((value, id) => {
     const h = hash(JSON.stringify(value));
@@ -615,7 +637,7 @@ async function pushKey(key: string) {
       rows.push({
         business_id: account!.businessId,
         scope,
-        collection: key,
+        collection,
         record_id: id,
         data: value,
         deleted: false,
@@ -629,7 +651,7 @@ async function pushKey(key: string) {
       rows.push({
         business_id: account!.businessId,
         scope,
-        collection: key,
+        collection,
         record_id: id,
         data: null,
         deleted: true,
@@ -642,10 +664,13 @@ async function pushKey(key: string) {
   if (key === ORDERS_COLLECTION && rows.length > 0) await keepOrdersMoneyState(rows, scope, previous, nextHashes);
 
   for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
-    const { error } = await getSupabase()
+    const { data, error } = await getSupabase()
       .from("sync_records")
-      .upsert(rows.slice(i, i + UPSERT_BATCH), { onConflict: "business_id,scope,collection,record_id" });
+      .upsert(rows.slice(i, i + UPSERT_BATCH), { onConflict: "business_id,scope,collection,record_id" })
+      .select("seq");
     if (error) throw new Error(friendlyError(error));
+    // Lo que subió este equipo ya lo tiene: no se vuelve a bajar
+    if (seenSeqs.size > 0) rememberSeqs(seenSeqs, ((data ?? []) as { seq: number | string }[]).map((r) => Number(r.seq)));
   }
 
   shadow[key] = nextHashes;
@@ -681,10 +706,11 @@ export function flush(): Promise<void> {
 function applyRows(rows: Row[]) {
   const byKey = new Map<string, Row[]>();
   rows.forEach((row) => {
-    if (!shouldSync(row.collection)) return;
-    const list = byKey.get(row.collection) ?? [];
+    const key = localKeyOf(row.collection);
+    if (!key || !shouldSync(key)) return;
+    const list = byKey.get(key) ?? [];
     list.push(row);
-    byKey.set(row.collection, list);
+    byKey.set(key, list);
   });
 
   const changedKeys: string[] = [];
@@ -693,6 +719,26 @@ function applyRows(rows: Row[]) {
     changes.sort((a, b) => a.seq - b.seq);
     const keyShadow = { ...(shadow[key] ?? {}) };
     const before = rawGet(key);
+
+    // Listas renglón por renglón (kardex…)
+    if (isRowKey(key)) {
+      delete keyShadow[DOC_ID];
+      const next = applyRowChanges(
+        key,
+        rowListOf(before),
+        changes.map((c) => ({ record_id: c.record_id, data: c.data, deleted: c.deleted, hash: c.deleted ? undefined : hash(JSON.stringify(c.data)) })),
+        keyShadow
+      );
+      shadow[key] = keyShadow;
+      if (Object.keys(keyShadow).length === 0) delete shadow[key];
+      const after = JSON.stringify(next);
+      if (after !== (before ?? "[]")) {
+        rawSet(key, after);
+        changedKeys.push(key);
+      }
+      return;
+    }
+
     const parsed = parseValue(before);
     let list: unknown[] = parsed.mode === "records" ? [...parsed.list] : [];
     let doc: { present: boolean; value: unknown } =
@@ -772,6 +818,16 @@ function applyRows(rows: Row[]) {
   if (changedKeys.length > 0) notifyApp(changedKeys);
 }
 
+/**
+ * Lo que los equipos no bajan: el kardex viejo (se queda en la nube) y los
+ * documentos completos que siguen subiendo los equipos sin actualizar (los
+ * actualizados usan "rows:<llave>", ver row-keys.ts).
+ */
+const NOT_DOWNLOADED = `(${[KARDEX_ARCHIVE_COLLECTION, ...LEGACY_DOC_COLLECTIONS].map((c) => `"${c}"`).join(",")})`;
+
+/** Números de cambio vistos hace poco (la revisión hacia atrás no vuelve a bajar su contenido) */
+const seenSeqs = new Set<number>();
+
 async function fetchSince(since: number): Promise<Row[]> {
   const all: Row[] = [];
   let cursor = since;
@@ -781,7 +837,7 @@ async function fetchSince(since: number): Promise<Row[]> {
       .select("collection, record_id, data, deleted, seq")
       .eq("business_id", account!.businessId)
       .in("scope", [account!.branchId, "business"])
-      .neq("collection", KARDEX_ARCHIVE_COLLECTION) // el kardex viejo se queda en la nube
+      .not("collection", "in", NOT_DOWNLOADED)
       .gt("seq", cursor)
       .order("seq", { ascending: true })
       .limit(PAGE_SIZE);
@@ -792,6 +848,64 @@ async function fetchSince(since: number): Promise<Row[]> {
     cursor = Number(rows[rows.length - 1].seq);
   }
   return all;
+}
+
+/** Solo los números de cambio desde un punto (casi no pesa) */
+async function fetchSeqsAfter(from: number): Promise<number[]> {
+  const all: number[] = [];
+  let cursor = from;
+  for (;;) {
+    const { data, error } = await getSupabase()
+      .from("sync_records")
+      .select("seq")
+      .eq("business_id", account!.businessId)
+      .in("scope", [account!.branchId, "business"])
+      .not("collection", "in", NOT_DOWNLOADED)
+      .gt("seq", cursor)
+      .order("seq", { ascending: true })
+      .limit(PAGE_SIZE);
+    if (error) throw new Error(friendlyError(error));
+    const seqs = ((data ?? []) as { seq: number | string }[]).map((r) => Number(r.seq));
+    all.push(...seqs);
+    if (seqs.length < PAGE_SIZE) break;
+    cursor = seqs[seqs.length - 1];
+  }
+  return all;
+}
+
+/** El contenido de cambios puntuales */
+async function fetchBySeqs(seqs: number[]): Promise<Row[]> {
+  const all: Row[] = [];
+  for (let i = 0; i < seqs.length; i += UPSERT_BATCH) {
+    const { data, error } = await getSupabase()
+      .from("sync_records")
+      .select("collection, record_id, data, deleted, seq")
+      .eq("business_id", account!.businessId)
+      .in("scope", [account!.branchId, "business"])
+      .in("seq", seqs.slice(i, i + UPSERT_BATCH));
+    if (error) throw new Error(friendlyError(error));
+    all.push(...((data ?? []) as Row[]).map((r) => ({ ...r, seq: Number(r.seq) })));
+  }
+  return all;
+}
+
+/**
+ * Cambios por bajar. Primero se piden solo los números de cambio (desde un
+ * poco antes del último visto, por si alguno llegó fuera de orden) y el
+ * contenido solo de los que este equipo no ha visto: ni la revisión hacia
+ * atrás ni los cambios que subió este mismo equipo se vuelven a bajar
+ * (antes se bajaban completos en cada revisión; con el kardex, 1-2 MB cada vez).
+ */
+async function fetchChanges(lastSeq: number, overlap: number): Promise<{ rows: Row[]; seqs: number[] }> {
+  const from = Math.max(0, lastSeq - overlap);
+  // Recién abierto, sin historial de lo visto: se baja completo una vez
+  if (seenSeqs.size === 0) {
+    const rows = await fetchSince(from);
+    return { rows, seqs: rows.map((r) => r.seq) };
+  }
+  const seqs = await fetchSeqsAfter(from);
+  const missing = unseenSeqs(seqs, seenSeqs);
+  return { rows: missing.length ? await fetchBySeqs(missing) : [], seqs };
 }
 
 /** Baja los cambios de los demás dispositivos */
@@ -811,12 +925,16 @@ export function pull(): Promise<void> {
       }
       const wide = Date.now() - lastWidePull > WIDE_EVERY_MS;
       if (wide) lastWidePull = Date.now();
-      const rows = await fetchSince(Math.max(0, meta.lastSeq - (wide ? SEQ_OVERLAP_WIDE : SEQ_OVERLAP)));
-      if (rows.length > 0) {
-        applyRows(rows);
-        meta.lastSeq = Math.max(meta.lastSeq, ...rows.map((r) => r.seq));
+      const { rows, seqs } = await fetchChanges(meta.lastSeq, wide ? SEQ_OVERLAP_WIDE : SEQ_OVERLAP);
+      if (rows.length > 0) applyRows(rows);
+      const top = seqs.reduce((max, s) => Math.max(max, s), meta.lastSeq);
+      if (top !== meta.lastSeq) {
+        meta.lastSeq = top;
         saveMeta();
       }
+      // Todo lo que hay hasta aquí ya se vio
+      rememberSeqs(seenSeqs, seqs);
+      if (seenSeqs.size === 0) seenSeqs.add(meta.lastSeq);
       setStatus({ state: "ok", lastSyncAt: new Date().toISOString(), message: undefined });
     } catch (error) {
       setStatus({ state: "error", message: error instanceof Error ? error.message : "Error al sincronizar." });
@@ -944,6 +1062,18 @@ export function startSync(acc: ReadyAccount) {
   };
   shadow = readJson<Shadow>(SHADOW_KEY, {});
   dirty = new Set(readJson<string[]>(DIRTY_KEY, []));
+  // Listas que pasaron de documento completo a renglón por renglón (row-keys.ts):
+  // la caja principal sube sus renglones una vez; los demás equipos los reciben.
+  Object.keys(ROW_KEYS).forEach((key) => {
+    const keyShadow = shadow[key];
+    if (!keyShadow || !(DOC_ID in keyShadow)) return;
+    delete shadow[key];
+    saveShadow();
+    if (isPrimaryDevice() && rawGet(key) !== null) {
+      dirty.add(key);
+      saveDirty();
+    }
+  });
   if (compacted) {
     dirty.add(ORDERS_COLLECTION);
     saveDirty();
@@ -983,13 +1113,19 @@ export function startSync(acc: ReadyAccount) {
     if (this === window.localStorage && shouldSync(key)) markDirty(key);
   };
 
-  // Tiempo real
+  // Tiempo real: se escucha sync_heads (una fila por negocio con el último número de cambio,
+  // 0042). Antes se escuchaba sync_records y cada aviso traía el registro completo
+  // (el kardex entero en cada venta) a cada equipo.
   const supabase = getSupabase();
   const channel = supabase.channel(`sync-${acc.businessId}-${getDeviceId()}`);
   channel.on(
     "postgres_changes",
-    { event: "*", schema: "public", table: "sync_records", filter: `business_id=eq.${acc.businessId}` },
-    () => schedulePull()
+    { event: "*", schema: "public", table: "sync_heads", filter: `business_id=eq.${acc.businessId}` },
+    (payload: { new?: { seq?: number | string } }) => {
+      const seq = Number(payload?.new?.seq);
+      if (meta && Number.isFinite(seq) && seq <= meta.lastSeq) return; // ya lo tengo (mi propio cambio)
+      schedulePull();
+    }
   );
   channel.subscribe();
 
