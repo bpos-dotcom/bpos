@@ -8,12 +8,20 @@ export {};
 
 // ---------------------------------------------------------------- navegador falso
 const store = new Map<string, string>();
+let limit = Infinity; // letras que caben (para simular memoria llena)
+const used = () => [...store.entries()].reduce((n, [k, v]) => n + k.length + v.length, 0);
 class FakeStorage {
   getItem(k: string) {
     return store.has(k) ? store.get(k)! : null;
   }
   setItem(k: string, v: string) {
+    const before = store.get(k);
     store.set(k, String(v));
+    if (used() > limit) {
+      if (before === undefined) store.delete(k);
+      else store.set(k, before);
+      throw new DOMException(`Setting the value of '${k}' exceeded the quota.`, "QuotaExceededError");
+    }
   }
   removeItem(k: string) {
     store.delete(k);
@@ -215,6 +223,25 @@ async function main() {
   cloudWrite({ business_id: BIZ, scope: BRANCH, collection: "rows:bpos_inventory_kardex", record_id: rid(move("s3", 4, 12)), data: null, deleted: true, updated_by: "otro" });
   await sync.pull();
   check("borrado de un renglón: queda 5 (6 - 1)", kardexOf().length === 5, kardexOf().length);
+
+  // Memoria llena: se suelta la copia guardada de lo ya subido, pero no se vuelve a subir todo
+  await sync.flush();
+  resetTraffic();
+  const orders2 = JSON.parse(store.get("bpos_orders")!) as { id: string; total: number }[];
+  const changed = orders2.map((o) => (o.id === "o1" ? { ...o, total: 101 } : o));
+  limit = used() + 5 - (store.get("bpos_sync_shadow")?.length ?? 0) / 2; // solo cabe si se suelta la sombra guardada
+  let threw = false;
+  try {
+    localStorage.setItem("bpos_orders", JSON.stringify(changed));
+  } catch {
+    threw = true;
+  }
+  limit = Infinity;
+  check("memoria llena: la venta sí se guarda", !threw && (JSON.parse(store.get("bpos_orders")!) as { id: string; total: number }[]).some((o) => o.id === "o1" && o.total === 101));
+  check("memoria llena: se soltó la copia guardada", !store.has("bpos_sync_shadow"));
+  await wait(600);
+  await sync.flush();
+  check("memoria llena: sube solo el pedido que cambió (no todo otra vez)", traffic.upserts === 1, traffic.upserts);
 
   console.log(`\n${ok} bien, ${bad} mal`);
   process.exit(bad ? 1 : 0);
