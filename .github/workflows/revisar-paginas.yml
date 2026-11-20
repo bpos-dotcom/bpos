@@ -1,0 +1,31 @@
+# Después de cada publicación: espera a que bpos.com.mx tenga la versión nueva
+# y abre las páginas en Chrome. Si alguna truena, la ejecución sale en rojo y
+# GitHub manda correo.
+name: Revisar páginas publicadas
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: "0 */6 * * *"
+
+jobs:
+  revisar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Esperar a que se publique esta versión
+        if: github.event_name == 'push'
+        run: |
+          for i in $(seq 1 60); do
+            if curl -s https://www.bpos.com.mx/api/version | grep -q "${GITHUB_SHA}"; then echo "Publicada"; exit 0; fi
+            sleep 20
+          done
+          echo "La versión ${GITHUB_SHA} no apareció en 20 minutos"; exit 1
+      - name: Abrir las páginas en Chrome
+        run: npx --yes tsx scripts/revisar-paginas.ts https://www.bpos.com.mx
