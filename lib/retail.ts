@@ -243,3 +243,9 @@ export function applyPurchaseToArticles(items: { ingredientId: number; inventory
   if (changed) saveAdminProducts(next);
   return changed;
 }
+
+/** Precio con su unidad si se vende a granel ("$32/kg"); por pieza, solo el precio. */
+export function priceWithUnit(p: { price: number | string; sellBy?: string; unit?: string }, fmt: (n: number) => string): string {
+  const unit = p.sellBy === "granel" && p.unit && p.unit !== "pza" ? `/${p.unit}` : "";
+  return `${fmt(Number(p.price) || 0)}${unit}`;
+}

@@ -14,6 +14,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@/data/products";
+import { priceWithUnit } from "@/lib/retail";
 import { OWN_OPTIONS, buildSelection, extrasPrice, extraCount, isAutoGroup, modifierProblem, optionName } from "@/lib/compound";
 import {
   awaitingOnlinePayment,
@@ -78,8 +79,7 @@ type Picks = Record<string, string[]>;
 const money = (n: number) => `$${n.toFixed(2)}`;
 const price = (n: number) => `$${Number.isInteger(n) ? n : n.toFixed(2)}`;
 /** Tienda a granel: "$32/kg" */
-const priceTag = (p: { price: number | string; sellBy?: string; unit?: string }): string =>
-  `${priceTag(p)}${p.sellBy === "granel" && p.unit && p.unit !== "pza" ? `/${p.unit}` : ""}`;
+const priceTag = (p: { price: number | string; sellBy?: string; unit?: string }) => priceWithUnit(p, price);
 const waLink = (number: string, text: string) => `https://api.whatsapp.com/send/?phone=${number}&text=${encodeURIComponent(text)}`;
 
 export function PublicMenu({ slug, kiosk, onKioskDone }: { slug: string; kiosk?: KioskSession; onKioskDone?: () => void }) {
