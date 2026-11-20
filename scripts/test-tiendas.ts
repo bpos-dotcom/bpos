@@ -203,6 +203,12 @@ async function main() {
   check("sin costo avisa", row(14).cost === null && result.totals.missingCost === 1 && result.totals.salesWithoutCost === 25);
   check("total: ganancia menos descuentos", result.totals.profit === 60.5 && result.totals.sales === 277, result.totals);
 
+  // --- Precio en el menú digital (antes se llamaba a sí mismo y tumbaba la página) ---
+  const fmt = (n: number) => `$${n}`;
+  check("menú: precio por pieza", retail.priceWithUnit({ price: 18 }, fmt) === "$18");
+  check("menú: precio a granel con unidad", retail.priceWithUnit({ price: "32", sellBy: "granel", unit: "kg" }, fmt) === "$32/kg");
+  check("menú: granel en piezas sin unidad", retail.priceWithUnit({ price: 5, sellBy: "granel", unit: "pza" }, fmt) === "$5");
+
   // --- Lector de código de barras ---
   check("lector: teclas seguidas", scan.looksScanned([0, 10, 22, 30, 41, 55]));
   check("persona tecleando no es lector", !scan.looksScanned([0, 180, 400, 620]));
