@@ -22,6 +22,7 @@ import {
   OPERATIONS_ALERT_EVENT,
 } from "@/lib/notifications/operationsCenter";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
+import { clearDeclinedComboAlerts } from "@/lib/bridge/create-automatic-sale";
 
 const tabs: Array<{ value: OperationsAlertStatus | "all"; label: string }> = [
   { value: "pending", label: "Pendientes" },
@@ -65,6 +66,8 @@ export default function OperationsCenterPage() {
   useEffect(() => {
     const openCenter = async () => {
       await refresh();
+      // Combos de delivery donde el cliente no pidió extra: ya no son pendiente
+      clearDeclinedComboAlerts(user?.name || "B-POS");
       acknowledgeCriticalErrors();
       markAllOperationsAlertsViewed(user?.name);
       localStorage.setItem("bpos_bridge_pending_ack", localStorage.getItem("bpos_bridge_pending_signature") || "");

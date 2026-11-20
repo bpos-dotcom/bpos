@@ -8,7 +8,7 @@ import { createKdsCriticalError, notifyKdsUpdated } from "@/lib/kds";
 import type { KdsTicketLine } from "@/lib/bridge/ticket-structure";
 import { allocateShiftOrderNumber } from "@/lib/order-sequence";
 import { OWN_OPTIONS, buildSelection, isAutoGroup, optionName, type SoldModifier, type SoldPart } from "@/lib/compound";
-import type { Product } from "@/data/products";
+import type { ModifierGroup, Product } from "@/data/products";
 import { addAuditEvent } from "@/lib/audit";
 import { optionNameMatches } from "@/lib/bridge/interpret-order";
 import { getOperationsAlerts, resolveOperationsAlert, upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
@@ -81,11 +81,77 @@ function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTic
     const matched = pickOptions(said, group.options.map((o) => ({ key: o.key, name: optionName(o, catalog) })));
     const limit = group.max > 0 ? group.max : matched.length;
     if (matched.length) picks[group.key] = matched.slice(0, limit);
+    else {
+      // Didi y Uber no imprimen nada cuando el cliente no quiso extra: si el
+      // grupo tiene su "No, gracias", el silencio del ticket es eso
+      const no = declineOption(group);
+      if (no && group.min > 0) picks[group.key] = [no.key];
+    }
   }
   return picks;
 }
 
-function deliverySelection(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
+/**
+ * Opción de "no quiero" de un grupo ("No, Gracias", "Sin extra", "Nada",
+ * "Ninguno"): sin producto ni insumo, así que no descuenta nada.
+ */
+export function declineOption(group: ModifierGroup) {
+  return group.options.find((o) => !o.productId && !o.ingredientId && /^(no|sin|nada|ninguno|ninguna)( |$)/.test(plain(o.name)));
+}
+
+/**
+ * Ventas de delivery que ya avisaron "Combo sin opción obligatoria" por un
+ * grupo que tiene "No, gracias" (antes de este arreglo): se les pone el
+ * "No, gracias", se quita el aviso de la venta y se resuelve la alerta.
+ * Nada cambia en inventario: esa opción no descuenta nada.
+ */
+export function clearDeclinedComboAlerts(by = "B-POS") {
+  if (typeof window === "undefined") return 0;
+  const open = getOperationsAlerts().filter((a) => a.id.startsWith("bridge-combo:") && a.status !== "resolved");
+  if (!open.length) return 0;
+  const catalog = getAdminProducts();
+  const orders = readOrders();
+  let cleared = 0;
+  let changed = false;
+  for (const alert of open) {
+    const orderId = Number(alert.id.slice("bridge-combo:".length));
+    const order = orders.find((o) => Number(o.id) === orderId);
+    if (!order) continue;
+    let touched = false;
+    const items = order.items.map((item) => {
+      if (!item.missingChoices?.length) return item;
+      const product = catalog.find((p) => Number(p.id) === Number(item.id));
+      const groups = product?.modifierGroups || [];
+      const declined: SoldModifier[] = [];
+      const still = item.missingChoices.filter((name) => {
+        const group = groups.find((g) => g.name === name);
+        const no = group && declineOption(group);
+        if (!group || !no) return true;
+        declined.push({ name: no.name, group: group.name, price: 0 });
+        return false;
+      });
+      if (!declined.length) return item;
+      touched = true;
+      const { missingChoices: _old, ...rest } = item;
+      void _old;
+      return { ...rest, modifiers: [...(item.modifiers || []), ...declined], ...(still.length ? { missingChoices: still } : {}) };
+    });
+    if (!touched) continue;
+    order.items = items;
+    changed = true;
+    if (!items.some((i) => i.missingChoices?.length)) {
+      resolveOperationsAlert(alert.id, by, "El cliente no pidió extra (el ticket no lo imprime)");
+      cleared++;
+    }
+  }
+  if (changed) {
+    localStorage.setItem(ORDERS_KEY, JSON.stringify(orders));
+    window.dispatchEvent(new CustomEvent("bpos:orders-updated", { detail: { source: "bridge" } }));
+  }
+  return cleared;
+}
+
+export function deliverySelection(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
   const picks = deliveryPicks(product, catalog, ticket, line);
   const { parts, modifiers, ownTicket } = buildSelection(product, catalog, { [OWN_OPTIONS]: picks });
   // El cobro de extras ya viene en el total de la plataforma
