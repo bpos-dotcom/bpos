@@ -83,6 +83,39 @@ function writeJson(key: string, value: unknown) {
   localStorage.setItem(key, JSON.stringify(value));
 }
 
+const INGREDIENTS_KEY = "bpos_inventory";
+
+/**
+ * Guarda juntos la existencia, el kardex y la marca de "venta ya descontada":
+ * o se guardan todos o ninguno. Antes se guardaba primero la existencia; con
+ * la memoria llena (17 nov 2026) el kardex y la marca fallaban, la venta
+ * quedaba como no descontada y se volvía a descontar sin dejar registro (la
+ * carne bajó 114 piezas de golpe). Primero va lo más grande (el kardex), al
+ * último la existencia; si algo falla, se regresa lo que ya se escribió.
+ */
+function commitInventory(next: { kardex?: InventoryMovement[]; applied?: string[]; inventory: Ingredient[] }) {
+  const writes: [string, () => void][] = [];
+  if (next.kardex) writes.push([KARDEX_KEY, () => writeJson(KARDEX_KEY, next.kardex)]);
+  if (next.applied) writes.push([APPLIED_KEY, () => writeJson(APPLIED_KEY, next.applied)]);
+  writes.push([INGREDIENTS_KEY, () => saveAdminIngredients(next.inventory)]);
+  const before = writes.map(([key]) => [key, localStorage.getItem(key)] as const);
+  let done = 0;
+  try {
+    for (const [, write] of writes) {
+      write();
+      done++;
+    }
+  } catch (error) {
+    for (const [key, raw] of before.slice(0, done).reverse()) {
+      try {
+        if (raw === null) localStorage.removeItem(key);
+        else localStorage.setItem(key, raw);
+      } catch {}
+    }
+    throw error;
+  }
+}
+
 export function getInventory(): Ingredient[] {
   return getAdminIngredients();
 }
@@ -155,8 +188,14 @@ function applicationKey(order: InventoryOrderLike) {
 /** Hasta aquí los pedidos de delivery se marcaban solo con "plataforma:número" */
 const LEGACY_KEY_UNTIL = Date.parse("2026-11-05T11:30:00.000Z");
 
+/** El kardex ya trae el descuento de esta venta (por si la marca no se guardó) */
+function kardexHasSale(order: InventoryOrderLike) {
+  return getKardex().some((m) => (m.type === "Venta plataforma" || m.type === "Venta POS") && String(m.orderId) === String(order.id) && !String(m.reason || "").startsWith("Corrección"));
+}
+
 function isApplied(applied: Set<string>, order: InventoryOrderLike) {
   if (applied.has(applicationKey(order))) return true;
+  if (kardexHasSale(order)) return true;
   if (!order.externalOrderKey || !applied.has(order.externalOrderKey)) return false;
   const at = Date.parse(order.createdAt || "");
   if (!Number.isFinite(at) || at < LEGACY_KEY_UNTIL) return true;
@@ -317,10 +356,8 @@ export function applyInventoryForOrder(order: InventoryOrderLike): InventoryAppl
       }
     }
 
-    saveAdminIngredients(inventory);
-    writeJson(KARDEX_KEY, [...getKardex(), ...movements]);
     applied.add(key);
-    writeJson(APPLIED_KEY, [...applied]);
+    commitInventory({ kardex: [...getKardex(), ...movements], applied: [...applied], inventory });
     updateLowStockPending(inventory);
     window.dispatchEvent(new CustomEvent("bpos:inventory-updated", { detail: { orderId: order.id, movements } }));
     return { success: true, duplicate: false, movements, lowStock: inventory.filter(isLowStock) };
@@ -407,8 +444,7 @@ function moveStock(inventory: Ingredient[], ingredientId: number, delta: number,
 }
 
 function saveMovements(inventory: Ingredient[], movements: InventoryMovement[], orderId: number | string) {
-  saveAdminIngredients(inventory);
-  writeJson(KARDEX_KEY, [...getKardex(), ...movements]);
+  commitInventory({ kardex: [...getKardex(), ...movements], inventory });
   updateLowStockPending(inventory);
   window.dispatchEvent(new CustomEvent("bpos:inventory-updated", { detail: { orderId, movements } }));
 }
@@ -501,7 +537,6 @@ export function adjustInventory(input: { ingredientId: number; quantity: number;
   if (!ingredient) throw new Error("Ingrediente no encontrado.");
   const previousStock = ingredient.stock;
   ingredient.stock = round(input.adjustmentType === "Ajuste positivo" ? previousStock + quantity : previousStock - quantity); // negativo y merma restan
-  saveAdminIngredients(inventory);
   const movement: InventoryMovement = {
     id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
     ingredientId: ingredient.id,
@@ -516,7 +551,7 @@ export function adjustInventory(input: { ingredientId: number; quantity: number;
     ...userStamp(),
     createdAt: new Date().toISOString(),
   };
-  writeJson(KARDEX_KEY, [...getKardex(), movement]);
+  commitInventory({ kardex: [...getKardex(), movement], inventory });
   updateLowStockPending(inventory);
   window.dispatchEvent(new Event("bpos:inventory-updated"));
   return movement;
