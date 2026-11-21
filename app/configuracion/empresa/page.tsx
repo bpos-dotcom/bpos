@@ -15,6 +15,7 @@ import type { DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { paperWidth, qrSvg } from "@/lib/bridge/order-tickets";
 import { bagTicketHtml, stationTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
 import { BUSINESS_TYPES, isRetailType } from "@/lib/business-type";
+import { TicketLayoutEditor } from "@/components/admin/TicketLayoutEditor";
 
 /** Pedido de ejemplo para la vista previa de los tickets. */
 const SAMPLE: DeliveryTicket = {
@@ -390,6 +391,8 @@ export default function EmpresaConfigPage() {
               </div>
             )}
           </div>
+
+          <TicketLayoutEditor settings={settings} onChange={set} paper={paper} />
 
           <button onClick={save} className="mt-8 rounded-2xl bg-orange-500 px-6 py-4 font-black text-black">
             Guardar configuración

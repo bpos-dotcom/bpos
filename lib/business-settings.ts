@@ -2,6 +2,7 @@
 
 import type { KitchenStation } from "@/data/products";
 import { normalizeBusinessType, type BusinessType } from "@/lib/business-type";
+import { DEFAULT_TICKET_LAYOUTS, normalizeTicketLayouts, type TicketLayouts } from "@/lib/ticket-layout";
 
 const BUSINESS_SETTINGS_KEY = "bpos_business_settings";
 
@@ -34,6 +35,8 @@ export type BusinessSettings = {
   ticketLogoSize: TicketSize;
   ticketShowCustomer: boolean;
   ticketShowChoices: boolean; // elecciones ("Elige tu...: Kansas city") y notas ("Sin cebolla")
+  /** Configurador de tickets: qué va arriba, en el recuadro y junto a "Delivery" según DiDi/Uber/Rappi/Local */
+  ticketLayouts: TicketLayouts;
   /** Propinas al cobrar (opcional): se preguntan en el cobro con estos porcentajes sugeridos */
   tipsEnabled: boolean;
   tipSuggestions: number[];
@@ -71,6 +74,7 @@ const DEFAULT_SETTINGS: BusinessSettings = {
   ticketLogoSize: "grande",
   ticketShowCustomer: true,
   ticketShowChoices: true,
+  ticketLayouts: DEFAULT_TICKET_LAYOUTS,
   tipsEnabled: false,
   tipSuggestions: [10, 15, 20],
   cutEmailEnabled: false,
@@ -108,6 +112,7 @@ function normalize(parsed: Partial<BusinessSettings>): BusinessSettings {
     ticketLogoSize: SIZES.includes(parsed.ticketLogoSize as TicketSize) ? (parsed.ticketLogoSize as TicketSize) : DEFAULT_SETTINGS.ticketLogoSize,
     ticketShowCustomer: parsed.ticketShowCustomer !== false,
     ticketShowChoices: parsed.ticketShowChoices !== false,
+    ticketLayouts: normalizeTicketLayouts(parsed.ticketLayouts),
     tipsEnabled: parsed.tipsEnabled === true,
     tipSuggestions: Array.isArray(parsed.tipSuggestions)
       ? Array.from(new Set(parsed.tipSuggestions.map((n) => Math.round(Number(n))).filter((n) => n > 0 && n <= 100))).sort((a, b) => a - b).slice(0, 4)
