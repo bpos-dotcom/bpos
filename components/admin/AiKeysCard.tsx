@@ -33,6 +33,8 @@ type Feature = {
   provider: Provider;
   model: string;
   keyHints: Partial<Record<Provider, string>>;
+  /** Claves guardadas que el servidor ya no puede leer: hay que volver a pegarlas */
+  unreadable?: Provider[];
   /** Lo que de verdad se usa ahora (null = sin clave) */
   running: { provider: Provider; model: string } | null;
   priceIn: number;
@@ -204,6 +206,12 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
         </span>
       </div>
 
+      {!!f.unreadable?.length && (
+        <p className="mt-3 rounded-2xl border border-red-500/50 bg-red-500/10 p-3 text-sm font-bold text-red-200">
+          La clave de {f.unreadable.map((p) => COMPANY[p]).join(" y ")} está guardada pero el servidor ya no la puede leer (cambió de servidor). Vuelve a pegarla y toca Guardar.
+        </p>
+      )}
+
       {f.missingTable && <p className="mt-3 rounded-2xl border border-red-500/50 bg-red-500/10 p-3 text-sm font-bold text-red-200">Falta aplicar la migración 0029 en Supabase para guardar el Estudio de fotos.</p>}
 
       <div className={`mt-4 grid gap-2 ${f.providers.length > 1 ? "grid-cols-2" : "grid-cols-1"}`}>
@@ -211,7 +219,7 @@ function FeatureCard({ f, models, vercel, onSaved }: { f: Feature; models: Data[
           <button key={p} onClick={() => pickProvider(p)} className={`rounded-2xl border px-3 py-3 font-black ${provider === p ? "border-orange-500 bg-orange-500/10 text-orange-200" : "border-zinc-800 text-zinc-400"}`}>
             {COMPANY[p]}
             <span className="block text-[11px] font-bold text-zinc-500">
-              {f.keyHints[p] ? `Clave guardada ${f.keyHints[p]}` : p === "anthropic" && vercel && f.id !== "fotos" ? "Usa la clave de Vercel" : "Sin clave"}
+              {f.unreadable?.includes(p) ? `Vuelve a pegar la clave ${f.keyHints[p]}` : f.keyHints[p] ? `Clave guardada ${f.keyHints[p]}` : p === "anthropic" && vercel && f.id !== "fotos" ? "Usa la clave de Vercel" : "Sin clave"}
               {f.provider === p && f.running?.provider === p ? " · en uso" : ""}
             </span>
           </button>
