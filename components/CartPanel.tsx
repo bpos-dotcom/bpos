@@ -89,6 +89,9 @@ type RowActions = {
   onIncrease: (lineId: string) => void;
   onDecrease: (lineId: string) => void;
   onComment: (lineId: string, comment: string) => void;
+  /** Cambiar las opciones de un renglón ya marcado (solo si el producto tiene opciones) */
+  onEditOptions?: (lineId: string) => void;
+  canEditOptions?: (item: CartItem) => boolean;
 };
 
 /** Un renglón del pedido (chico en el panel, grande en la ventana completa) */
@@ -98,6 +101,8 @@ function CartRow({
   onIncrease,
   onDecrease,
   onComment,
+  onEditOptions,
+  canEditOptions,
 }: RowActions & { item: CartItem; big?: boolean }) {
   // Artículo de tienda: sin estación de cocina; a granel se ve "0.25 kg × Jitomate"
   const retail = item.sellBy !== undefined || item.openPrice === true;
@@ -176,6 +181,15 @@ function CartRow({
           </button>
         )}
 
+        {onEditOptions && canEditOptions?.(item) && (
+          <button
+            onClick={() => onEditOptions(cartLineId(item))}
+            className="rounded-xl border border-zinc-700 px-3 text-xs font-black text-zinc-300"
+          >
+            ✏️ Cambiar opciones
+          </button>
+        )}
+
         <CommentBox
           comment={item.comment}
           onSave={(text) => onComment(cartLineId(item), text)}
@@ -193,6 +207,8 @@ type CartPanelProps = {
   onIncrease: (lineId: string) => void;
   onDecrease: (lineId: string) => void;
   onComment: (lineId: string, comment: string) => void;
+  onEditOptions?: (lineId: string) => void;
+  canEditOptions?: (item: CartItem) => boolean;
   onClear: () => void;
   onCheckout: () => void;
   /** Cuenta en espera: se manda a cocina ya y se cobra después (domicilio: al regresar el repartidor) */
@@ -212,6 +228,8 @@ export function CartPanel({
   onIncrease,
   onDecrease,
   onComment,
+  onEditOptions,
+  canEditOptions,
   onClear,
   onCheckout,
   onHold,
@@ -268,6 +286,8 @@ export function CartPanel({
               onIncrease={onIncrease}
               onDecrease={onDecrease}
               onComment={onComment}
+              onEditOptions={onEditOptions}
+              canEditOptions={canEditOptions}
             />
           ))
         )}
@@ -408,6 +428,8 @@ export function CartPanel({
                   onIncrease={onIncrease}
                   onDecrease={onDecrease}
                   onComment={onComment}
+                  onEditOptions={onEditOptions}
+                  canEditOptions={canEditOptions}
                 />
               ))}
             </div>

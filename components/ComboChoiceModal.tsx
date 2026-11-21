@@ -30,16 +30,18 @@ type Props = {
   onClose: () => void;
   /** Sin precios (cena del personal): solo nombres de las opciones */
   hidePrices?: boolean;
+  /** Cambiar las opciones de un renglón que ya está en el pedido: lo que ya tenía */
+  initial?: { picks: Record<string, Picks>; comment?: string; partComments?: Record<number, string> };
 };
 
 type Picks = Record<string, string[]>;
 
-export function ComboChoiceModal({ product, products, onConfirm, onClose, hidePrices = false }: Props) {
-  const [picks, setPicks] = useState<Record<string, Picks>>({});
-  const [withComment, setWithComment] = useState(false);
-  const [comment, setComment] = useState("");
+export function ComboChoiceModal({ product, products, onConfirm, onClose, hidePrices = false, initial }: Props) {
+  const [picks, setPicks] = useState<Record<string, Picks>>(initial?.picks || {});
+  const [withComment, setWithComment] = useState(Boolean(initial?.comment));
+  const [comment, setComment] = useState(initial?.comment || "");
   // Instrucción para una parte del combo (producto enlazado → texto)
-  const [partComments, setPartComments] = useState<Record<number, string>>({});
+  const [partComments, setPartComments] = useState<Record<number, string>>(initial?.partComments || {});
   const [openPartComment, setOpenPartComment] = useState<number | null>(null);
   const pickedOf = (owner: string, groups: ModifierGroup[] | undefined) => ({ ...autoPicks(groups), ...(picks[owner] || {}) });
 
@@ -74,7 +76,7 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose, hidePr
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose}>
       <div className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-3xl border border-zinc-800 bg-zinc-950 p-6" onClick={(e) => e.stopPropagation()}>
-        <p className="text-sm font-bold text-orange-500">Elige las opciones</p>
+        <p className="text-sm font-bold text-orange-500">{initial ? "Cambiar las opciones" : "Elige las opciones"}</p>
         <h2 className="text-2xl font-black">
           {product.emoji} {product.name}
         </h2>
@@ -206,7 +208,7 @@ export function ComboChoiceModal({ product, products, onConfirm, onClose, hidePr
                 comment: withComment && comment.trim() ? comment.trim() : undefined,
               })
             } disabled={Boolean(problem)} className="flex-1 rounded-2xl bg-orange-500 py-3 font-black text-black disabled:opacity-40">
-            {hidePrices ? "Agregar" : `Agregar $${total.toFixed(2)}`}
+            {initial ? (hidePrices ? "Guardar" : `Guardar ${total.toFixed(2)}`) : hidePrices ? "Agregar" : `Agregar ${total.toFixed(2)}`}
           </button>
         </div>
       </div>
