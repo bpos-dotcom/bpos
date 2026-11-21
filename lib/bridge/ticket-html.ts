@@ -52,6 +52,9 @@ function style(settings: BusinessSettings, paper: PaperWidth) {
   .platform { font-size: ${b * 1.25}px; font-weight: 900; }
   .order { font-size: ${b * 1.55}px; font-weight: 900; line-height: 1.1; overflow-wrap: anywhere; }
   .meta { font-size: ${b}px; }
+  .folio-wrap { text-align: center; margin: 4px 0 6px; }
+  .folio { display: inline-block; max-width: 100%; padding: 2px 14px; border: 3px solid #000; font-size: ${b * 2.6}px; font-weight: 900; line-height: 1.05; letter-spacing: 1px; overflow-wrap: anywhere; }
+  .folio.long { font-size: ${b * 1.7}px; letter-spacing: 0; }
   .station { margin: 8px 0; padding: 4px 0; border: 5px solid #000; font-size: ${b * 1.6}px; font-weight: 900; letter-spacing: 1px; text-align: center; }
   .rule { border-top: 3px solid #000; margin: 8px 0; }
   .notes { margin: 8px 0; border: 4px solid #000; }
@@ -85,14 +88,17 @@ function header(ticket: DeliveryTicket, settings: BusinessSettings) {
       : `<div class="center platform">${esc(settings.businessName)}</div>`;
   const customer = settings.ticketShowCustomer && ticket.customer ? ticket.customer : "";
   // Debajo del logo (el logo queda tapado por la impresora; esto sale a la vista):
-  // - Plataforma: "DiDi Food / 4", abajo "Delivery · Cliente" y nuestro número
+  // - Plataforma: "DiDi Food", abajo el número del pedido de la plataforma en grande
+  //   dentro de un recuadro (lo que dice el repartidor), "Delivery · Cliente" y nuestro número
   // - Tienda (mostrador, mesa, en línea, kiosco): "Cliente / Local", abajo de dónde vino y el número
   const delivery = ticket.kind !== "mostrador";
-  const title = delivery ? `${ticket.platform} / ${ticket.orderId}` : customer ? `${customer} / Local` : `Local / ${ticket.orderId}`;
+  const folio = delivery ? String(ticket.orderId || "").trim() : "";
+  const title = delivery ? (folio ? ticket.platform : `${ticket.platform} / ${ticket.orderId}`) : customer ? `${customer} / Local` : `Local / ${ticket.orderId}`;
   const subtitle = delivery ? ["Delivery", customer].filter(Boolean).join(" · ") : ticket.platform;
   const number = delivery ? ticket.localNumber : customer ? ticket.orderId : "";
   return `${logo}
     <div class="center order">${esc(title)}</div>
+    ${folio ? `<div class="folio-wrap"><span class="folio${folio.length > 8 ? " long" : ""}">${esc(folio)}</span></div>` : ""}
     <div class="center platform">${esc(subtitle)}</div>
     ${number ? `<div class="center meta">Pedido #${esc(number)}</div>` : ""}
     <div class="center meta">${esc(time(ticket.receivedAt))}</div>
