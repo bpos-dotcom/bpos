@@ -4,6 +4,7 @@ import { formatQty, isBulk } from "@/lib/retail";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { platformLabel, realCustomerName, type DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import { paperWidth, qrSvg, type OrderTicket } from "@/lib/bridge/order-tickets";
+import { ticketQrFor } from "@/lib/ticket-layout";
 import { bagTicketHtml, staffMealTicketHtml, stationTicketHtml } from "@/lib/bridge/ticket-html";
 import { printDeliveryTickets, printOriginalTicket } from "@/lib/localService";
 import { formatOrderNumber } from "@/lib/order-sequence";
@@ -152,7 +153,7 @@ export async function buildSaleTickets(sale: SaleForTickets, choice: { stations:
     .filter((station) => ticket.items.some((i) => i.stations.includes(station)))
     .map((station) => ({ target: station, html: stationTicketHtml(ticket, station, settings, paper) }));
   if (choice.customer && sale.staffMeal) tickets.push({ target: "Caja", html: staffMealTicketHtml(ticket, sale.staffMeal.name, settings, paper, sale.staffMeal.by), drawer: false });
-  else if (choice.customer) tickets.push({ target: "Caja", html: bagTicketHtml(ticket, settings, await qrSvg(settings.ticketQrText), paper), drawer: choice.drawer !== false && paysCash(sale) });
+  else if (choice.customer) tickets.push({ target: "Caja", html: bagTicketHtml(ticket, settings, await qrSvg(ticketQrFor(ticket, settings).text), paper), drawer: choice.drawer !== false && paysCash(sale) });
   return tickets;
 }
 

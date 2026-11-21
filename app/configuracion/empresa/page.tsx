@@ -16,6 +16,7 @@ import { paperWidth, qrSvg } from "@/lib/bridge/order-tickets";
 import { bagTicketHtml, stationTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
 import { BUSINESS_TYPES, isRetailType } from "@/lib/business-type";
 import { TicketLayoutEditor } from "@/components/admin/TicketLayoutEditor";
+import { ticketQrFor } from "@/lib/ticket-layout";
 
 /** Pedido de ejemplo para la vista previa de los tickets. */
 const SAMPLE: DeliveryTicket = {
@@ -108,7 +109,7 @@ export default function EmpresaConfigPage() {
 
   useEffect(() => {
     if (!settings) return;
-    qrSvg(settings.ticketQrText).then(setQr).catch(() => setQr(""));
+    qrSvg(ticketQrFor(SAMPLE, settings).text).then(setQr).catch(() => setQr(""));
   }, [settings]);
 
   const previews = useMemo(() => {

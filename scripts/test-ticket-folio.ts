@@ -7,6 +7,7 @@ import { writeFileSync } from "node:fs";
 import { getBusinessSettings } from "../lib/business-settings";
 import { bagTicketHtml, stationTicketHtml } from "../lib/bridge/ticket-html";
 import type { DeliveryTicket } from "../lib/bridge/delivery-ticket";
+import { ticketQrFor } from "../lib/ticket-layout";
 
 let ok = 0;
 let bad = 0;
@@ -61,6 +62,15 @@ check("recuadro nada", !folioOf(bagTicketHtml(base, conf("didi", { box: "none" }
 const localNum = bagTicketHtml(mostrador, conf("local", { box: "number" }));
 check("local con folio en recuadro: no se repite abajo", folioOf(localNum) === "57" && !localNum.includes("Pedido #57"));
 check("cambiar DiDi no cambia Uber", folioOf(bagTicketHtml(uber, conf("didi", { box: "none" }))) === "Daniel A.");
+// QR por tipo de ticket
+const conQr = { ...settings, ticketQrText: "https://wa.me/528711234567", ticketQrCaption: "Escanea para pedir directo" };
+check("QR de fábrica: el general", ticketQrFor(base, conQr).text === "https://wa.me/528711234567" && ticketQrFor(base, conQr).caption === "Escanea para pedir directo");
+const qrUber = { ...conQr, ticketLayouts: { ...conQr.ticketLayouts, uber: { ...conQr.ticketLayouts.uber, qr: "custom" as const, qrText: "https://menu.mx/bp", qrCaption: "10% pidiendo directo" } } };
+check("Uber con otro link", ticketQrFor(uber, qrUber).text === "https://menu.mx/bp");
+check("su texto sale debajo del QR", bagTicketHtml(uber, qrUber, "<svg></svg>").includes("10% pidiendo directo") && !bagTicketHtml(uber, qrUber, "<svg></svg>").includes("Escanea para pedir directo"));
+check("DiDi sigue con el general", ticketQrFor(base, qrUber).text === "https://wa.me/528711234567");
+const sinQr = { ...conQr, ticketLayouts: { ...conQr.ticketLayouts, local: { ...conQr.ticketLayouts.local, qr: "none" as const } } };
+check("Local sin QR", ticketQrFor(mostrador, sinQr).text === "");
 check("ajustes viejos sin configurador: como de fábrica", folioOf(bagTicketHtml(base, { ...settings, ticketLayouts: undefined as never })) === "4");
 
 const out = process.argv[2];
@@ -81,9 +91,9 @@ if (bad) process.exit(1);
   g.window = { dispatchEvent: () => true };
   g.CustomEvent = class { constructor(public type: string, public init?: unknown) {} };
   import("../lib/business-settings").then(({ saveBusinessSettings, getBusinessSettings: get }) => {
-    saveBusinessSettings({ ticketLayouts: { ...settings.ticketLayouts, uber: { top: "text", topText: "Centro", box: "number", beside: "rara" as never } } });
+    saveBusinessSettings({ ticketLayouts: { ...settings.ticketLayouts, uber: { top: "text", topText: "Centro", box: "number", beside: "rara" as never, qr: "custom", qrText: "https://x.mx/uber", qrCaption: "Pide directo" } } });
     const u = get().ticketLayouts.uber;
-    const okSave = u.top === "text" && u.topText === "Centro" && u.box === "number" && u.beside === "number";
+    const okSave = u.top === "text" && u.topText === "Centro" && u.box === "number" && u.beside === "number" && u.qr === "custom" && u.qrText === "https://x.mx/uber";
     console.log(`${okSave ? "OK   " : "FALLA"} guardar: se conserva el configurador`);
     if (!okSave) process.exit(1);
   });

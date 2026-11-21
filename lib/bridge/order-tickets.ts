@@ -7,6 +7,7 @@ import { buildDeliveryTicket, ticketStations, type DeliveryTicket } from "@/lib/
 import { stationsByLine } from "@/lib/bridge/station-routing";
 import { bagTicketHtml, stationTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
 import { ticketBrandName } from "@/lib/brands";
+import { ticketQrFor } from "@/lib/ticket-layout";
 
 export type OrderTicket = { target: KitchenStation | "Caja"; html: string; /** Cobro en efectivo: el Agent abre el cajón de dinero de la impresora de Caja */ drawer?: boolean };
 
@@ -55,7 +56,7 @@ export async function buildOrderTickets(
     html: stationTicketHtml(ticket, station, settings, paper),
   }));
   if (settings.bagTicketEnabled) {
-    tickets.push({ target: "Caja", html: bagTicketHtml(ticket, settings, await qrSvg(settings.ticketQrText), paper) });
+    tickets.push({ target: "Caja", html: bagTicketHtml(ticket, settings, await qrSvg(ticketQrFor(ticket, settings).text), paper) });
   }
   return { ticket, tickets };
 }
