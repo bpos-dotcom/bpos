@@ -36,6 +36,7 @@ import {
  *   POST /api/cuenta/club         { slug }  (Bearer opcional)            → club, socio y movimientos
  *   POST /api/cuenta/unirme       { slug }  (Bearer)                     → entra al club (con su regalo)
  *   POST /api/cuenta/wallet       { slug }  (Bearer)                     → liga "Agregar a Google Wallet"
+ *   POST /api/cuenta/promo        { slug, phone } (Bearer opcional)      → { isNew, isClub } para las promociones
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -223,6 +224,30 @@ export async function POST(request: NextRequest, ctx: { params: Promise<{ accion
         const { tokenHash } = await sessionAccount(db, request.headers.get("authorization"), shop.businessId);
         await db.from("bpos_customer_sessions").delete().eq("token_hash", tokenHash);
         return NextResponse.json({ ok: true });
+      }
+
+      case "promo": {
+        // Promociones del menú: ¿es su primera compra (ese teléfono nunca ha pedido aquí) y es del club?
+        let isNew = false;
+        if (phone.length === 10) {
+          const { count } = await db
+            .from("bpos_online_orders")
+            .select("id", { count: "exact", head: true })
+            .eq("business_id", shop.businessId)
+            .neq("status", "rechazado")
+            .like("data->customer->>phone", `%${phone}`);
+          isNew = (count || 0) === 0;
+        }
+        let isClub = false;
+        const auth = request.headers.get("authorization");
+        if (auth) {
+          const session = await sessionAccount(db, auth, shop.businessId).catch(() => null);
+          if (session) {
+            const { data: member } = await db.from("bpos_loyalty_members").select("account_id").eq("account_id", session.account.id).maybeSingle();
+            isClub = Boolean(member);
+          }
+        }
+        return NextResponse.json({ isNew, isClub });
       }
 
       case "club":

@@ -36,6 +36,7 @@ import { ServiceGate } from "@/components/cloud/ServiceGate";
 import { MenuDesignEditor } from "@/components/menu/MenuDesignEditor";
 import { HolidaysEditor, TimedMenusEditor } from "@/components/menu/MenuSchedulesEditor";
 import { SortableList } from "@/components/menu/SortableList";
+import { PromotionsEditor } from "@/components/menu/PromotionsEditor";
 import { getBrands, isAppsOnly } from "@/lib/brands";
 
 const card = "rounded-3xl border border-zinc-800 bg-zinc-950 p-6";
@@ -455,6 +456,13 @@ export default function MenuDigitalPage() {
               Aviso arriba del menú (opcional)
               <input value={menu.notice} maxLength={200} onChange={(e) => update({ notice: e.target.value })} placeholder="Ej. Martes 2x1 en papas" className={`${input} mt-1`} />
             </label>
+          </section>
+
+          {/* Promociones */}
+          <section id="promociones" className={`${card} scroll-mt-32`}>
+            <h2 className="text-lg font-black">🎉 Promociones</h2>
+            <p className="mt-1 text-sm text-zinc-400">2x1, descuentos o envío gratis que se aplican solos en el carrito. Elige si son para todos, solo para clientes nuevos o solo para tu club.</p>
+            <PromotionsEditor promotions={menu.promotions} products={products} delivery={menu.delivery} onChange={(promotions) => update({ promotions })} />
           </section>
 
           {/* WhatsApp y transferencia */}

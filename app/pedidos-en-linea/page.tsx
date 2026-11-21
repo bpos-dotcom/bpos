@@ -33,6 +33,7 @@ import {
   type CustomerNotice,
   type OnlineOrder,
 } from "@/lib/online-orders";
+import { onlineDiscount } from "@/lib/promotions";
 
 import { ReservationsPanel } from "@/components/menu/ReservationsPanel";
 import { openWhatsapp, whatsappLink, whatsappTarget } from "@/lib/whatsapp";
@@ -92,7 +93,7 @@ function EditOrderModal({ order, onClose, onSaved }: { order: OnlineOrder; onClo
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const subtotal = d.lines.reduce((a, l, i) => a + l.unitPrice * qty[i], 0);
-  const discount = Math.min(d.coupon?.discount || 0, subtotal);
+  const discount = Math.min(onlineDiscount(d), subtotal);
   const total = Math.max(0, subtotal + (Number(d.deliveryFee) || 0) - discount);
   const changed = qty.some((q, i) => q < d.lines[i].quantity);
   const fullyRemoved = d.lines.filter((_, i) => qty[i] === 0);
@@ -368,13 +369,14 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         alert("Pon el costo de envío (puede ser 0). Mira su ubicación en el mapa para cotizarlo.");
         return;
       }
-      noticeOrder = { ...order, data: { ...d, deliveryFee: fee, total: Math.max(0, Number(d.subtotal) + fee - (d.coupon?.discount || 0)) } };
+      noticeOrder = { ...order, data: { ...d, deliveryFee: fee, total: Math.max(0, Number(d.subtotal) + fee - onlineDiscount(d)) } };
     }
     await step(
       "aceptado",
       async () => {
         const result = await acceptOnlineOrder(order, etaUse, getCurrentUser()?.name, quoting ? { deliveryFee: fee } : {});
         if (result.printFailed.length) setMessage(`Aceptado. No se imprimió en: ${result.printFailed.join(", ")}. Reimprime desde Historial de pedidos.`);
+        if (result.promoProblem) alert(`Se cobró sin la promoción "${d.promo?.name || ""}": ${result.promoProblem}. Avísale al cliente.`);
         // A domicilio: de una vez elegir quién lo lleva
         if (order.data.type === "Domicilio") setDispatching(true);
       },
@@ -508,6 +510,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         ))}
         {d.deliveryFee > 0 && <li className="text-zinc-400">Envío {money(d.deliveryFee)}</li>}
         {d.coupon && <li className="text-emerald-400">🎟️ Cupón {d.coupon.code} -{money(d.coupon.discount)}</li>}
+        {d.promo && <li className="text-emerald-400">🎉 {d.promo.name}{d.promo.discount ? ` -${money(d.promo.discount)}` : ""}{d.promo.freeShipping ? " · envío gratis" : ""}</li>}
       </ul>
 
       {d.edits && d.edits.length > 0 && (

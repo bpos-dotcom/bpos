@@ -7,6 +7,7 @@
  * a la nube por sucursal; de ahí lo lee la página pública /m/<liga>.
  * Lo usan la página pública y B-POS, así que no depende del navegador.
  */
+import { normalizePromotions, type Promotion } from "@/lib/promotions";
 import type { ModifierGroup, Product } from "@/data/products";
 import { cleanSchedule, isOnSale, scheduleLabel, type SaleSchedule } from "@/lib/sale-schedule";
 
@@ -158,6 +159,8 @@ export type DigitalMenuSettings = {
   whatsapp: string;
   bank: BankInfo;
   design: MenuDesign;
+  /** Promociones que se aplican solas en el carrito (2x1, % , envío gratis…) */
+  promotions: Promotion[];
 };
 
 export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
@@ -189,6 +192,7 @@ export const DEFAULT_DIGITAL_MENU: DigitalMenuSettings = {
   whatsapp: "",
   bank: { bank: "", clabe: "", holder: "" },
   design: DEFAULT_DESIGN,
+  promotions: [],
 };
 
 const str = (value: unknown, fallback: string, max = 200) => (typeof value === "string" ? value.slice(0, max) : fallback);
@@ -383,6 +387,7 @@ export function normalizeDigitalMenu(raw: Partial<DigitalMenuSettings> | null | 
       holder: str(r.bank?.holder, "", 80),
     },
     design: normalizeDesign(r.design),
+    promotions: normalizePromotions(r.promotions),
   };
 }
 
@@ -676,6 +681,8 @@ export type OnlineOrderData = {
   kiosk?: { eat: KioskEat; screen: string; chargeId?: string };
   /** Cupón que escribió el cliente y el descuento que vio */
   coupon?: { code: string; discount: number };
+  /** Promoción que se aplicó sola (descuento en productos y/o envío gratis) */
+  promo?: { id: string; name: string; discount: number; freeShipping?: boolean };
   total: number;
   /** Cambios que hizo el negocio antes de aceptarlo (ej. quitar algo agotado) */
   edits?: OnlineOrderEdit[];
@@ -762,6 +769,7 @@ export function orderWhatsappText(businessName: string, folio: string, d: Online
     ...lines,
     d.deliveryFee ? `Envío ${money(d.deliveryFee)}${paidOnline(d) ? " (se paga al repartidor)" : ""}` : d.deliveryQuote ? "Envío: por cotizar" : "",
     d.coupon ? `Cupón ${d.coupon.code} -${money(d.coupon.discount)}` : "",
+    d.promo ? `Promoción: ${d.promo.name}${d.promo.discount ? ` -${money(d.promo.discount)}` : ""}` : "",
     `*Total ${money(d.total)}${d.deliveryQuote && !d.deliveryFee ? " + envío" : ""}*`,
     "",
     ...where,

@@ -132,6 +132,31 @@ async function main() {
   store.set("bpos_digital_menu", JSON.stringify({ soldOut: { "5": { until: null, at: "x" } }, hidden: [] }));
   check("avisa si se agotó después de pedir", buildOnlineCart(order).problems.some((p) => p.includes("Papas")));
 
+  // Promociones: al aceptar se recalculan con los precios de B-POS
+  const promos = [
+    { id: "p10", kind: "percent", value: 10, audience: "new", active: true },
+    { id: "p2x1", kind: "2x1", categories: ["Bebidas"], audience: "all", active: true },
+    { id: "pEnvio", kind: "freeShipping", audience: "all", minPurchase: 100, active: true },
+  ];
+  store.set("bpos_digital_menu", JSON.stringify({ soldOut: {}, hidden: [], promotions: promos }));
+  const promoOrder = { ...order, lines: order.lines.slice(0, 2), promo: { id: "p10", name: "10% en tu primera compra", discount: 999 } };
+  const withPromo = buildOnlineCart(promoOrder);
+  check("promoción: descuento con precios de B-POS (no el que mandó el cliente)", withPromo.promo?.discount === Math.round((169 * 2 + 45) * 10) / 100, withPromo.promo);
+  check("promoción vigente: sin avisos", withPromo.problems.length === 0, withPromo.problems);
+  const sodas = { ...order, lines: [{ productId: 3, name: "Coca", quantity: 2, unitPrice: 30, picks: {}, summary: "" }], promo: { id: "p2x1", name: "2x1", discount: 30 } };
+  check("2x1 al aceptar: 2 Cocas → $30", buildOnlineCart(sodas).promo?.discount === 30);
+  const envio = buildOnlineCart({ ...promoOrder, type: "Domicilio", promo: { id: "pEnvio", name: "Envío gratis", discount: 0, freeShipping: true } });
+  check("envío gratis al aceptar", envio.promo?.freeShipping === true);
+  store.set("bpos_digital_menu", JSON.stringify({ soldOut: {}, hidden: [], promotions: [{ ...promos[0], active: false }] }));
+  const paused = buildOnlineCart(promoOrder);
+  check("promoción pausada después de pedir: avisa y no descuenta", !paused.promo && paused.problems.some((p) => p.includes("ya no aplica")), paused);
+  store.set("bpos_digital_menu", JSON.stringify({ soldOut: {}, hidden: [], promotions: promos }));
+  const oo0 = await import("@/lib/online-orders");
+  check("pagado en línea con la promoción: no falta dinero", oo0.onlinePaymentShort({ ...promoOrder, payment: "Mercado Pago", mp: { status: "approved", paymentId: "1", amount: 383 - 38.3, paidAt: "" } }) === "");
+  check("pagado de menos aun con la promoción: avisa", oo0.onlinePaymentShort({ ...promoOrder, payment: "Mercado Pago", mp: { status: "approved", paymentId: "1", amount: 200, paidAt: "" } }) !== "");
+  check("promo de todos: no se revisa quién es", (await oo0.promoAudienceProblem({ id: "x", created_at: "", account_id: null, data: sodas } as never)) === "");
+  store.set("bpos_digital_menu", JSON.stringify({ soldOut: {}, hidden: [] }));
+
   // Formas de pago por tipo de pedido
   const legacy = dm.normalizeDigitalMenu({ payments: { cash: true, card: false, transfer: true } });
   check("sin configurar usa las formas de antes", legacy.paymentsByType.Domicilio.join() === "Efectivo,Transferencia", legacy.paymentsByType);
@@ -222,6 +247,8 @@ async function main() {
   check("motivo escrito (Otro)", other.edits![0].reason === "No hay pan" && oo.editNoticeText({ folio: "K6B4", data: other }, other.edits![0]).includes("No hay pan"));
   const cheap = oo.applyOrderEdit({ ...editData, coupon: { code: "X", discount: 100 } }, [1, 0, 0], "Agotado");
   check("el cupón no puede ser mayor que lo que queda", cheap.coupon?.discount === 79 && cheap.total === 40);
+  const promoEdit = oo.applyOrderEdit({ ...editData, coupon: undefined, promo: { id: "p", name: "10%", discount: 28.1 }, total: 292.9 }, [1, 0, 0], "Agotado");
+  check("la promoción no puede ser mayor que lo que queda", promoEdit.promo?.discount === 28.1 && promoEdit.total === Math.round((79 + 40 - 28.1) * 100) / 100, promoEdit);
   const throws = (fn: () => unknown) => { try { fn(); return false; } catch { return true; } };
   check("sin motivo no se guarda", throws(() => oo.applyOrderEdit(editData, [1, 1, 0], "  ")));
   check("sin quitar nada no se guarda", throws(() => oo.applyOrderEdit(editData, [1, 2, 1], "Agotado")));
