@@ -8,6 +8,7 @@ import QRCode from "qrcode";
 import type { BusinessSettings, TicketSize } from "@/lib/business-settings";
 import type { DeliveryTicket, TicketItem } from "@/lib/bridge/delivery-ticket";
 import { bagTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
+import { normalizeTicketLayouts } from "@/lib/ticket-layout";
 import { kioskLabel, type OnlineOrderData } from "@/lib/digital-menu";
 
 const SIZES: TicketSize[] = ["normal", "grande", "extra"];
@@ -40,6 +41,7 @@ export function ticketSettings(raw: unknown, businessName: string): BusinessSett
     ticketLogoSize: size(r.ticketLogoSize, "grande"),
     ticketShowCustomer: r.ticketShowCustomer !== false,
     ticketShowChoices: r.ticketShowChoices !== false,
+    ticketLayouts: normalizeTicketLayouts(r.ticketLayouts),
     tipsEnabled: false,
     tipSuggestions: [],
     cutEmailEnabled: false,

@@ -2,6 +2,7 @@ import type { KitchenStation } from "@/data/products";
 import type { BusinessSettings, TicketSize } from "@/lib/business-settings";
 import type { DeliveryTicket, TicketItem } from "@/lib/bridge/delivery-ticket";
 import { stationLabel } from "@/lib/kds-config";
+import { normalizeTicketLayouts, ticketLayoutKind, type TicketField } from "@/lib/ticket-layout";
 
 /**
  * Tickets propios (HTML) que el Agent dibuja al ancho real del papel y manda
@@ -54,7 +55,8 @@ function style(settings: BusinessSettings, paper: PaperWidth) {
   .meta { font-size: ${b}px; }
   .folio-wrap { text-align: center; margin: 4px 0 6px; }
   .folio { display: inline-block; max-width: 100%; padding: 2px 14px; border: 3px solid #000; font-size: ${b * 2.6}px; font-weight: 900; line-height: 1.05; letter-spacing: 1px; overflow-wrap: anywhere; }
-  .folio.long { font-size: ${b * 1.7}px; letter-spacing: 0; }
+  .folio.mid { font-size: ${b * 2}px; letter-spacing: 0; }
+  .folio.long { font-size: ${b * 1.6}px; letter-spacing: 0; }
   .station { margin: 8px 0; padding: 4px 0; border: 5px solid #000; font-size: ${b * 1.6}px; font-weight: 900; letter-spacing: 1px; text-align: center; }
   .rule { border-top: 3px solid #000; margin: 8px 0; }
   .notes { margin: 8px 0; border: 4px solid #000; }
@@ -79,28 +81,48 @@ function page(settings: BusinessSettings, paper: PaperWidth, body: string) {
   return `<!doctype html><html><head><meta charset="utf-8"><style>${style(settings, paper)}</style></head><body>${body}</body></html>`;
 }
 
+/** Tamaño del recuadro según lo largo del texto (un número corto se ve enorme; un nombre, más chico) */
+function folioSize(text: string) {
+  return text.length <= 5 ? "" : text.length <= 9 ? " mid" : " long";
+}
+
 function header(ticket: DeliveryTicket, settings: BusinessSettings) {
+  // Configurador de tickets: cada tipo (DiDi, Uber, Rappi, Local) elige qué va arriba,
+  // en el recuadro grande y junto a "Delivery"
+  const layout = normalizeTicketLayouts(settings.ticketLayouts)[ticketLayoutKind(ticket)];
+  const brandName = ticket.brand || settings.businessName;
   // Pedido de otra marca (multimarca): su nombre en lugar del logo del negocio, para empacarlo con su marca
-  const logo = ticket.brand
-    ? `<div class="center order">${esc(ticket.brand.toUpperCase())}</div>`
-    : settings.ticketLogo
-      ? `<img class="logo" src="${settings.ticketLogo}">`
-      : `<div class="center platform">${esc(settings.businessName)}</div>`;
+  const top =
+    layout.top === "none"
+      ? ""
+      : layout.top === "text"
+        ? layout.topText.trim()
+          ? `<div class="center platform">${esc(layout.topText.trim())}</div>`
+          : ""
+        : ticket.brand
+          ? `<div class="center order">${esc(ticket.brand.toUpperCase())}</div>`
+          : layout.top === "logo" && settings.ticketLogo
+            ? `<img class="logo" src="${settings.ticketLogo}">`
+            : `<div class="center platform">${esc(brandName)}</div>`;
   const customer = settings.ticketShowCustomer && ticket.customer ? ticket.customer : "";
-  // Debajo del logo (el logo queda tapado por la impresora; esto sale a la vista):
-  // - Plataforma: "DiDi Food", abajo el número del pedido de la plataforma en grande
-  //   dentro de un recuadro (lo que dice el repartidor), "Delivery · Cliente" y nuestro número
-  // - Tienda (mostrador, mesa, en línea, kiosco): "Cliente / Local", abajo de dónde vino y el número
+  const number = String(ticket.orderId || "").trim();
+  const value = (field: TicketField) => (field === "number" ? number : field === "customer" ? customer : "");
+  // El recuadro nunca queda vacío si se eligió algo: sin nombre del cliente va el número (y al revés)
+  let boxText = value(layout.box);
+  if (!boxText && layout.box !== "none") boxText = value(layout.box === "number" ? "customer" : "number");
+  const besideText = value(layout.beside) === boxText ? "" : value(layout.beside);
   const delivery = ticket.kind !== "mostrador";
-  const folio = delivery ? String(ticket.orderId || "").trim() : "";
-  const title = delivery ? (folio ? ticket.platform : `${ticket.platform} / ${ticket.orderId}`) : customer ? `${customer} / Local` : `Local / ${ticket.orderId}`;
-  const subtitle = delivery ? ["Delivery", customer].filter(Boolean).join(" · ") : ticket.platform;
-  const number = delivery ? ticket.localNumber : customer ? ticket.orderId : "";
-  return `${logo}
+  // Delivery: "DiDi Food" arriba y "Delivery · …"; local: de dónde vino (Mostrador, Mesa 3, Kiosco)
+  const title = ticket.platform;
+  const line = delivery ? ["Delivery", besideText].filter(Boolean).join(" · ") : besideText;
+  // Nuestro número: en delivery siempre; en el local, si no salió ya en el recuadro o en el renglón
+  const shown = boxText === number || besideText === number;
+  const ours = delivery ? ticket.localNumber : shown ? "" : number;
+  return `${top}
     <div class="center order">${esc(title)}</div>
-    ${folio ? `<div class="folio-wrap"><span class="folio${folio.length > 8 ? " long" : ""}">${esc(folio)}</span></div>` : ""}
-    <div class="center platform">${esc(subtitle)}</div>
-    ${number ? `<div class="center meta">Pedido #${esc(number)}</div>` : ""}
+    ${boxText ? `<div class="folio-wrap"><span class="folio${folioSize(boxText)}">${esc(boxText)}</span></div>` : ""}
+    ${line ? `<div class="center platform">${esc(line)}</div>` : ""}
+    ${ours ? `<div class="center meta">Pedido #${esc(ours)}</div>` : ""}
     <div class="center meta">${esc(time(ticket.receivedAt))}</div>
     ${ticket.waiter ? `<div class="center meta">Mesero: ${esc(ticket.waiter)}</div>` : ""}`;
 }
