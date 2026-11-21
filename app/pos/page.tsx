@@ -5,7 +5,7 @@ import { notify } from "@/components/layout/Toasts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CartItem, CartPanel, cartLineId } from "@/components/CartPanel";
 import { ComboChoiceModal } from "@/components/ComboChoiceModal";
-import { buildSelection, extrasPrice, lineIdFor, needsChoices } from "@/lib/compound";
+import { buildSelection, extrasPrice, lineIdFor, needsChoices, picksFromLine } from "@/lib/compound";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { CheckoutModal, type CheckoutResult, type SplitLine } from "@/components/CheckoutModal";
 import { methodLabel, sumPayments } from "@/lib/sale-payments";
@@ -108,6 +108,8 @@ function PosScreen() {
   /** Cuenta en espera a la que se le están agregando productos (lo marcado se suma y va a cocina) */
   const [addingToId, setAddingToId] = useState<SavedOrder["id"] | null>(null);
   const [comboToChoose, setComboToChoose] = useState<Product | null>(null);
+  // Renglón del pedido al que se le cambian las opciones (el cliente quiso agregar las papas después)
+  const [editingLineId, setEditingLineId] = useState<string | null>(null);
   // Tienda o ferretería: lector de código de barras, granel, precio libre, mayoreo y fiado
   const businessType = useBusinessType();
   const retail = isRetailType(businessType);
@@ -489,6 +491,31 @@ function PosScreen() {
         ...currentCart,
         { ...product, price, quantity: 1, lineId, ...(parts?.length ? { parts, ownTicket } : {}), ...(modifiers?.length ? { modifiers } : {}), ...(comment ? { comment } : {}), ...(extraStations?.length ? { extraStations } : {}) },
       ];
+    });
+  }
+
+  /** Se le pueden cambiar las opciones: su producto las tiene (no el regalo ni lo de granel) */
+  function canEditOptions(item: CartItem) {
+    const id = cartLineId(item);
+    if (id.endsWith("|regalo") || id.includes("|g:")) return false;
+    const product = products.find((p) => Number(p.id) === Number(item.id));
+    return Boolean(product && needsChoices(product, products));
+  }
+
+  /** Cambia las opciones de un renglón ya marcado: mismo lugar y cantidad, precio con las opciones nuevas */
+  function replaceLineOptions(oldLineId: string, product: Product, { parts, modifiers, ownTicket, comment, extraStations }: Pick<CartItem, "parts" | "modifiers" | "ownTicket" | "comment" | "extraStations">) {
+    const lineId = lineIdFor(product.id, parts, modifiers) + (comment ? `|c:${comment}` : "");
+    const price = product.price + extrasPrice(modifiers, parts);
+    setCart((current) => {
+      const index = current.findIndex((item) => cartLineId(item) === oldLineId);
+      if (index < 0) return current;
+      const old = current[index];
+      const rest = current.filter((_, i) => i !== index);
+      // Quedó igual que otro renglón: se juntan
+      const same = rest.find((item) => cartLineId(item) === lineId);
+      if (same) return rest.map((item) => (item === same ? repriced({ ...item, quantity: item.quantity + old.quantity }) : item));
+      const next: CartItem = { ...product, price, quantity: old.quantity, lineId, ...(parts?.length ? { parts, ownTicket } : {}), ...(modifiers?.length ? { modifiers } : {}), ...(comment ? { comment } : {}), ...(extraStations?.length ? { extraStations } : {}) };
+      return [...rest.slice(0, index), next, ...rest.slice(index)];
     });
   }
 
@@ -994,6 +1021,26 @@ function PosScreen() {
         />
       )}
 
+      {(() => {
+        const line = editingLineId ? cart.find((i) => cartLineId(i) === editingLineId) : undefined;
+        const product = line ? products.find((p) => Number(p.id) === Number(line.id)) : undefined;
+        if (!line || !product) return null;
+        const partComments = Object.fromEntries((line.parts || []).filter((p) => p.comment).map((p) => [p.productId, p.comment!]));
+        return (
+          <ComboChoiceModal
+            key={editingLineId!}
+            product={product}
+            products={products}
+            initial={{ picks: picksFromLine(product, products, line), comment: line.comment, partComments }}
+            onClose={() => setEditingLineId(null)}
+            onConfirm={(chosen) => {
+              replaceLineOptions(editingLineId!, product, chosen);
+              setEditingLineId(null);
+            }}
+          />
+        );
+      })()}
+
       {comboToChoose && (
         <ComboChoiceModal
           product={comboToChoose}
@@ -1191,6 +1238,8 @@ function PosScreen() {
               onIncrease={increaseQuantity}
               onDecrease={decreaseQuantity}
               onComment={setLineComment}
+              onEditOptions={setEditingLineId}
+              canEditOptions={canEditOptions}
               onClear={clearCart}
               onCheckout={openCheckout}
               onHold={holdOrder}

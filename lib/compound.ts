@@ -227,6 +227,48 @@ export function buildSelection(product: Product, products: Product[], picks: Rec
 }
 
 /**
+ * Al revés de buildSelection: lo que ya está en un renglón del carrito
+ * (parts y modifiers) → las elecciones de la ventana de opciones, para
+ * cambiarlas (el cliente quiso agregar las papas después). Las opciones se
+ * reconocen por grupo y nombre; si el producto cambió y una ya no existe, se omite.
+ */
+export function picksFromLine(product: Product, products: Product[], line: { parts?: SoldPart[]; modifiers?: SoldModifier[] }): Record<string, Picks> {
+  const parts = line.parts || [];
+  /** Elecciones de unos grupos con lo vendido (opciones sueltas y productos enlazados con su cantidad) */
+  const fromSold = (groups: ModifierGroup[] | undefined, mods: SoldModifier[], linked: { productId: number; label?: string; quantity: number }[]) => {
+    const picks: Picks = {};
+    for (const group of groups || []) {
+      const keys: string[] = [];
+      for (const option of group.options) {
+        const n = option.productId
+          ? linked.filter((p) => Number(p.productId) === Number(option.productId) && p.label === group.name).reduce((s, p) => s + p.quantity, 0)
+          : mods.filter((m) => !m.extra && !m.productId && m.group === group.name && m.name === option.name).length;
+        for (let i = 0; i < n; i++) keys.push(option.key);
+      }
+      if (keys.length) picks[group.key] = keys;
+    }
+    return picks;
+  };
+  const ownGroupNames = new Set((product.modifierGroups || []).map((g) => g.name));
+  // Partes elegidas en las opciones propias (las anidadas llevan la etiqueta del grupo de su producto)
+  const ownParts = parts.filter((p) => p.label && ownGroupNames.has(p.label));
+  const own = fromSold(product.modifierGroups, line.modifiers || [], ownParts);
+  const out: Record<string, Picks> = { [OWN_OPTIONS]: own };
+  for (const linked of linkedWithOptions(product, products, { ...autoPicks(product.modifierGroups), ...own })) {
+    const parent = parts.find((p) => Number(p.productId) === Number(linked.id) && p.label && ownGroupNames.has(p.label));
+    if (!parent) continue;
+    const names = new Set((linked.modifierGroups || []).map((g) => g.name));
+    // Anidadas: su cantidad va por cada pieza de la parte
+    const nested = parts
+      .filter((p) => p !== parent && p.label && names.has(p.label) && !ownGroupNames.has(p.label))
+      .map((p) => ({ ...p, quantity: Math.round(p.quantity / (parent.quantity || 1)) }));
+    const picks = fromSold(linked.modifierGroups, parent.modifiers || [], nested);
+    if (Object.keys(picks).length) out[linkedOwner(linked.id)] = picks;
+  }
+  return out;
+}
+
+/**
  * Multidestino sugerido por la receta: los insumos que prepara otra estación
  * ("Boneless" → Freidora) en un producto de Parrilla. Una sugerencia por estación.
  */
