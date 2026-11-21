@@ -41,9 +41,10 @@ import {
   type MenuTheme,
 } from "@/lib/digital-menu";
 import { couponDiscount } from "@/lib/coupons";
+import { bestPromotion, promoLabel, visiblePromotions } from "@/lib/promotions";
 import { getSupabase } from "@/lib/supabase/client";
 import { AddressMap } from "@/components/menu/AddressMap";
-import { AccountSheet, useCustomer, type Customer, type CustomerOrder } from "@/components/menu/CustomerAccount";
+import { AccountSheet, callAccount, useCustomer, type Customer, type CustomerOrder } from "@/components/menu/CustomerAccount";
 import { InstallApp } from "@/components/menu/InstallApp";
 import { KioskCheckout } from "@/components/menu/KioskCheckout";
 import { ReservationSheet } from "@/components/menu/ReservationSheet";
@@ -499,6 +500,15 @@ function Menu({
 
       <main className="mx-auto max-w-6xl px-4 pb-32">
         {menu.notice && <p className="mt-4 rounded-2xl px-4 py-3 text-sm font-bold text-white" style={{ background: color }}>{menu.notice}</p>}
+        {!kiosk && visiblePromotions(menu.promotions).length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2" data-promos>
+            {visiblePromotions(menu.promotions).map((p) => (
+              <span key={p.id} className="rounded-full border-2 px-3 py-1.5 text-sm font-black" style={{ borderColor: color, color }}>
+                🎉 {promoLabel(p)}
+              </span>
+            ))}
+          </div>
+        )}
         {holidaysText && <p className="mt-4 rounded-2xl border border-orange-100 bg-white px-4 py-3 text-sm font-bold text-zinc-800">📅 Días especiales: {holidaysText}</p>}
         {canReserve && (
           <button onClick={() => setReserving(true)} className="mt-4 flex w-full items-center justify-between rounded-2xl border-2 bg-white px-4 py-3 text-left font-black text-zinc-900 shadow-sm" style={{ borderColor: color }}>
@@ -1048,11 +1058,44 @@ function Checkout({
   }, []);
 
   const subtotal = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
-  // Envío a cotizar: se pide sin costo de envío; el negocio lo pone al aceptar
-  const quote = type === "Domicilio" && menu.deliveryQuote;
-  const fee = type === "Domicilio" && !quote ? menu.deliveryFee : 0;
+  // Promociones: si alguna es solo para clientes nuevos o del club, se pregunta al servidor por ese teléfono
+  const phoneKey = phone.replace(/D/g, "").slice(-10);
+  const needsWho = menu.promotions.some((p) => p.audience !== "all");
+  const [who, setWho] = useState<{ phone: string; isNew: boolean; isClub: boolean } | null>(null);
+  useEffect(() => {
+    if (!needsWho || phoneKey.length !== 10) return;
+    let alive = true;
+    const timer = setTimeout(() => {
+      callAccount<{ isNew: boolean; isClub: boolean }>("promo", slug, { phone: phoneKey }, customer.token || "")
+        .then((r) => alive && setWho({ phone: phoneKey, isNew: Boolean(r.isNew), isClub: Boolean(r.isClub) }))
+        .catch(() => undefined);
+    }, 400);
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [needsWho, phoneKey, slug, customer.token]);
+  const known = who && who.phone === phoneKey ? who : null;
+  const categoryOf = new Map(data.products.map((p) => [Number(p.id), p.category || ""]));
+  const delivery = type === "Domicilio";
+  const promoResult = bestPromotion(menu.promotions, {
+    lines: cart.map((l) => ({ productId: l.productId, category: categoryOf.get(Number(l.productId)) || "", unitPrice: l.unitPrice, quantity: l.quantity })),
+    subtotal,
+    delivery,
+    deliveryFee: delivery && !menu.deliveryQuote ? menu.deliveryFee : 0,
+    isNew: Boolean(known?.isNew),
+    isClub: Boolean(known?.isClub),
+  });
   const couponOk = coupon && subtotal >= coupon.minPurchase ? coupon : null;
-  const discount = couponOk ? couponDiscount(couponOk, subtotal) : 0;
+  const couponAmount = couponOk ? couponDiscount(couponOk, subtotal) : 0;
+  // No se juntan: se usa lo que más le ahorra (promoción o cupón)
+  const promo = promoResult && (!couponOk || promoResult.saving > couponAmount) ? promoResult : null;
+  const couponUsed = couponOk && !promo ? couponOk : null;
+  const freeShipping = Boolean(promo?.freeShipping);
+  // Envío a cotizar: se pide sin costo de envío; el negocio lo pone al aceptar
+  const quote = delivery && menu.deliveryQuote && !freeShipping;
+  const fee = delivery && !quote && !freeShipping ? menu.deliveryFee : 0;
+  const discount = couponUsed ? couponAmount : promo?.discount || 0;
   const total = Math.max(0, subtotal + fee - discount);
 
   async function applyCoupon() {
@@ -1106,7 +1149,8 @@ function Checkout({
       subtotal,
       deliveryFee: fee,
       ...(quote ? { deliveryQuote: true } : {}),
-      ...(couponOk && discount > 0 ? { coupon: { code: couponOk.code, discount } } : {}),
+      ...(couponUsed && discount > 0 ? { coupon: { code: couponUsed.code, discount } } : {}),
+      ...(promo ? { promo: { id: promo.promo.id, name: promoLabel(promo.promo), discount: promo.discount, ...(promo.freeShipping ? { freeShipping: true } : {}) } } : {}),
       total,
     };
     setSending(true);
@@ -1320,7 +1364,7 @@ function Checkout({
           <p className="text-sm font-bold">¿Tienes un cupón?</p>
           {couponOk ? (
             <div className="mt-1 flex items-center justify-between rounded-xl border-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm">
-              <b className="text-emerald-800">🎟️ {couponOk.code} · -{money(discount)}</b>
+              <b className="text-emerald-800">🎟️ {couponOk.code} · -{money(couponAmount)}</b>
               <button onClick={() => setCoupon(null)} className="text-xs font-bold text-zinc-500 underline">Quitar</button>
             </div>
           ) : (
@@ -1338,13 +1382,25 @@ function Checkout({
           )}
           {coupon && !couponOk && <p className="mt-1 text-xs font-bold text-amber-700">El cupón {coupon.code} es para compras desde {money(coupon.minPurchase)}.</p>}
           {couponError && <p className="mt-1 text-xs font-bold text-red-600">{couponError}</p>}
+          {couponOk && promo && <p className="mt-1 text-xs font-bold text-amber-700">El cupón no se junta con la promoción: te dejamos la que más te ahorra.</p>}
         </div>
+
+        {promo && (
+          <p className="mt-3 rounded-xl border-2 border-emerald-500 bg-emerald-50 px-3 py-2 text-sm font-black text-emerald-800" data-promo-applied>
+            🎉 Promoción: {promoLabel(promo.promo)}
+          </p>
+        )}
+        {!promo && needsWho && phoneKey.length !== 10 && menu.promotions.some((p) => p.audience === "new") && (
+          <p className="mt-3 text-xs font-bold text-zinc-500">¿Primera vez que pides? Escribe tu teléfono y, si te toca, la promoción se aplica sola.</p>
+        )}
 
         <div className="mt-5 space-y-1 border-t border-zinc-100 pt-4 text-sm">
           <p className="flex justify-between"><span>Subtotal</span><span>{money(subtotal)}</span></p>
           {fee > 0 && <p className="flex justify-between"><span>Envío</span><span>{money(fee)}</span></p>}
           {quote && <p className="flex justify-between"><span>Envío</span><span className="font-bold">Por cotizar</span></p>}
-          {discount > 0 && couponOk && <p className="flex justify-between text-emerald-700"><span>Cupón {couponOk.code}</span><span>-{money(discount)}</span></p>}
+          {freeShipping && <p className="flex justify-between text-emerald-700"><span>Envío</span><span className="font-bold">Gratis</span></p>}
+          {discount > 0 && couponUsed && <p className="flex justify-between text-emerald-700"><span>Cupón {couponUsed.code}</span><span>-{money(discount)}</span></p>}
+          {discount > 0 && promo && <p className="flex justify-between text-emerald-700"><span>Promoción</span><span>-{money(discount)}</span></p>}
           <p className="flex justify-between text-lg font-black"><span>Total</span><span>{money(total)}{quote ? " + envío" : ""}</span></p>
           {quote && <p className="text-xs text-zinc-500">El negocio revisa tu ubicación y te confirma el costo de envío al aceptar tu pedido.{payment === "Mercado Pago" ? " El envío se paga al repartidor." : ""}</p>}
         </div>
@@ -1651,6 +1707,7 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
             <p className="flex justify-between"><span>Envío</span><span>{status.status === "nuevo" || status.status === "aceptando" ? "Por cotizar" : "Sin costo"}</span></p>
           ) : null}
           {d.coupon && <p className="flex justify-between"><span>Cupón {d.coupon.code}</span><span>-{money(d.coupon.discount)}</span></p>}
+          {d.promo && <p className="flex justify-between"><span>🎉 {d.promo.name}</span><span>{d.promo.discount ? `-${money(d.promo.discount)}` : d.promo.freeShipping ? "Envío gratis" : ""}</span></p>}
           <p className="flex justify-between font-black"><span>TOTAL</span><span>{money(d.total)}{d.deliveryQuote && !d.deliveryFee && (status.status === "nuevo" || status.status === "aceptando") ? " + envío" : ""}</span></p>
           {d.deliveryQuote && !d.deliveryFee && (status.status === "nuevo" || status.status === "aceptando") && <p className="text-xs text-zinc-500">El negocio te confirma el costo de envío al aceptar.</p>}
           <p className="mt-3 text-center text-xs text-zinc-500">Ticket digital · bpos.com.mx</p>

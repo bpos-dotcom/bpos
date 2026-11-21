@@ -13,6 +13,7 @@ import { aiFetch } from "@/lib/ai/client";
 import { awaitingOnlinePayment, endOfToday, getDigitalMenu, isAvailableOnline, kioskLabel, mapsLink, paidOnline, saveDigitalMenu, scheduledLabel, whatsappNumber, type OnlineOrderData, type OnlineOrderEdit } from "@/lib/digital-menu";
 import { PUSH_SERVER } from "@/lib/push/rules";
 import { checkCoupon, countCouponUse } from "@/lib/coupons";
+import { evaluatePromotion, onlineDiscount, promoLabel } from "@/lib/promotions";
 import { earnLoyalty } from "@/lib/loyalty-pos";
 import { getBusinessSettings } from "@/lib/business-settings";
 import type { DispatchInfo } from "@/lib/drivers";
@@ -125,7 +126,24 @@ export function buildOnlineCart(data: OnlineOrderData) {
     if (check.ok) coupon = { code: check.coupon.code, discount: check.discount };
     else problems.push(`Cupón ${data.coupon.code}: ${check.error} Se cobrará sin descuento.`);
   }
-  return { cart, subtotal, problems, coupon };
+  // La promoción también se vuelve a calcular con los precios de B-POS (para quién es se revisa al aceptar)
+  let promo: { id: string; name: string; discount: number; freeShipping?: boolean } | null = null;
+  if (data.promo?.id) {
+    const p = getDigitalMenu().promotions.find((x) => x.id === data.promo!.id);
+    const r = p
+      ? evaluatePromotion(p, {
+          lines: cart.map((i) => ({ productId: Number(i.id), category: i.category || "", unitPrice: i.price, quantity: i.quantity })),
+          subtotal,
+          delivery: data.type === "Domicilio",
+          deliveryFee: 0,
+          isNew: true,
+          isClub: true,
+        })
+      : null;
+    if (p && r) promo = { id: p.id, name: data.promo.name || promoLabel(p), discount: r.discount, ...(r.freeShipping ? { freeShipping: true } : {}) };
+    else problems.push(`Promoción "${data.promo.name}": ya no aplica. Se cobrará sin la promoción.`);
+  }
+  return { cart, subtotal, problems, coupon, promo };
 }
 
 const TYPE_LABEL: Record<OnlineOrderData["type"], string> = {
@@ -142,8 +160,12 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
   if (!localStorage.getItem("bpos_active_shift")) throw new Error("Abre la caja para aceptar pedidos en línea.");
   if (awaitingOnlinePayment(order.data)) throw new Error("El cliente todavía no termina de pagar con Mercado Pago.");
   if (order.data.mp?.status === "refunded") throw new Error("Ya se le devolvió el pago de este pedido.");
-  const { cart, subtotal, coupon } = buildOnlineCart(order.data);
+  const built = buildOnlineCart(order.data);
+  const { cart, subtotal, coupon } = built;
   if (!cart.length) throw new Error("Ningún producto del pedido existe ya en B-POS. Recházalo.");
+  // Promoción solo para clientes nuevos o del club: se revisa que de verdad le toque
+  const promoProblem = built.promo ? await promoAudienceProblem(order) : "";
+  const promo = promoProblem ? null : built.promo;
   const short = onlinePaymentShort(order.data);
   if (short) throw new Error(short);
 
@@ -157,9 +179,13 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
     // El envío va en el total (no es un producto: no pasa por cocina ni inventario).
     // A cotizar: lo que puso el negocio al aceptar; si no, la cuota fija del menú.
     const deliveryFee =
-      order.data.type !== "Domicilio" ? 0 : order.data.deliveryQuote ? Math.max(0, Number(options.deliveryFee) || 0) : Math.max(0, Number(getDigitalMenu().deliveryFee) || 0);
+      order.data.type !== "Domicilio" || promo?.freeShipping
+        ? 0
+        : order.data.deliveryQuote
+          ? Math.max(0, Number(options.deliveryFee) || 0)
+          : Math.max(0, Number(getDigitalMenu().deliveryFee) || 0);
     const items = cart;
-    const discount = coupon?.discount || 0;
+    const discount = Math.round(((coupon?.discount || 0) + (promo?.discount || 0)) * 100) / 100;
     const total = Math.max(0, subtotal + deliveryFee - discount);
     const c = order.data.customer;
     const tableNote = order.data.type === "Mesa" && order.data.table ? `Mesa ${order.data.table}` : "";
@@ -178,6 +204,7 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
         paymentMethod: order.data.payment || "Efectivo",
         discount,
         ...(coupon ? { couponCode: coupon.code } : {}),
+        ...(promo ? { promoName: promo.name } : {}),
       },
       subtotal,
       total,
@@ -205,7 +232,7 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
       eta_minutes: etaMinutes,
       // Envío cotizado: el cliente ve el costo y su total actualizado en su liga
       ...(order.data.deliveryQuote
-        ? { data: { ...order.data, deliveryFee, total: Math.max(0, Number(order.data.subtotal) + deliveryFee - (order.data.coupon?.discount || 0)) } }
+        ? { data: { ...order.data, deliveryFee, total: Math.max(0, Number(order.data.subtotal) + deliveryFee - onlineDiscount(order.data)) } }
         : {}),
     });
 
@@ -214,12 +241,20 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
       action: "online.accepted",
       description: `${userName || "B-POS"} aceptó el pedido en línea ${order.folio} como Pedido #${formatOrderNumber(sale)} por $${total.toFixed(2)}`,
       entityId: String(sale.id),
-      metadata: { folio: order.folio, total, type: order.data.type },
+      metadata: { folio: order.folio, total, type: order.data.type, ...(promo ? { promo: promo.name } : {}) },
     });
+    if (promoProblem) {
+      addAuditEvent({
+        category: "Venta",
+        action: "online.promo_removed",
+        description: `Pedido en línea ${order.folio}: se cobró sin la promoción "${order.data.promo?.name || ""}" (${promoProblem})`,
+        entityId: String(sale.id),
+      });
+    }
 
     // Comandas por estación y ticket del cliente en Caja
     const failed = await printSale(sale, { stations: saleStations(sale), customer: true }, false).catch(() => ["impresoras"]);
-    return { sale, printFailed: failed };
+    return { sale, printFailed: failed, promoProblem };
   } catch (e) {
     // Si algo falló antes de crear la venta, el pedido vuelve a "nuevo"
     const current = readOrders().some((o) => (o as { onlineOrderId?: string }).onlineOrderId === order.id);
@@ -228,15 +263,51 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
   }
 }
 
+const phone10 = (v: unknown) => String(v || "").replace(/\D/g, "").slice(-10);
+
+/**
+ * Promoción para clientes nuevos o del club: ¿de verdad le toca? "" = sí.
+ * Nuevo: ese teléfono no tiene pedidos en línea antes de este ni ventas en
+ * esta caja. Club: pidió con su cuenta y es socio. Si no hay internet para
+ * revisar, se le respeta.
+ */
+export async function promoAudienceProblem(order: Pick<OnlineOrder, "id" | "data" | "account_id" | "created_at">): Promise<string> {
+  const p = getDigitalMenu().promotions.find((x) => x.id === order.data.promo?.id);
+  if (!p || p.audience === "all") return "";
+  try {
+    if (p.audience === "club") {
+      if (!order.account_id) return "no pidió con su cuenta del club";
+      const { data, error } = await getSupabase().from("bpos_loyalty_members").select("account_id").eq("account_id", order.account_id).maybeSingle();
+      if (error) return "";
+      return data ? "" : "no es socio del club";
+    }
+    const phone = phone10(order.data.customer.phone);
+    if (phone.length !== 10) return "no dejó su teléfono";
+    const { count, error } = await getSupabase()
+      .from("bpos_online_orders")
+      .select("id", { count: "exact", head: true })
+      .neq("id", order.id)
+      .neq("status", "rechazado")
+      .lt("created_at", order.created_at)
+      .like("data->customer->>phone", `%${phone}`);
+    if (!error && (count || 0) > 0) return "ese teléfono ya había pedido antes";
+  } catch {
+    return "";
+  }
+  const phone = phone10(order.data.customer.phone);
+  const sold = readOrders().some((o) => phone10((o as { details?: { customerPhone?: string } }).details?.customerPhone) === phone && (o as { onlineOrderId?: string }).onlineOrderId !== order.id);
+  return sold ? "ese teléfono ya había comprado antes" : "";
+}
+
 /**
  * Pagado en línea por menos de lo que vale con los precios de B-POS (alguien
  * cambió el total): no se acepta. "" si está bien o no es pago en línea.
  */
 export function onlinePaymentShort(data: OnlineOrderData) {
   if (!paidOnline(data) || !data.mp) return "";
-  const { subtotal, coupon } = buildOnlineCart(data);
-  const fee = data.type === "Domicilio" && !data.deliveryQuote ? Math.max(0, Number(getDigitalMenu().deliveryFee) || 0) : 0;
-  const total = Math.max(0, subtotal + fee - (coupon?.discount || 0));
+  const { subtotal, coupon, promo } = buildOnlineCart(data);
+  const fee = data.type === "Domicilio" && !data.deliveryQuote && !promo?.freeShipping ? Math.max(0, Number(getDigitalMenu().deliveryFee) || 0) : 0;
+  const total = Math.max(0, subtotal + fee - (coupon?.discount || 0) - (promo?.discount || 0));
   return data.mp.amount + 0.5 < total
     ? `El cliente pagó ${data.mp.amount.toFixed(2)} pero con tus precios el pedido es de ${total.toFixed(2)}. Recházalo (se le devuelve su pago) o pídele la diferencia.`
     : "";
@@ -307,9 +378,10 @@ export function applyOrderEdit(data: OnlineOrderData, quantities: number[], reas
   if (!lines.length) throw new Error("Si no queda nada, mejor rechaza el pedido.");
   const subtotal = Math.round(lines.reduce((a, l) => a + l.unitPrice * l.quantity, 0) * 100) / 100;
   const coupon = data.coupon ? { ...data.coupon, discount: Math.min(data.coupon.discount, subtotal) } : undefined;
-  const total = Math.max(0, Math.round((subtotal + (Number(data.deliveryFee) || 0) - (coupon?.discount || 0)) * 100) / 100);
+  const promo = data.promo ? { ...data.promo, discount: Math.min(data.promo.discount, Math.max(0, subtotal - (coupon?.discount || 0))) } : undefined;
+  const total = Math.max(0, Math.round((subtotal + (Number(data.deliveryFee) || 0) - onlineDiscount({ coupon, promo })) * 100) / 100);
   const edit: OnlineOrderEdit = { at: now.toISOString(), ...(by ? { by } : {}), removed, reason: why, totalBefore: data.total, totalAfter: total };
-  return { ...data, lines, subtotal, ...(coupon ? { coupon } : {}), total, edits: [...(data.edits || []), edit] };
+  return { ...data, lines, subtotal, ...(coupon ? { coupon } : {}), ...(promo ? { promo } : {}), total, edits: [...(data.edits || []), edit] };
 }
 
 /** Mensaje para el cliente con lo que se quitó y su total nuevo */
