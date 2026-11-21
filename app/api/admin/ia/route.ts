@@ -39,13 +39,13 @@ async function requireAdmin(request: NextRequest) {
 async function list() {
   const db = adminDb();
   const [{ data }, photo, refresh] = await Promise.all([
-    db.from("bpos_ai_settings").select("feature, provider, model, key_hint, price_in, price_out, updated_by, updated_at"),
+    db.from("bpos_ai_settings").select("feature, provider, model, key_hint, key_cipher, price_in, price_out, updated_by, updated_at"),
     // Todo (también los prompts si ya está la migración 0031); la clave cifrada no sale de aquí
     db.from(aiTable("fotos")).select("*"),
     // Cada cuánto se pide un análisis nuevo del Asesor (falla sin la migración 0033)
     db.from("bpos_ai_settings").select("feature, refresh_days").eq("feature", "asesor"),
   ]);
-  const rows = [...((data || []) as Omit<AiSettingRow, "key_cipher">[]), ...((photo.data || []) as Omit<AiSettingRow, "key_cipher">[])];
+  const rows = [...((data || []) as AiSettingRow[]), ...((photo.data || []) as AiSettingRow[])];
   const vercel = Boolean(process.env.ANTHROPIC_API_KEY);
   return {
     models: MODELS,
@@ -57,7 +57,11 @@ async function list() {
       const firstPhoto = PHOTO_MODELS.openai![0];
       const model = r?.model || (photos ? firstPhoto.id : "claude-opus-5-5");
       const hints = readHints(r || null);
-      const own = Boolean(hints[provider]);
+      // Claves guardadas que el servidor ya no puede abrir (cambió la llave de cifrado,
+      // como al pasar de Vercel a Cloudflare el 18 nov 2026): hay que volver a pegarlas
+      const keys = readKeys(r || null);
+      const unreadable = (Object.keys(hints) as AiProvider[]).filter((p) => !keys[p]);
+      const own = Boolean(keys[provider]);
       // El Estudio de fotos no usa la clave de Vercel (es de Claude, que no edita imágenes)
       const fallback = vercel && !photos;
       return {
@@ -65,6 +69,7 @@ async function list() {
         provider,
         model,
         keyHints: hints,
+        unreadable,
         // Lo que de verdad se usa (Gemini sin clave regresa a Claude Opus de Vercel)
         running: own ? { provider, model } : fallback ? { provider: "anthropic", model: provider === "anthropic" ? model : "claude-opus-5-5" } : null,
         priceIn: r ? Number(r.price_in) : photos ? firstPhoto.priceIn : 4,
