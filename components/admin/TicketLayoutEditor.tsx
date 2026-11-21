@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { BusinessSettings } from "@/lib/business-settings";
 import type { DeliveryTicket } from "@/lib/bridge/delivery-ticket";
+import { qrSvg } from "@/lib/bridge/order-tickets";
 import { bagTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
-import { TICKET_LAYOUT_KINDS, normalizeTicketLayouts, type TicketField, type TicketLayout, type TicketLayoutKind, type TicketTop } from "@/lib/ticket-layout";
+import { TICKET_LAYOUT_KINDS, normalizeTicketLayouts, ticketQrFor, type TicketField, type TicketLayout, type TicketLayoutKind, type TicketQrMode, type TicketTop } from "@/lib/ticket-layout";
 
 /** Pedido de ejemplo de cada tipo, para ver el ticket mientras se configura */
 function sample(kind: TicketLayoutKind): DeliveryTicket {
@@ -27,6 +28,12 @@ const TOP_OPTIONS: [TicketTop, string][] = [
   ["none", "Nada"],
 ];
 
+const QR_OPTIONS: [TicketQrMode, string][] = [
+  ["general", "El general (el de Tickets de delivery)"],
+  ["custom", "Otro link"],
+  ["none", "Sin QR"],
+];
+
 function fieldOptions(kind: TicketLayoutKind): [TicketField, string][] {
   return [
     ["number", kind === "local" ? "Número del pedido (folio)" : "Número del pedido de la plataforma"],
@@ -38,11 +45,24 @@ function fieldOptions(kind: TicketLayoutKind): [TicketField, string][] {
 /** Configurador de tickets: por DiDi, Uber, Rappi y Local, qué va arriba, en el recuadro y en el renglón */
 export function TicketLayoutEditor({ settings, onChange, paper }: { settings: BusinessSettings; onChange: (patch: Partial<BusinessSettings>) => void; paper: PaperWidth }) {
   const [kind, setKind] = useState<TicketLayoutKind>("didi");
+  const [qr, setQr] = useState({ link: "", svg: "" });
   const layouts = normalizeTicketLayouts(settings.ticketLayouts);
   const layout = layouts[kind];
   const label = TICKET_LAYOUT_KINDS.find((k) => k.kind === kind)!.label;
   const set = (patch: Partial<TicketLayout>) => onChange({ ticketLayouts: { ...layouts, [kind]: { ...layout, ...patch } } });
-  const html = bagTicketHtml(sample(kind), { ...settings, ticketLayouts: layouts }, "", paper);
+  const ticket = sample(kind);
+  const qrLink = ticketQrFor(ticket, { ...settings, ticketLayouts: layouts }).text;
+  // El QR real que saldrá en este ticket (se dibuja al cambiar el link)
+  useEffect(() => {
+    let alive = true;
+    qrSvg(qrLink)
+      .then((svg) => alive && setQr({ link: qrLink, svg }))
+      .catch(() => alive && setQr({ link: qrLink, svg: "" }));
+    return () => {
+      alive = false;
+    };
+  }, [qrLink]);
+  const html = bagTicketHtml(ticket, { ...settings, ticketLayouts: layouts }, qr.link === qrLink ? qr.svg : "", paper);
   const width = paper === 58 ? 384 : 576;
   const scale = 288 / width;
   const select = "w-full rounded-2xl border border-zinc-800 bg-black px-4 py-4 text-white";
@@ -110,6 +130,30 @@ export function TicketLayoutEditor({ settings, onChange, paper }: { settings: Bu
               ))}
             </select>
           </label>
+          <label>
+            <span className={title}>Código QR del ticket del cliente</span>
+            <select value={layout.qr} onChange={(e) => set({ qr: e.target.value as TicketQrMode })} className={select}>
+              {QR_OPTIONS.map(([value, text]) => (
+                <option key={value} value={value}>
+                  {text}
+                </option>
+              ))}
+            </select>
+            {layout.qr === "general" && !settings.ticketQrText && <span className="mt-1 block text-xs text-zinc-500">No tienes QR general: este ticket sale sin QR. Configúralo arriba o elige &quot;Otro link&quot;.</span>}
+          </label>
+          {layout.qr === "custom" && (
+            <>
+              <label>
+                <span className={title}>¿A qué link lleva el QR?</span>
+                <input value={layout.qrText} maxLength={500} onChange={(e) => set({ qrText: e.target.value })} className={select} placeholder="Ej. https://www.bpos.com.mx/menu/tu-negocio" />
+                <span className="mt-1 block text-xs text-zinc-500">Solo en los tickets de {label}. Vacío = sin QR.</span>
+              </label>
+              <label>
+                <span className={title}>Texto debajo del QR</span>
+                <input value={layout.qrCaption} maxLength={80} onChange={(e) => set({ qrCaption: e.target.value })} className={select} placeholder="Ej. Escanea y pide directo con 10% de descuento" />
+              </label>
+            </>
+          )}
           <p className="text-xs text-zinc-500">Los cambios se aplican al tocar &quot;Guardar configuración&quot;.</p>
         </div>
 
@@ -117,8 +161,8 @@ export function TicketLayoutEditor({ settings, onChange, paper }: { settings: Bu
           <p className="mb-2 text-xs font-black uppercase text-zinc-500">
             Ticket de {label} · papel {paper} mm
           </p>
-          <div className="overflow-hidden rounded-xl bg-white" style={{ width: 288, height: 420 }}>
-            <iframe title={`Ticket de ${label}`} srcDoc={html} style={{ width, height: 420 / scale, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0" }} />
+          <div className="overflow-hidden rounded-xl bg-white" style={{ width: 288, height: 560 }}>
+            <iframe title={`Ticket de ${label}`} srcDoc={html} style={{ width, height: 560 / scale, border: 0, transform: `scale(${scale})`, transformOrigin: "0 0" }} />
           </div>
         </div>
       </div>

@@ -12,7 +12,10 @@ export type TicketTop = "logo" | "name" | "text" | "none";
 /** Lo que va en el recuadro grande o en el renglón de "Delivery" */
 export type TicketField = "number" | "customer" | "none";
 
-export type TicketLayout = { top: TicketTop; topText: string; box: TicketField; beside: TicketField };
+/** QR del ticket del cliente: el general (Tickets de delivery), otro link propio de este tipo, o ninguno */
+export type TicketQrMode = "general" | "custom" | "none";
+
+export type TicketLayout = { top: TicketTop; topText: string; box: TicketField; beside: TicketField; qr: TicketQrMode; qrText: string; qrCaption: string };
 export type TicketLayouts = Record<TicketLayoutKind, TicketLayout>;
 
 export const TICKET_LAYOUT_KINDS: { kind: TicketLayoutKind; label: string }[] = [
@@ -23,14 +26,15 @@ export const TICKET_LAYOUT_KINDS: { kind: TicketLayoutKind; label: string }[] = 
 ];
 
 export const DEFAULT_TICKET_LAYOUTS: TicketLayouts = {
-  didi: { top: "logo", topText: "", box: "number", beside: "customer" },
-  uber: { top: "logo", topText: "", box: "customer", beside: "number" },
-  rappi: { top: "logo", topText: "", box: "number", beside: "customer" },
-  local: { top: "logo", topText: "", box: "none", beside: "customer" },
+  didi: { top: "logo", topText: "", box: "number", beside: "customer", qr: "general", qrText: "", qrCaption: "" },
+  uber: { top: "logo", topText: "", box: "customer", beside: "number", qr: "general", qrText: "", qrCaption: "" },
+  rappi: { top: "logo", topText: "", box: "number", beside: "customer", qr: "general", qrText: "", qrCaption: "" },
+  local: { top: "logo", topText: "", box: "none", beside: "customer", qr: "general", qrText: "", qrCaption: "" },
 };
 
 const TOPS: TicketTop[] = ["logo", "name", "text", "none"];
 const FIELDS: TicketField[] = ["number", "customer", "none"];
+const QR_MODES: TicketQrMode[] = ["general", "custom", "none"];
 
 /** Lo guardado (puede venir incompleto o de una versión anterior) → configuración completa */
 export function normalizeTicketLayouts(raw: unknown): TicketLayouts {
@@ -44,6 +48,9 @@ export function normalizeTicketLayouts(raw: unknown): TicketLayouts {
       topText: typeof v.topText === "string" ? v.topText.slice(0, 80) : d.topText,
       box: FIELDS.includes(v.box as TicketField) ? (v.box as TicketField) : d.box,
       beside: FIELDS.includes(v.beside as TicketField) ? (v.beside as TicketField) : d.beside,
+      qr: QR_MODES.includes(v.qr as TicketQrMode) ? (v.qr as TicketQrMode) : d.qr,
+      qrText: typeof v.qrText === "string" ? v.qrText.trim().slice(0, 500) : d.qrText,
+      qrCaption: typeof v.qrCaption === "string" ? v.qrCaption.slice(0, 80) : d.qrCaption,
     };
   }
   return out;
@@ -56,4 +63,15 @@ export function ticketLayoutKind(ticket: { kind?: string; platform: string }): T
   if (p.includes("didi")) return "didi";
   if (p.includes("uber")) return "uber";
   return "rappi";
+}
+
+/** QR que lleva el ticket del cliente de este tipo: link y texto de abajo ("" = sin QR) */
+export function ticketQrFor(
+  ticket: { kind?: string; platform: string },
+  settings: { ticketQrText: string; ticketQrCaption: string; ticketLayouts?: unknown }
+): { text: string; caption: string } {
+  const layout = normalizeTicketLayouts(settings.ticketLayouts)[ticketLayoutKind(ticket)];
+  if (layout.qr === "none") return { text: "", caption: "" };
+  if (layout.qr === "custom") return { text: layout.qrText.trim(), caption: layout.qrCaption.trim() };
+  return { text: settings.ticketQrText.trim(), caption: settings.ticketQrCaption.trim() };
 }

@@ -2,7 +2,7 @@ import type { KitchenStation } from "@/data/products";
 import type { BusinessSettings, TicketSize } from "@/lib/business-settings";
 import type { DeliveryTicket, TicketItem } from "@/lib/bridge/delivery-ticket";
 import { stationLabel } from "@/lib/kds-config";
-import { normalizeTicketLayouts, ticketLayoutKind, type TicketField } from "@/lib/ticket-layout";
+import { normalizeTicketLayouts, ticketLayoutKind, ticketQrFor, type TicketField } from "@/lib/ticket-layout";
 
 /**
  * Tickets propios (HTML) que el Agent dibuja al ancho real del papel y manda
@@ -220,7 +220,7 @@ export function bagTicketHtml(ticket: DeliveryTicket, settings: BusinessSettings
     ${(ticket.footerRows || []).map((r) => `<div class="row"><span class="name">${esc(r.label)}</span><span class="price">${esc(r.value)}</span></div>`).join("")}
     <div class="rule"></div>
     ${settings.ticketNotice && ticket.kind !== "mostrador" ? `<div class="notice">${esc(noticeText(ticket, settings))}</div>` : ""}
-    ${qrSvg ? `<div class="qr">${qrSvg}</div>${settings.ticketQrCaption ? `<div class="qr-caption">${esc(settings.ticketQrCaption)}</div>` : ""}` : ""}
+    ${qrSvg ? `<div class="qr">${qrSvg}</div>${ticketQrFor(ticket, settings).caption ? `<div class="qr-caption">${esc(ticketQrFor(ticket, settings).caption)}</div>` : ""}` : ""}
     ${settings.ticketFooter ? `<div class="center platform" style="margin-top:6px">${esc(settings.ticketFooter)}</div>` : ""}`
   );
 }

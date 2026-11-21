@@ -8,7 +8,7 @@ import QRCode from "qrcode";
 import type { BusinessSettings, TicketSize } from "@/lib/business-settings";
 import type { DeliveryTicket, TicketItem } from "@/lib/bridge/delivery-ticket";
 import { bagTicketHtml, type PaperWidth } from "@/lib/bridge/ticket-html";
-import { normalizeTicketLayouts } from "@/lib/ticket-layout";
+import { normalizeTicketLayouts, ticketQrFor } from "@/lib/ticket-layout";
 import { kioskLabel, type OnlineOrderData } from "@/lib/digital-menu";
 
 const SIZES: TicketSize[] = ["normal", "grande", "extra"];
@@ -90,6 +90,8 @@ export function kioskTicket(order: { folio: string; created_at: string; data: On
 
 /** HTML listo para el Agent (lo dibuja al ancho del papel y lo manda a la térmica). */
 export async function kioskTicketHtml(order: { folio: string; created_at: string; data: OnlineOrderData }, settings: BusinessSettings, paper: PaperWidth) {
-  const qr = settings.ticketQrText ? await QRCode.toString(settings.ticketQrText, { type: "svg", margin: 0, errorCorrectionLevel: "M" }) : "";
-  return bagTicketHtml(kioskTicket(order), settings, qr, paper);
+  const ticket = kioskTicket(order);
+  const link = ticketQrFor(ticket, settings).text;
+  const qr = link ? await QRCode.toString(link, { type: "svg", margin: 0, errorCorrectionLevel: "M" }) : "";
+  return bagTicketHtml(ticket, settings, qr, paper);
 }
