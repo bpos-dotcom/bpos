@@ -137,8 +137,8 @@ export async function copyFilesFolder(source: Source, bucket: BucketLike, bucket
  * y les da número nuevo a esos cambios para que todas las cajas los bajen.
  */
 export async function rewriteFileUrls(db: Db, oldBase: string, newBase: string) {
-  const like = `%${oldBase}%`;
-  const ids = await db.all<{ business_id: string; scope: string; collection: string; record_id: string }>("SELECT business_id, scope, collection, record_id FROM sync_records WHERE data LIKE ?", [like]);
+  // instr y no LIKE: D1 no acepta patrones LIKE de más de 50 letras
+  const ids = await db.all<{ business_id: string; scope: string; collection: string; record_id: string }>("SELECT business_id, scope, collection, record_id FROM sync_records WHERE instr(data, ?) > 0", [oldBase]);
   const seq0 = await fixSequences(db);
   const statements: Stmt[] = ids.map((r, i) => ({
     sql: "UPDATE sync_records SET data = replace(data, ?, ?), seq = ?, updated_at = ? WHERE business_id = ? AND scope = ? AND collection = ? AND record_id = ?",
@@ -146,8 +146,8 @@ export async function rewriteFileUrls(db: Db, oldBase: string, newBase: string) 
   }));
   for (let i = 0; i < statements.length; i += 50) await db.batch(statements.slice(i, i + 50));
   await db.batch([
-    { sql: "UPDATE bpos_task_evidence SET photo_url = replace(photo_url, ?, ?), items = replace(items, ?, ?) WHERE photo_url LIKE ? OR items LIKE ?", params: [oldBase, newBase, oldBase, newBase, like, like] },
-    { sql: "UPDATE bpos_backups SET data = replace(data, ?, ?) WHERE data LIKE ?", params: [oldBase, newBase, like] },
+    { sql: "UPDATE bpos_task_evidence SET photo_url = replace(photo_url, ?, ?), items = replace(items, ?, ?) WHERE instr(photo_url, ?) > 0 OR instr(items, ?) > 0", params: [oldBase, newBase, oldBase, newBase, oldBase, oldBase] },
+    { sql: "UPDATE bpos_backups SET data = replace(data, ?, ?) WHERE instr(data, ?) > 0", params: [oldBase, newBase, oldBase] },
   ]);
   await fixSequences(db);
   return { records: ids.length };
