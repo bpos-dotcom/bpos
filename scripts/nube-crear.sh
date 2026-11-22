@@ -29,7 +29,10 @@ npx wrangler d1 execute bpos-nube --remote --file nube/schema.sql -c "$CFG" -y
 
 echo "== Secretos de la nube"
 for NAME in NUBE_ANON_KEY NUBE_JWT_SECRET SUPABASE_SERVICE_ROLE_KEY MUDANZA_KEY; do
-  node -e 'process.stdout.write(require(require("os").homedir()+"/.bpos/nube-secretos.json")[process.argv[1]])' "$NAME" | npx wrangler secret put "$NAME" -c "$CFG" >/dev/null
+  VALUE=$(node -e 'process.stdout.write(JSON.parse(require("fs").readFileSync(require("path").join(require("os").homedir(),".bpos","nube-secretos.json"),"utf8"))[process.argv[1]] || "")' "$NAME")
+  # Un secreto vacío dejaría la nube sin funcionar: mejor parar aquí
+  [ ${#VALUE} -ge 20 ] || { echo "  $NAME vacío o muy corto en nube-secretos.json"; exit 1; }
+  printf '%s' "$VALUE" | npx wrangler secret put "$NAME" -c "$CFG" >/dev/null
   echo "  $NAME listo"
 done
 echo

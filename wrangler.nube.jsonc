@@ -17,7 +17,7 @@
   "workers_dev": true,
   "d1_databases": [
     // database_id lo pone scripts/nube-crear.sh al crear la base
-    { "binding": "NUBE_DB", "database_name": "bpos-nube", "database_id": "PENDIENTE" }
+    { "binding": "NUBE_DB", "database_name": "bpos-nube", "database_id": "dcfb400b-24dc-4ceb-bf06-a94e6007c303" }
   ],
   "r2_buckets": [{ "binding": "NUBE_FILES", "bucket_name": "bpos-nube-archivos" }],
   "durable_objects": {
