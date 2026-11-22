@@ -22,7 +22,8 @@ import {
   OPERATIONS_ALERT_EVENT,
 } from "@/lib/notifications/operationsCenter";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
-import { clearDeclinedComboAlerts } from "@/lib/bridge/create-automatic-sale";
+import { recheckComboAlerts } from "@/lib/bridge/create-automatic-sale";
+import { COST_RAISE_REASONS, resolveCostRaise, type CostRaiseReason } from "@/lib/purchases";
 
 const tabs: Array<{ value: OperationsAlertStatus | "all"; label: string }> = [
   { value: "pending", label: "Pendientes" },
@@ -46,6 +47,7 @@ export default function OperationsCenterPage() {
   const [priority, setPriority] = useState<OperationsAlertPriority | "all">("all");
   const [query, setQuery] = useState("");
   const [resolutionNotes, setResolutionNotes] = useState<Record<string, string>>({});
+  const [bulkNote, setBulkNote] = useState("");
   const user = getCurrentUser();
 
   const refresh = useCallback(async () => {
@@ -66,8 +68,8 @@ export default function OperationsCenterPage() {
   useEffect(() => {
     const openCenter = async () => {
       await refresh();
-      // Combos de delivery donde el cliente no pidió extra: ya no son pendiente
-      clearDeclinedComboAlerts(user?.name || "B-POS");
+      // Combos de delivery: se vuelven a leer con las reglas de hoy y los que ya se entienden se resuelven solos
+      recheckComboAlerts(user?.name || "B-POS");
       acknowledgeCriticalErrors();
       markAllOperationsAlertsViewed(user?.name);
       localStorage.setItem("bpos_bridge_pending_ack", localStorage.getItem("bpos_bridge_pending_signature") || "");
@@ -108,13 +110,33 @@ export default function OperationsCenterPage() {
     all: mine.length,
   }), [mine]);
 
+  const isDrawerAlert = (alert: OperationsAlert) => alert.id.startsWith("drawer:");
+  /** Combo de delivery sin opción obligatoria: se resuelve sola al corregir la venta, o a mano si ya se revisó */
+  const isComboAlert = (alert: OperationsAlert) => alert.id.startsWith("bridge-combo:");
   /** Las de inventario se resuelven solas con su flujo; las del cajón las resuelve un admin (con nota) */
   function canResolveManually(alert: OperationsAlert) {
     return alert.priority === "critical" || alert.priority === "info" || isDrawerAlert(alert) || isComboAlert(alert);
   }
-  const isDrawerAlert = (alert: OperationsAlert) => alert.id.startsWith("drawer:");
-  /** Combo de delivery sin opción obligatoria: se resuelve sola al corregir la venta, o a mano si ya se revisó */
-  const isComboAlert = (alert: OperationsAlert) => alert.id.startsWith("bridge-combo:");
+  /** Aumento de costo (de una compra o puesto a mano): se resuelve eligiendo el motivo */
+  const isCostAlert = (alert: OperationsAlert) => alert.id.startsWith("purchase-cost:") || alert.id.startsWith("manual-cost:");
+
+  function resolveCost(alert: OperationsAlert, reason: CostRaiseReason) {
+    try {
+      resolveCostRaise(alert.id, reason, resolutionNotes[alert.id] || "", user?.name);
+    } catch (error) {
+      window.alert(error instanceof Error ? error.message : "No se pudo resolver.");
+    }
+    setAlerts(getOperationsAlerts());
+  }
+
+  /** Combos del Bridge que ya se revisaron: se resuelven todos juntos con la misma nota */
+  const openCombos = useMemo(() => mine.filter((a) => isComboAlert(a) && a.status !== "resolved"), [mine]);
+  function resolveAllCombos() {
+    const note = bulkNote.trim() || "Revisado";
+    for (const alert of openCombos) resolveOperationsAlert(alert.id, user?.name, note);
+    setBulkNote("");
+    setAlerts(getOperationsAlerts());
+  }
 
   async function resolveAlert(alert: OperationsAlert) {
     const note = resolutionNotes[alert.id]?.trim() || "";
@@ -156,6 +178,19 @@ export default function OperationsCenterPage() {
         <button onClick={() => void refresh()} className="rounded-2xl bg-orange-500 px-5 py-3 font-black text-black">Actualizar</button>
       </div>
 
+      {openCombos.length > 1 && tab !== "resolved" && (
+        <div className="mb-5 rounded-3xl border border-yellow-400/40 bg-yellow-400/5 p-4" data-bulk-combos>
+          <p className="text-sm font-black text-yellow-100">{openCombos.length} avisos de combos del Bridge sin resolver</p>
+          <p className="mt-1 text-xs text-zinc-400">Si ya corregiste la equivalencia en el Bridge, resuélvelos todos de una vez. Las ventas nuevas ya salen con la equivalencia corregida.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <input value={bulkNote} onChange={(event) => setBulkNote(event.target.value)} placeholder="Nota (opcional): ej. ya se corrigió la equivalencia" className="min-w-64 flex-1 rounded-xl border border-zinc-700 bg-black/40 px-3 py-2 text-sm text-white" />
+            <button onClick={resolveAllCombos} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-black text-black" data-resolve-all-combos>
+              Resolver los {openCombos.length}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="space-y-4">
         {filtered.map((alert) => {
           const meta = priorityMeta[alert.priority];
@@ -189,11 +224,25 @@ export default function OperationsCenterPage() {
                     <button onClick={() => void resolveAlert(alert)} className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-black text-black">Resolver</button>
                   </>
                 )}
+                {isCostAlert(alert) && alert.status !== "resolved" && (
+                  <div className="mt-1 w-full" data-cost-reasons>
+                    <p className="mb-2 text-xs font-bold text-zinc-300">¿Por qué subió?</p>
+                    <div className="flex flex-wrap gap-2">
+                      {COST_RAISE_REASONS.map((reason) => (
+                        <button key={reason.key} onClick={() => resolveCost(alert, reason.key)} className={`rounded-xl px-3 py-2 text-sm font-black ${reason.occasional ? "border border-emerald-500/60 text-emerald-200 hover:bg-emerald-500/10" : "bg-zinc-800 text-white hover:bg-zinc-700"}`} data-cost-reason={reason.key}>
+                          {reason.label}
+                        </button>
+                      ))}
+                    </div>
+                    <input value={resolutionNotes[alert.id] || ""} onChange={(event) => setResolutionNotes((current) => ({ ...current, [alert.id]: event.target.value }))} placeholder="Nota (opcional): ej. se acabó y se compró en el súper" className="mt-2 w-full rounded-xl border border-zinc-700 bg-black/40 px-3 py-2 text-sm text-white" />
+                  </div>
+                )}
                 {alert.status === "resolved" && <button onClick={() => { reopenOperationsAlert(alert.id); setAlerts(getOperationsAlerts()); }} className="rounded-xl border border-orange-500 px-4 py-2 text-sm font-black text-orange-300">Reabrir</button>}
               </div>
 
               {isComboAlert(alert) && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-yellow-200">Se resuelve sola al corregir la venta en el Bridge. Si ya la revisaste y está bien, resuélvela aquí.</p>}
-              {alert.priority === "warning" && alert.status !== "resolved" && !isDrawerAlert(alert) && !isComboAlert(alert) && <p className="mt-4 text-xs font-bold text-yellow-200">Esta alerta se resuelve desde Inventario al completar el flujo de lista de compras y cierre de turno.</p>}
+              {isCostAlert(alert) && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-yellow-200">Si fue de una sola vez (emergencia, ocasional u otro proveedor), el gasto sí cuenta pero el costo del insumo se queda como estaba. Si de verdad subió, se queda el precio nuevo.</p>}
+              {alert.priority === "warning" && alert.status !== "resolved" && !isDrawerAlert(alert) && !isComboAlert(alert) && !isCostAlert(alert) && <p className="mt-4 text-xs font-bold text-yellow-200">Esta alerta se resuelve desde Inventario al completar el flujo de lista de compras y cierre de turno.</p>}
               {isDrawerAlert(alert) && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-yellow-200">Si la cuenta se mandó a espera o se cobró después, escribe qué pasó y resuélvela (un administrador). Si se cobra la cuenta, se resuelve sola.</p>}
               {alert.priority === "delivery" && alert.status !== "resolved" && <p className="mt-4 text-xs font-bold text-emerald-200">Esta alerta se resuelve al completar las equivalencias pendientes en Bridge.</p>}
             </article>

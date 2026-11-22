@@ -4,7 +4,7 @@ import type { Ingredient } from "@/data/inventory";
 import { adjustInventory, getInventory } from "@/lib/inventory";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
-import { upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
+import { resolveOperationsAlert, upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
 import { whatsappLink } from "@/lib/whatsapp";
 import { applyPurchaseToArticles } from "@/lib/retail";
 
@@ -12,7 +12,8 @@ export type Supplier = { id:string; name:string; phone?:string; whatsapp?:string
 export type PurchaseItem = { id:string; ticketName?:string; ingredientId:number; ingredientName:string; purchasedQuantity:number; inventoryQuantity:number; unit:Ingredient["unit"]; lineTotal:number; receivedQuantity?:number; };
 /** paidWeekOf: lunes (AAAA-MM-DD) de la semana de ingresos con que se pagó; sin él, la semana de la compra */
 export type Purchase = { paidWeekOf?:string; id:string; folio:string; createdAt:string; supplier:string; invoice?:string; paymentMethod?:string; subtotal:number; tax:number; total:number; items:PurchaseItem[]; note?:string; source:"manual"|"ocr"|"shopping-list"; ocrText?:string; imageName?:string; status:"confirmed"|"cancelled"; cancelledAt?:string; cancelledBy?:string; cancellationReason?:string; createdBy?:string; };
-export type IngredientCostRecord = { id:string; ingredientId:number; ingredientName:string; supplier:string; purchaseId:string; purchasedAt:string; inventoryQuantity:number; total:number; unitCost:number; };
+/** occasional: compra de una sola vez (emergencia, otro proveedor): se pagó, pero su precio no es el costo del insumo */
+export type IngredientCostRecord = { id:string; ingredientId:number; ingredientName:string; supplier:string; purchaseId:string; purchasedAt:string; inventoryQuantity:number; total:number; unitCost:number; occasional?:boolean; occasionalReason?:string; };
 
 const PURCHASES_KEY="bpos_purchases";
 const SUPPLIERS_KEY="bpos_suppliers";
@@ -32,7 +33,8 @@ export function saveSupplier(input:Omit<Supplier,"id"|"createdAt"|"active"> & Pa
 
 export function getPurchases():Purchase[]{return read(PURCHASES_KEY,[]);}
 export function getIngredientCostHistory():IngredientCostRecord[]{return read(COSTS_KEY,[]);}
-export function getLatestIngredientCost(ingredientId:number){return getIngredientCostHistory().filter(x=>x.ingredientId===ingredientId).sort((a,b)=>+new Date(b.purchasedAt)-+new Date(a.purchasedAt))[0];}
+/** Costo vigente del insumo: la compra más reciente que no fue ocasional */
+export function getLatestIngredientCost(ingredientId:number){return getIngredientCostHistory().filter(x=>x.ingredientId===ingredientId&&!x.occasional).sort((a,b)=>+new Date(b.purchasedAt)-+new Date(a.purchasedAt))[0];}
 
 export function registerPurchase(input:Omit<Purchase,"id"|"folio"|"createdAt"|"status"|"createdBy">):Purchase {
  if(typeof window==="undefined") throw new Error("Compras solo está disponible en navegador.");
@@ -57,6 +59,43 @@ export function registerPurchase(input:Omit<Purchase,"id"|"folio"|"createdAt"|"s
  return purchase;
 }
 
+/** Motivos al resolver un "Aumento de costo" (los ocasionales no cambian el costo del insumo) */
+export const COST_RAISE_REASONS=[
+ {key:"emergencia",label:"Compra de emergencia",occasional:true},
+ {key:"ocasional",label:"Compra ocasional",occasional:true},
+ {key:"otro-proveedor",label:"Otro proveedor (solo esta vez)",occasional:true},
+ {key:"subio",label:"Sí subió de precio",occasional:false},
+] as const;
+export type CostRaiseReason=(typeof COST_RAISE_REASONS)[number]["key"];
+
+/** Registro de costo de una alerta "Aumento de costo" (de compra o puesto a mano) */
+export function costRecordForAlert(alertId:string){
+ const history=getIngredientCostHistory();
+ if(alertId.startsWith("manual-cost:")) return history.find(c=>c.id===alertId.slice("manual-cost:".length));
+ const m=/^purchase-cost:(.+):(-?\d+)$/.exec(alertId);
+ return m?history.find(c=>c.purchaseId===m[1]&&String(c.ingredientId)===m[2]):undefined;
+}
+
+/**
+ * Resuelve el aviso de aumento de costo con su motivo. Si fue de una sola vez
+ * (emergencia, ocasional, otro proveedor) esa compra queda marcada: el gasto
+ * sí cuenta en Compras y Finanzas, pero el costo del insumo (recetas, food
+ * cost, mermas) sigue siendo el de antes y la próxima compra se compara con él.
+ */
+export function resolveCostRaise(alertId:string,reason:CostRaiseReason,note="",by?:string){
+ const option=COST_RAISE_REASONS.find(r=>r.key===reason); if(!option) throw new Error("Elige el motivo.");
+ const record=costRecordForAlert(alertId);
+ const user=getCurrentUser(); const who=by||user.name;
+ if(record){
+  write(COSTS_KEY,getIngredientCostHistory().map(c=>c.id===record.id?{...c,occasional:option.occasional||undefined,occasionalReason:option.occasional?option.label:undefined}:c));
+ }
+ const current=record?getLatestIngredientCost(record.ingredientId):undefined;
+ const detail=option.occasional?(current?` · el costo se queda en $${current.unitCost.toFixed(2)}`:" · no cambia el costo"):" · el costo nuevo se queda";
+ resolveOperationsAlert(alertId,who,`${option.label}${detail}${note.trim()?` · ${note.trim()}`:""}`);
+ addAuditEvent({category:"Compras",action:"cost.raise_resolved",description:`${record?.ingredientName||"Insumo"}: aumento de costo resuelto (${option.label})${detail}`,userId:String(user.id),userName:who,entityId:record?.id,metadata:{alertId,reason,occasional:option.occasional}});
+ return {record,occasional:option.occasional};
+}
+
 /** Costo puesto a mano en la ficha del insumo (sin compra): no toca la existencia ni el Kardex y no cuenta como compra; la siguiente compra real, al ser más nueva, lo reemplaza */
 export const isManualCost=(c:Pick<IngredientCostRecord,"purchaseId">)=>String(c.purchaseId||"").startsWith("manual-");
 export function setManualCost(input:{ingredientId:number;ingredientName:string;unit:Ingredient["unit"];packages:number;perPackage:number;total:number}):IngredientCostRecord{
@@ -65,7 +104,7 @@ export function setManualCost(input:{ingredientId:number;ingredientName:string;u
  if(!(input.total>0)) throw new Error("Escribe cuánto costó.");
  const user=getCurrentUser(); const now=new Date().toISOString(); const unitCost=input.total/quantity;
  const previous=getLatestIngredientCost(input.ingredientId);
- const record:IngredientCostRecord={id:`cost-manual-${Date.now()}`,ingredientId:input.ingredientId,ingredientName:input.ingredientName,supplier:"Puesto a mano",purchaseId:`manual-${Date.now()}`,purchasedAt:now,inventoryQuantity:quantity,total:input.total,unitCost};
+ const record:IngredientCostRecord={id:`cost-manual-${Date.now()}-${Math.random().toString(36).slice(2,6)}`,ingredientId:input.ingredientId,ingredientName:input.ingredientName,supplier:"Puesto a mano",purchaseId:`manual-${Date.now()}`,purchasedAt:now,inventoryQuantity:quantity,total:input.total,unitCost};
  write(COSTS_KEY,[...getIngredientCostHistory(),record]);
  if(previous?.unitCost && unitCost>previous.unitCost*1.1){ const pct=((unitCost/previous.unitCost)-1)*100; upsertOperationsAlert({id:`manual-cost:${record.id}`,priority:"warning",title:"Aumento de costo",message:`${input.ingredientName} aumentó ${pct.toFixed(1)}% (${previous.unitCost.toFixed(2)} → ${unitCost.toFixed(2)} por ${input.unit}).`,source:"Inventario",moduleHref:"/inventario",metadata:{ingredientId:input.ingredientId,previousUnitCost:previous.unitCost,unitCost}}); }
  addAuditEvent({category:"Inventario",action:"ingredient.cost",description:`${input.ingredientName}: costo puesto a mano $${unitCost.toFixed(4)} por ${input.unit} (${input.packages} × ${input.perPackage} ${input.unit} = $${input.total.toFixed(2)})`,userId:String(user.id),userName:user.name,metadata:{ingredientId:input.ingredientId,unitCost,packages:input.packages,perPackage:input.perPackage,total:input.total}});

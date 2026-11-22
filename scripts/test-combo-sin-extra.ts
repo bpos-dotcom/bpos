@@ -99,7 +99,7 @@ async function main() {
   );
   ops.upsertOperationsAlert({ id: "bridge-combo:707", priority: "warning", title: "Combo sin opción obligatoria", message: "x", source: "Bridge", moduleHref: "/bridge", metadata: { orderId: 707 } });
   ops.upsertOperationsAlert({ id: "bridge-combo:708", priority: "warning", title: "Combo sin opción obligatoria", message: "y", source: "Bridge", moduleHref: "/bridge", metadata: { orderId: 708 } });
-  const cleared = sale.clearDeclinedComboAlerts("Gerardo");
+  const cleared = sale.recheckComboAlerts("Gerardo");
   const alerts = ops.getOperationsAlerts();
   const orders = JSON.parse(localStorage.getItem("bpos_orders") || "[]");
   check("limpia una alerta (la del extra)", cleared === 1, cleared);
@@ -107,7 +107,7 @@ async function main() {
   check("alerta del combo de verdad: sigue abierta", alerts.find((a) => a.id === "bridge-combo:708")?.status !== "resolved", alerts);
   check("venta 707: sin aviso y con 'No, Gracias'", !orders[0].items[0].missingChoices && orders[0].items[0].modifiers?.[0]?.name === "No, Gracias", orders[0].items[0]);
   check("venta 708 no cambia", orders[1].items[0].missingChoices?.[0] === "Elige tu hamburguesa");
-  check("segunda vez no hace nada", sale.clearDeclinedComboAlerts() === 0);
+  check("segunda vez no hace nada", sale.recheckComboAlerts() === 0);
 
   console.log(`\n${ok} bien, ${bad} mal`);
   if (bad) process.exit(1);
