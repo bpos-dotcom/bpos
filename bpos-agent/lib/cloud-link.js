@@ -14,12 +14,17 @@ const os = require("os");
 const { startWake, stopWake } = require("./agent-wake");
 const license = require("./license");
 
-// Proyecto de Supabase de B-POS. La llave "publishable" es pública por diseño
-// (la seguridad la dan las funciones, que revisan la llave del Agent).
-const SUPABASE_URL = "https://fhsqwbtkxpzvmqplwqul.supabase.co";
-const SUPABASE_KEY = "sb_publishable_noKOXLF2fFBR2TCbgkxGRg__GlHxzbS";
-/** B-POS en la web (botón "Abrir B-POS") */
-const WEB_URL = "https://www.bpos.com.mx";
+// Nube de B-POS: Supabase o la de Cloudflare (mudanza 2026). B-POS en la web
+// dice a cuál hablar en /api/nube; si no contesta, se usa la última que dijo
+// (guardada en disco) o Supabase. Así el cambio y el regreso no necesitan un
+// Agent nuevo. La llave es pública por diseño (la seguridad la dan las
+// funciones, que revisan la llave del Agent).
+const DEFAULT_NUBE = { url: "https://fhsqwbtkxpzvmqplwqul.supabase.co", key: "sb_publishable_noKOXLF2fFBR2TCbgkxGRg__GlHxzbS" };
+/** B-POS en la web (botón "Abrir B-POS"); para probar la versión aparte se cambia con BPOS_WEB_URL */
+const WEB_URL = process.env.BPOS_WEB_URL || "https://www.bpos.com.mx";
+const NUBE_EVERY_MS = 10 * 60_000;
+let nube = { ...DEFAULT_NUBE };
+let nubeTimer = null;
 
 const POLL_MS = 2000;
 const POLL_OFFLINE_MS = 6000;
@@ -41,6 +46,34 @@ let outboxTimer = null;
 let polling = false; // hay una vuelta en curso
 let wakePending = false; // llegó un aviso durante la vuelta: revisar otra vez al terminar
 let wakeTopic = ""; // canal del despertador ya abierto (agent-<id>)
+
+function nubeFile() {
+  return path.join(dataDir, "nube.json");
+}
+
+/** La nube válida: dirección https y llave */
+function validNube(n) {
+  return n && typeof n.url === "string" && /^https:\/\/[^\s]+$/.test(n.url) && typeof n.key === "string" && n.key.length > 10 ? { url: n.url.replace(/\/$/, ""), key: n.key } : null;
+}
+
+/** Pregunta a B-POS a qué nube hablar; si cambió, se guarda y se reabre el despertador */
+async function refreshNube() {
+  try {
+    const response = await fetch(`${WEB_URL}/api/nube`, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+    const next = validNube(await response.json());
+    if (!response.ok || !next) return;
+    if (next.url === nube.url && next.key === nube.key) return;
+    nube = next;
+    fs.writeFileSync(nubeFile(), JSON.stringify(next));
+    console.log("B-POS Agent: la nube ahora es", next.url);
+    // El despertador se vuelve a abrir con la nube nueva
+    wakeTopic = "";
+    stopWake();
+    ensureWake();
+  } catch {
+    // sin internet o B-POS no contesta: se queda la que ya tenía
+  }
+}
 
 function linkFile() {
   return path.join(dataDir, "agent-link.json");
@@ -78,9 +111,9 @@ function onStatus(listener) {
 }
 
 async function rpc(name, params) {
-  const response = await fetch(`${SUPABASE_URL}/rest/v1/rpc/${name}`, {
+  const response = await fetch(`${nube.url}/rest/v1/rpc/${name}`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` },
+    headers: { "Content-Type": "application/json", apikey: nube.key, Authorization: `Bearer ${nube.key}` },
     body: JSON.stringify(params),
     signal: AbortSignal.timeout(20_000),
   });
@@ -332,7 +365,7 @@ function ensureWake() {
     stopWake();
     return;
   }
-  startWake({ url: SUPABASE_URL, key: SUPABASE_KEY, topic, onWake: wake });
+  startWake({ url: nube.url, key: nube.key, topic, onWake: wake });
 }
 
 /**
@@ -346,6 +379,13 @@ function startCloudLink(opts) {
   listPrinters = opts.listPrinters;
   applyStationPrinters = opts.applyStationPrinters;
   license.init(dataDir);
+  try {
+    nube = validNube(JSON.parse(fs.readFileSync(nubeFile(), "utf8"))) || { ...DEFAULT_NUBE };
+  } catch {
+    nube = { ...DEFAULT_NUBE };
+  }
+  void refreshNube();
+  nubeTimer = setInterval(() => void refreshNube(), NUBE_EVERY_MS);
   link = readLink();
   if (link) {
     setStatus({ state: "connecting", message: "Conectando..." });
@@ -356,10 +396,16 @@ function startCloudLink(opts) {
 }
 
 function stopCloudLink() {
+  clearInterval(nubeTimer);
   stopWake();
   wakeTopic = "";
   clearTimeout(pollTimer);
   clearInterval(outboxTimer);
 }
 
-module.exports = { startCloudLink, stopCloudLink, submitOrder, pair, unlink, onStatus, getStatus, getLinkInfo, WEB_URL };
+/** A qué nube habla ahora (para la ventana y las pruebas) */
+function getNube() {
+  return { ...nube };
+}
+
+module.exports = { startCloudLink, stopCloudLink, submitOrder, pair, unlink, onStatus, getStatus, getLinkInfo, getNube, refreshNube, validNube, WEB_URL };

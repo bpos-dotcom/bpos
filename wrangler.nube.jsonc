@@ -1,0 +1,37 @@
+{
+  // Versión aparte de B-POS con la nube de Cloudflare (mudanza fuera de Supabase).
+  // No toca el Worker "bpos" de producción: es otro Worker con su propia base D1,
+  // sus archivos en R2 y su tiempo real. Se publica a mano: scripts/nube-publicar.sh
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "main": "custom-worker.ts",
+  "name": "bpos-nube",
+  "compatibility_date": "2026-11-01",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "directory": ".open-next/assets",
+    "binding": "ASSETS"
+  },
+  "services": [{ "binding": "WORKER_SELF_REFERENCE", "service": "bpos-nube" }],
+  "observability": { "enabled": true },
+  // Sin tareas programadas: el correo de los lunes lo sigue mandando producción
+  "workers_dev": true,
+  "d1_databases": [
+    // database_id lo pone scripts/nube-crear.sh al crear la base
+    { "binding": "NUBE_DB", "database_name": "bpos-nube", "database_id": "dcfb400b-24dc-4ceb-bf06-a94e6007c303" }
+  ],
+  "r2_buckets": [{ "binding": "NUBE_FILES", "bucket_name": "bpos-nube-archivos" }],
+  "durable_objects": {
+    "bindings": [{ "name": "NUBE_REALTIME", "class_name": "NubeRealtime" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["NubeRealtime"] }],
+  // Valores públicos (los secretos van con `wrangler secret put`, nunca en git)
+  "vars": {
+    "GOOGLE_WALLET_ISSUER_ID": "3388000000023229508",
+    "MP_CLIENT_ID": "5461571198046273",
+    "NUBE_PUBLIC_URL": "https://bpos-nube.maderorecords.workers.dev/sb",
+    "NUBE_ISSUER": "https://bpos-nube.maderorecords.workers.dev/sb/auth/v1",
+    // Supabase de antes: respaldo de sesiones y origen de la copia
+    "SOURCE_SUPABASE_URL": "https://fhsqwbtkxpzvmqplwqul.supabase.co",
+    "SOURCE_SUPABASE_ANON_KEY": "sb_publishable_noKOXLF2fFBR2TCbgkxGRg__GlHxzbS"
+  }
+}

@@ -13,7 +13,8 @@ import * as ed from "@noble/ed25519";
 import { getSupabase, isCloudConfigured } from "@/lib/supabase/client";
 
 /** Llave pública del servidor (GET /api/licencia/llave). Vacía = aún no se revisa. */
-export const LICENSE_PUBLIC_KEY = "5KjkNdsNnFPRuouWuBRTMsR-hIT4YaZMDt5BxViQ1uU";
+// Una nube de prueba (en esta computadora) firma con su propia llave: se compila con NEXT_PUBLIC_BPOS_LICENSE_KEY
+export const LICENSE_PUBLIC_KEY = process.env.NEXT_PUBLIC_BPOS_LICENSE_KEY || "5KjkNdsNnFPRuouWuBRTMsR-hIT4YaZMDt5BxViQ1uU";
 
 const KEY = "bpos_license"; // solo de este dispositivo (ver DEVICE_LOCAL_KEYS)
 const SEEN_KEY = "bpos_license_seen";

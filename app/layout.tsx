@@ -7,6 +7,7 @@ import { CajaLocalMoved } from "@/components/cloud/CajaLocalMoved";
 import { TouchKeyboard } from "@/components/TouchKeyboard";
 import { Dialogs } from "@/components/layout/Dialogs";
 import { OfflineSupport } from "@/components/layout/OfflineSupport";
+import { NubeBadge } from "@/components/layout/NubeBadge";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 
 const geistSans = Geist({
@@ -52,6 +53,7 @@ export default function RootLayout({
         <TouchKeyboard />
         <Dialogs />
         <OfflineSupport />
+        <NubeBadge />
       </body>
     </html>
   );
