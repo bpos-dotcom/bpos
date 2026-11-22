@@ -62,7 +62,7 @@ export async function seedBusiness(h: Harness, email: string, name = "Negocio pr
   const branchId = crypto.randomUUID();
   const now = new Date().toISOString();
   await h.db.batch([
-    { sql: "INSERT INTO businesses (id, name, owner_id, created_at, trial_ends_at) VALUES (?, ?, ?, ?, ?)", params: [businessId, name, uid, now, now] },
+    { sql: "INSERT INTO businesses (id, name, owner_id, created_at, trial_ends_at) VALUES (?, ?, ?, ?, ?)", params: [businessId, name, uid, now, new Date(Date.now() + 14 * 86400000).toISOString()] },
     { sql: "INSERT INTO branches (id, business_id, name, created_at) VALUES (?, ?, ?, ?)", params: [branchId, businessId, "Centro", now] },
     { sql: "INSERT INTO business_members (business_id, user_id, role, created_at) VALUES (?, ?, 'owner', ?)", params: [businessId, uid, now] },
   ]);
