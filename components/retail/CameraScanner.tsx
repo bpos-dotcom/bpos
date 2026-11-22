@@ -10,6 +10,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { cleanScannedCode } from "@/lib/barcode-camera";
+import { PhoneScanner } from "@/components/retail/PhoneScanner";
 
 type Detector = { detect: (source: HTMLVideoElement) => Promise<{ rawValue: string }[]> };
 type DetectorClass = { new (opts: { formats: string[] }): Detector; getSupportedFormats?: () => Promise<string[]> };
@@ -19,6 +20,18 @@ const FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "co
 /** ¿Este equipo tiene cámara que se pueda usar? (se pregunta el permiso al abrir) */
 export function cameraAvailable() {
   return typeof navigator !== "undefined" && Boolean(navigator.mediaDevices?.getUserMedia);
+}
+
+/** ¿Hay alguna cámara conectada? (sin pedir permiso; si no se puede saber, se intenta) */
+export async function hasCamera() {
+  if (!cameraAvailable()) return false;
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices?.();
+    if (!devices) return true;
+    return devices.some((d) => d.kind === "videoinput");
+  } catch {
+    return true;
+  }
 }
 
 /** Botón 📷 que abre la cámara; al leer un código llama onCode y se cierra */
@@ -39,25 +52,34 @@ export function CameraScanButton({
   /** false si no es código de producto (tarjeta del club) */
   checkDigit?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
-  const [can, setCan] = useState(false);
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- solo se sabe en el navegador
-    setCan(cameraAvailable());
-  }, []);
-  if (!can) return null;
+  // Sin cámara en este equipo: el celular hace de escáner (QR para ligarlo)
+  const [open, setOpen] = useState<"" | "camara" | "celular">("");
+  const close = () => setOpen("");
+  const start = async () => setOpen((await hasCamera()) ? "camara" : "celular");
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} title={title} aria-label={title} data-camera-scan className={className || "shrink-0 rounded-2xl border border-zinc-700 px-4 py-3 font-black text-zinc-200 hover:border-orange-500"}>
+      <button type="button" onClick={() => void start()} title={title} aria-label={title} data-camera-scan className={className || "shrink-0 rounded-2xl border border-zinc-700 px-4 py-3 font-black text-zinc-200 hover:border-orange-500"}>
         {label}
       </button>
-      {open && (
+      {open === "camara" && (
         <CameraScanner
           prompt={prompt}
           checkDigit={checkDigit}
-          onClose={() => setOpen(false)}
+          onClose={close}
+          onNoCamera={() => setOpen("celular")}
           onCode={(code) => {
-            setOpen(false);
+            close();
+            onCode(code);
+          }}
+        />
+      )}
+      {open === "celular" && (
+        <PhoneScanner
+          prompt={prompt}
+          checkDigit={checkDigit}
+          onClose={close}
+          onCode={(code) => {
+            close();
             onCode(code);
           }}
         />
@@ -66,9 +88,26 @@ export function CameraScanButton({
   );
 }
 
-export function CameraScanner({ onCode, onClose, prompt = "📷 Apunta al código de barras", checkDigit = true }: { onCode: (code: string) => void; onClose: () => void; prompt?: string; checkDigit?: boolean }) {
+export function CameraScanner({
+  onCode,
+  onClose,
+  onNoCamera,
+  prompt = "📷 Apunta al código de barras",
+  checkDigit = true,
+  embedded = false,
+}: {
+  onCode: (code: string) => void;
+  onClose: () => void;
+  /** Si el equipo no tiene cámara: ofrecer el celular */
+  onNoCamera?: () => void;
+  prompt?: string;
+  checkDigit?: boolean;
+  /** Dentro de una página (el celular-escáner) en vez de ventana encima */
+  embedded?: boolean;
+}) {
   const video = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState("");
+  const [noCamera, setNoCamera] = useState(false);
   const [starting, setStarting] = useState(true);
   const done = useRef(false);
   const handler = useRef(onCode);
@@ -132,6 +171,7 @@ export function CameraScanner({ onCode, onClose, prompt = "📷 Apunta al códig
       } catch (e) {
         const name = (e as { name?: string }).name || "";
         setStarting(false);
+        if (name === "NotFoundError" || name === "OverconstrainedError") setNoCamera(true);
         setError(
           name === "NotAllowedError" || name === "SecurityError"
             ? "No diste permiso para usar la cámara. Actívalo en el candado de la barra de direcciones (o en los permisos de la app) y vuelve a intentar."
@@ -150,15 +190,16 @@ export function CameraScanner({ onCode, onClose, prompt = "📷 Apunta al códig
     };
   }, []);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose} data-camera-scanner>
-      <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-950 p-4" onClick={(e) => e.stopPropagation()}>
+  const card = (
+    <div className={embedded ? "w-full" : "w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-950 p-4"} onClick={(e) => e.stopPropagation()}>
+      {!embedded && (
         <div className="flex items-center justify-between gap-3">
           <p className="font-black text-white">{prompt}</p>
           <button type="button" onClick={onClose} className="rounded-full bg-zinc-800 px-3 py-1 text-lg text-white" aria-label="Cerrar">
             ✕
           </button>
         </div>
+      )}
         <div className="relative mt-3 aspect-[4/3] overflow-hidden rounded-2xl bg-black">
           <video ref={video} muted playsInline className="h-full w-full object-cover" />
           {!error && <div className="pointer-events-none absolute inset-x-8 top-1/2 h-0.5 -translate-y-1/2 bg-red-500/80 shadow-[0_0_12px_rgba(239,68,68,0.9)]" />}
@@ -169,7 +210,17 @@ export function CameraScanner({ onCode, onClose, prompt = "📷 Apunta al códig
         ) : (
           <p className="mt-3 text-xs text-zinc-500">Ponlo derecho y con buena luz. La imagen no sale de este equipo.</p>
         )}
-      </div>
+        {noCamera && onNoCamera && (
+          <button type="button" onClick={onNoCamera} className="mt-3 w-full rounded-2xl bg-orange-500 px-4 py-3 font-black text-black" data-use-phone>
+            📱 Usar mi celular como escáner
+          </button>
+        )}
+    </div>
+  );
+  if (embedded) return card;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose} data-camera-scanner>
+      {card}
     </div>
   );
 }

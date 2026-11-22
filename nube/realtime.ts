@@ -22,17 +22,49 @@ const SYNC_HEADS_COLUMNS = [
   { name: "updated_at", type: "timestamptz" },
 ];
 
+/**
+ * supabase-js (realtime-js 2.x con vsn 2.0.0) manda los broadcast de un
+ * cliente a otro en binario ("user broadcast push", tipo 3):
+ *   [3, largo join_ref, largo ref, largo topic, largo evento, largo metadata, codificación]
+ *   + join_ref + ref + topic + evento + metadata + contenido (1 = JSON, 0 = bytes)
+ * Se convierte al mismo mensaje que llegaría en JSON. Otro tipo: se ignora.
+ */
+export function decodeBinaryBroadcast(data: ArrayBuffer | Uint8Array): Msg | null {
+  try {
+    const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
+    if (bytes.length < 7 || bytes[0] !== 3) return null;
+    const sizes = [bytes[1], bytes[2], bytes[3], bytes[4], bytes[5]];
+    const encoding = bytes[6];
+    const text = new TextDecoder();
+    let offset = 7;
+    const [joinRef, ref, topic, event, metadata] = sizes.map((n) => {
+      const part = text.decode(bytes.subarray(offset, offset + n));
+      offset += n;
+      return part;
+    });
+    if (offset > bytes.length || !topic || !event) return null;
+    const body = bytes.subarray(offset);
+    // Contenido en bytes (no lo usa B-POS): se manda como texto para no perderlo
+    const payload = encoding === 1 ? (body.length ? JSON.parse(text.decode(body)) : {}) : { bytes: Array.from(body) };
+    const meta = metadata ? (JSON.parse(metadata) as Record<string, unknown>) : {};
+    return { join_ref: joinRef || null, ref: ref || null, topic, event: "broadcast", payload: { ...meta, type: "broadcast", event, payload } };
+  } catch {
+    return null;
+  }
+}
+
 export class RealtimeHub {
   private nextId = 1;
   constructor(private deps: { db: Db; jwtSecret: string; serviceKey: string; sockets: () => HubSocket[] }) {}
 
-  decode(text: string, vsn: SocketState["vsn"]): Msg | null {
+  decode(text: string | ArrayBuffer | Uint8Array, vsn: SocketState["vsn"]): Msg | null {
+    if (typeof text !== "string") return decodeBinaryBroadcast(text);
     try {
       const raw = JSON.parse(text);
       if (Array.isArray(raw)) return { join_ref: raw[0] ?? null, ref: raw[1] ?? null, topic: String(raw[2] ?? ""), event: String(raw[3] ?? ""), payload: (raw[4] ?? {}) as Record<string, unknown> };
       if (raw && typeof raw === "object") return { join_ref: raw.join_ref ?? null, ref: raw.ref ?? null, topic: String(raw.topic ?? ""), event: String(raw.event ?? ""), payload: (raw.payload ?? {}) as Record<string, unknown> };
     } catch {
-      // mensaje binario o roto: se ignora
+      // mensaje roto: se ignora
     }
     void vsn;
     return null;
@@ -56,7 +88,7 @@ export class RealtimeHub {
     return Boolean(await this.deps.db.first("SELECT 1 AS ok FROM business_members WHERE business_id = ? AND user_id = ?", [businessId, claims.sub]));
   }
 
-  async onMessage(socket: HubSocket, text: string) {
+  async onMessage(socket: HubSocket, text: string | ArrayBuffer | Uint8Array) {
     const st = socket.state();
     const m = this.decode(text, st.vsn);
     if (!m) return;
