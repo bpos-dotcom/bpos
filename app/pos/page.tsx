@@ -59,6 +59,7 @@ import { isRetailType, useBusinessType } from "@/lib/business-type";
 import { codesOf, findByBarcode, isBulk, unitPriceFor } from "@/lib/retail";
 import { RetailQtyModal } from "@/components/retail/RetailQtyModal";
 import { useBarcodeScanner } from "@/lib/barcode-scanner";
+import { CameraScanButton } from "@/components/retail/CameraScanner";
 import { accountKey, canCharge, chargeCredit } from "@/lib/customer-credit";
 
 const STORAGE_KEY = "bpos_orders";
@@ -451,7 +452,7 @@ function PosScreen() {
 
   /** Código de barras escaneado (o escrito en el buscador con Enter) */
   function addByCode(raw: string) {
-    const code = raw.replace(/s+/g, "");
+    const code = raw.replace(/\s+/g, "");
     const product = findByBarcode(sellable, code);
     if (product) {
       addToCart(product);
@@ -461,7 +462,7 @@ function PosScreen() {
       notify(`El código ${code} es de un artículo que no se vende solo.`, "error");
       return true;
     }
-    if (/^d{6,14}$/.test(code)) {
+    if (/^\d{6,14}$/.test(code)) {
       if (confirm(`El código ${code} no está dado de alta. ¿Darlo de alta ahora?`)) window.location.href = `/configuracion/productos?codigo=${code}`;
       return true;
     }
@@ -1123,6 +1124,8 @@ function PosScreen() {
                 placeholder={retail ? "Escanea o busca por nombre o código..." : "Buscar producto..."}
                 className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-4 py-3 text-white placeholder:text-zinc-600"
               />
+              {/* Sin lector: escanear con la cámara del equipo */}
+              {retail && <CameraScanButton onCode={(code) => void addByCode(code)} />}
               <div className="flex shrink-0 overflow-hidden rounded-2xl border border-zinc-800" role="group" aria-label="Vista de productos">
                 {(
                   [

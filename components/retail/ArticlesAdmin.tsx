@@ -17,6 +17,7 @@ import { addToGallery, photoName } from "@/lib/photo-gallery";
 import { GalleryPicker } from "@/components/products/GalleryPicker";
 import { lookupBarcode, generateInternalBarcode, normalizeBarcode } from "@/lib/barcode-lookup";
 import { BarcodeLabels } from "@/components/inventory/BarcodeLabels";
+import { CameraScanButton } from "@/components/retail/CameraScanner";
 import { downloadXlsx, readSpreadsheet } from "@/lib/xlsx";
 import { useBusinessType } from "@/lib/business-type";
 import {
@@ -152,8 +153,8 @@ export function ArticlesAdmin() {
   }
 
   /** Lector de código de barras (escribe el código y un Enter) o búsqueda */
-  function onScan() {
-    const code = normalizeBarcode(query);
+  function onScan(raw = query) {
+    const code = normalizeBarcode(raw);
     if (!code) return;
     const hit = findByBarcode(products, code);
     if (hit) {
@@ -280,6 +281,7 @@ export function ArticlesAdmin() {
           placeholder="Escanea un código de barras o busca por nombre"
           className={`${input} min-w-0 flex-1 text-lg`}
         />
+        <CameraScanButton onCode={(code) => onScan(code)} />
         <button onClick={() => newArticle()} className="rounded-2xl bg-orange-500 px-5 py-3 font-black text-black hover:bg-orange-400">
           + Artículo nuevo
         </button>
@@ -380,6 +382,12 @@ export function ArticlesAdmin() {
                       placeholder="Escanéalo aquí con el lector"
                       inputMode="numeric"
                       className={`${input} min-w-0 flex-1 font-mono text-lg`}
+                    />
+                    <CameraScanButton
+                      onCode={(code) => {
+                        set({ barcode: code });
+                        void fillFromBarcode(code, draft.id);
+                      }}
                     />
                     <button type="button" disabled={!draft.barcode} onClick={() => draft.barcode && fillFromBarcode(draft.barcode, draft.id)} className="rounded-2xl border border-zinc-700 px-4 font-black text-zinc-200 disabled:opacity-40">
                       🔎 Buscar datos
