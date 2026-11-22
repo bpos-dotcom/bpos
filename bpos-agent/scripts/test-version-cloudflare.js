@@ -24,7 +24,7 @@ global.fetch = async (url, init = {}) => {
     if (m[2] === "bpos_agent_poll") return json({ business_name: "Burger Planet", branch_name: where, jobs: [] });
     if (m[2] === "bpos_agent_submit_order") return json({ duplicate: false, where, token: JSON.parse(init.body).p_token });
   }
-  if (String(url).includes("/api/licencia")) return json({}, 404);
+  if (String(url).includes("/api/licencia")) return json({ success: false }, 400);
   return json({ message: "no" }, 404);
 };
 
@@ -54,6 +54,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
   await cloud.pair("WXYZ9876");
   check("el código se revisa en la versión Cloudflare", calls.some((c) => c === "https://bpos-nube.maderorecords.workers.dev/sb/rest/v1/rpc/bpos_agent_pair"));
   check("vinculado a la versión Cloudflare", cloud.getLinkInfo().agentId === "agente-cloudflare");
+  await wait(2600); // una vuelta del ciclo: pide el permiso de uso
+  check("el permiso de uso se pide a la versión Cloudflare", calls.includes("https://bpos-nube.maderorecords.workers.dev/api/licencia"), calls.filter((c) => c.includes("licencia")));
   const sent = await cloud.submitOrder({ platform: "didi", orderId: "5", rawText: "x" });
   check("un pedido se manda a la versión Cloudflare", sent.sent && calls.filter((c) => c.endsWith("bpos_agent_submit_order")).pop().includes("workers.dev"));
 
