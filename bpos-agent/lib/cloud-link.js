@@ -336,8 +336,8 @@ async function pollOnce() {
     setStatus({ state: "connected", message: "Conectado a B-POS", lastPollAt: new Date().toISOString() });
     // Permiso de uso: se renueva cada 6 h mientras hay internet
     // (o ya mismo si el permiso no está vigente, p. ej. recién pagó o volvió el internet)
-    // (solo con el B-POS de siempre: la versión de prueba no da permisos)
-    if (!prueba) void license.refresh(WEB_URL, link.token, !license.status().ok);
+    // (de la versión con la que está vinculado: la de Cloudflare también lo firma)
+    void license.refresh(getWebUrl(), link.token, !license.status().ok);
     for (const job of result.jobs || []) await runJob(job);
     return POLL_MS;
   } catch (error) {
