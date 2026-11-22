@@ -1,5 +1,6 @@
 "use client";
 
+import { isSameSale } from "@/lib/bridge/order-identity";
 import { getAdminProducts } from "@/lib/admin";
 import type { DeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
@@ -351,7 +352,7 @@ export function correctAutomaticSale(saleId: number, payload: SaleReadyPayload, 
 
 export function createAutomaticSale(
   payload: SaleReadyPayload,
-  options: { receivedAt?: string; ticket?: DeliveryTicket } = {}
+  options: { receivedAt?: string; ticket?: DeliveryTicket; bridgeKey?: string } = {}
 ): AutomaticSaleResult {
   if (typeof window === "undefined") {
     return {
@@ -381,7 +382,9 @@ export function createAutomaticSale(
   const orders = readOrders();
   const incomingAt = Date.parse(options.receivedAt || "") || Date.now();
   const duplicate = orders.find(
-    (order) => order.externalOrderKey === payload.externalOrderKey && Math.abs(incomingAt - Date.parse(order.createdAt)) < SAME_ORDER_WINDOW_MS
+    (order) =>
+      order.externalOrderKey === payload.externalOrderKey &&
+      isSameSale(order as { bridgeKey?: string; createdAt?: string; externalOrderKey?: string }, { bridgeKey: options.bridgeKey, at: incomingAt, platform: payload.platform })
   );
 
   if (duplicate) {
@@ -437,6 +440,7 @@ export function createAutomaticSale(
     source: "B-POS Bridge",
     externalOrderNumber: payload.externalOrderId,
     externalOrderKey: payload.externalOrderKey,
+    ...(options.bridgeKey ? { bridgeKey: options.bridgeKey } : {}),
     externalPlatform: payload.platform,
     externalTotal: Number(payload.externalTotal || 0),
     externalRawText: String(payload.rawText || ""),

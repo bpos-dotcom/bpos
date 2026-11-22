@@ -16,11 +16,13 @@ import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
 import { correctAutomaticSale } from "@/lib/bridge/create-automatic-sale";
+import { orderKey } from "@/lib/bridge/order-identity";
 import BridgeAliases from "./BridgeAliases";
 import { NotPrimaryBanner } from "@/components/settings/PrimaryDeviceCard";
 import { bridgeFetch, bridgeVersion } from "@/lib/bridge/bridge-fetch";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
+import { getActiveShift, getShiftHistory, type CashShift } from "@/lib/cash-register";
 import { readKdsStationConfig } from "@/lib/kds-config";
 import type { KitchenStation } from "@/data/products";
 
@@ -44,6 +46,8 @@ type BridgeAlias = {
 };
 
 type AgentOrder = {
+  /** Llave si repite número de otro día (ver order-identity) */
+  bridgeKey?: string;
   id?: number | string;
   platform?: string;
   orderId?: string | null;
@@ -152,6 +156,18 @@ function findAlias(
   );
 }
 
+/** Cuándo llegó el pedido al Bridge (ms) */
+function receivedMs(order: { bridgeReceivedAt?: string; receivedAt?: string }) {
+  return Date.parse(String(order.bridgeReceivedAt || order.receivedAt || "")) || 0;
+}
+
+/** "sáb 21 nov, 4:02 p.m." */
+function shiftLabel(iso: string) {
+  const d = new Date(iso);
+  if (!Number.isFinite(d.getTime())) return "—";
+  return d.toLocaleString("es-MX", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit" });
+}
+
 function platformLabel(value: unknown) {
   const platform = normalize(value);
   if (platform.includes("didi")) return "DiDi Food";
@@ -181,6 +197,14 @@ function BridgeScreen() {
     getAdminIngredients()
   );
   const [showFinalized, setShowFinalized] = useState(false);
+  /** Finalizados: los del turno de caja abierto o los de un turno anterior */
+  const [finalTab, setFinalTab] = useState<"actual" | "anteriores">("actual");
+  const [pastShift, setPastShift] = useState<CashShift | null>(null);
+  const [pastOrders, setPastOrders] = useState<AgentOrder[]>([]);
+  const [pastLoading, setPastLoading] = useState(false);
+  const [pastError, setPastError] = useState("");
+  /** Turno de caja abierto (los finalizados cuentan desde que se abrió, aunque pase la medianoche) */
+  const [shift, setShift] = useState<CashShift | null>(null);
   // Pedidos finalizados de una sola plataforma ("" = todas)
   const [finalPlatform, setFinalPlatform] = useState("");
   /** Pedido finalizado abierto (ver y corregir sus equivalencias) */
@@ -191,8 +215,11 @@ function BridgeScreen() {
     try {
       await bridgeFetch("/api/bridge/pending", { cache: "no-store" });
 
+      const open = getActiveShift();
+      setShift(open);
+      const since = open?.openedAt ? `?desde=${encodeURIComponent(open.openedAt)}` : "";
       const [ordersResponse, aliasesResponse] = await Promise.all([
-        bridgeFetch("/api/bridge/orders", { cache: "no-store" }),
+        bridgeFetch(`/api/bridge/orders${since}`, { cache: "no-store" }),
         bridgeFetch("/api/bridge/aliases", { cache: "no-store" }),
       ]);
 
@@ -264,11 +291,34 @@ function BridgeScreen() {
     [orders]
   );
 
-  const finalizedOrders = useMemo(
-    () => orders.filter((order) => order.status === "Finalizado"),
-    [orders]
-  );
-  const shownFinalized = finalPlatform ? finalizedOrders.filter((order) => platformLabel(order.platform) === finalPlatform) : finalizedOrders;
+  // Turno actual: desde que se abrió la caja (sin caja abierta, desde el último cierre)
+  const finalizedOrders = useMemo(() => {
+    const from = Date.parse(shift?.openedAt || getShiftHistory()[0]?.closedAt || "") || 0;
+    return orders.filter((order) => order.status === "Finalizado" && receivedMs(order) >= from);
+  }, [orders, shift]);
+  const tabOrders = finalTab === "actual" ? finalizedOrders : pastOrders;
+  const shownFinalized = finalPlatform ? tabOrders.filter((order) => platformLabel(order.platform) === finalPlatform) : tabOrders;
+  /** Turnos cerrados de los últimos 30 días (los finalizados se guardan 30 días) */
+  const [pastShifts, setPastShifts] = useState<CashShift[]>([]);
+
+  async function openPastShift(target: CashShift) {
+    setPastShift(target);
+    setPastOrders([]);
+    setPastError("");
+    setFinalPlatform("");
+    setPastLoading(true);
+    try {
+      const params = new URLSearchParams({ desde: target.openedAt, hasta: target.closedAt || new Date().toISOString() });
+      const response = await bridgeFetch(`/api/bridge/orders?${params}`, { cache: "no-store" });
+      const payload = (await response.json().catch(() => ({}))) as { success?: boolean; orders?: AgentOrder[]; error?: string };
+      if (!response.ok || !payload.success) throw new Error(payload.error || "No se pudieron cargar los pedidos de ese turno.");
+      setPastOrders(Array.isArray(payload.orders) ? payload.orders : []);
+    } catch (error) {
+      setPastError(error instanceof Error ? error.message : "No se pudieron cargar los pedidos de ese turno.");
+    } finally {
+      setPastLoading(false);
+    }
+  }
 
   // Interpretar, validar, crear la venta e imprimir por estación ya no vive aquí: lo hace el
   // procesador en segundo plano (components/bridge/BridgeProcessor.tsx), que también corre en
@@ -283,7 +333,7 @@ function BridgeScreen() {
   /** "Mandar de todos modos": imprime ya; lo que no tiene equivalencia va a la estación elegida. Cualquier usuario. */
   async function sendAnyway(order: AgentOrder, station: KitchenStation) {
     if (!order.platform || !order.orderId) return;
-    const key = `${normalize(order.platform)}:${order.orderId}`;
+    const key = orderKey(order);
     if (stationPrintLocks.current.has(key)) return;
     stationPrintLocks.current.add(key);
     setSendingAnyway(key);
@@ -304,6 +354,7 @@ function BridgeScreen() {
         body: JSON.stringify({
           platform: order.platform,
           orderId: order.orderId,
+          key: order.bridgeKey,
           stationPrint: { at: new Date().toISOString(), stations: tickets.map((t) => t.target), printers, forced: { by: user.name, station } },
         }),
       });
@@ -385,7 +436,7 @@ function BridgeScreen() {
     const label = `${platformLabel(order.platform)} #${String(order.orderId || "SIN-ID")}`;
     if (!(await ask(`¿Descartar el pedido ${label}? Se quita del Bridge sin crear venta. Si el ticket vuelve a llegar, entra como nuevo.`, { ok: "Descartar" }))) return;
     try {
-      const params = new URLSearchParams({ platform: String(order.platform || ""), orderId: String(order.orderId || "") });
+      const params = new URLSearchParams({ platform: String(order.platform || ""), orderId: String(order.orderId || ""), ...(order.bridgeKey ? { key: String(order.bridgeKey) } : {}) });
       const response = await bridgeFetch(`/api/bridge/orders?${params}`, { method: "DELETE" });
       const result = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!response.ok || !result.success) throw new Error(result.error || `No se pudo descartar (código ${response.status}).`);
@@ -439,7 +490,7 @@ function BridgeScreen() {
       await bridgeFetch("/api/bridge/orders", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ platform: order.platform, orderId: order.orderId, interpretation, validation: validated.validation, saleReadyPayload: payload }),
+        body: JSON.stringify({ platform: order.platform, orderId: order.orderId, key: order.bridgeKey, interpretation, validation: validated.validation, saleReadyPayload: payload }),
       }).catch(() => null);
       addAuditEvent({
         category: "Venta",
@@ -560,15 +611,6 @@ function BridgeScreen() {
                 className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-3 font-black text-white"
               >
                 {showFinalized ? "Ocultar finalizados" : `Finalizados (${finalizedOrders.length})`}
-              </button>
-              <button
-                type="button"
-                onClick={() => void clearHistory()}
-                disabled={clearingHistory}
-                title="Borra los pedidos finalizados. Un ticket que vuelva a llegar ya no cuenta como duplicado."
-                className="rounded-2xl border border-zinc-700 bg-zinc-900 px-5 py-3 font-black text-white disabled:opacity-50"
-              >
-                {clearingHistory ? "Limpiando…" : "🧹 Limpiar historial"}
               </button>
               <button
                 type="button"
@@ -948,12 +990,73 @@ function BridgeScreen() {
             <section className="rounded-3xl border border-zinc-800 bg-zinc-950 p-6">
               <h2 className="text-xl font-black text-emerald-400">Pedidos finalizados</h2>
               <p className="mt-1 text-sm text-zinc-400">
-                Ya generaron venta y no forman parte de la cola activa.
+                Ya generaron venta y no forman parte de la cola activa. Se guardan 30 días.
               </p>
+              <div className="mt-4 flex gap-2" data-final-tabs>
+                {(["actual", "anteriores"] as const).map((tab) => (
+                  <button
+                    key={tab}
+                    type="button"
+                    onClick={() => {
+                      setFinalTab(tab);
+                      setFinalPlatform("");
+                      if (tab === "anteriores") {
+                        const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
+                        setPastShifts(getShiftHistory().filter((s) => s.closedAt && Date.parse(s.closedAt) > cutoff));
+                      }
+                      setPastShift(null);
+                      setPastOrders([]);
+                    }}
+                    className={`rounded-2xl px-4 py-2.5 text-sm font-black ${finalTab === tab ? "bg-emerald-500 text-black" : "border border-zinc-800 text-zinc-300"}`}
+                  >
+                    {tab === "actual" ? `Turno actual (${finalizedOrders.length})` : "Turnos anteriores"}
+                  </button>
+                ))}
+              </div>
+              {finalTab === "actual" && (
+                <p className="mt-3 text-xs text-zinc-500">
+                  {shift ? `Desde que se abrió la caja (${shiftLabel(shift.openedAt)}). Sigue contando aunque pase la medianoche, hasta cerrar caja.` : "La caja está cerrada: aquí salen los que llegaron después del último cierre."}
+                </p>
+              )}
+              {finalTab === "anteriores" && !pastShift && (
+                <div className="mt-4 space-y-2">
+                  {pastShifts.length === 0 ? (
+                    <p className="text-sm text-zinc-500">Todavía no hay turnos cerrados en los últimos 30 días.</p>
+                  ) : (
+                    pastShifts.map((s) => (
+                      <button
+                        key={s.sessionId}
+                        type="button"
+                        onClick={() => void openPastShift(s)}
+                        className="flex w-full items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-black p-4 text-left hover:border-emerald-500"
+                      >
+                        <span>
+                          <span className="block font-black text-white">{shiftLabel(s.openedAt)} → {shiftLabel(s.closedAt || "")}</span>
+                          <span className="mt-1 block text-xs text-zinc-500">Abrió {s.openedBy?.name || "—"}{s.closedBy?.name ? ` · cerró ${s.closedBy.name}` : ""}</span>
+                        </span>
+                        <span className="text-xs font-black text-emerald-400">Ver pedidos →</span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              )}
+              {finalTab === "anteriores" && pastShift && (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-sm font-black text-white">
+                    Turno {shiftLabel(pastShift.openedAt)} → {shiftLabel(pastShift.closedAt || "")}
+                    {!pastLoading && ` · ${pastOrders.length} pedido(s)`}
+                  </p>
+                  <button type="button" onClick={() => { setPastShift(null); setPastOrders([]); }} className="rounded-xl border border-zinc-700 px-3 py-1.5 text-xs font-black text-zinc-300">
+                    ← Otros turnos
+                  </button>
+                </div>
+              )}
+              {pastError && <p className="mt-3 text-sm font-bold text-red-400">{pastError}</p>}
+              {(finalTab === "actual" || pastShift) && (<>
               {/* Por plataforma: para revisar que llegaron al Agent todos los de DiDi, Uber o Rappi */}
               <div className="mt-4 flex flex-wrap gap-2">
                 {["", "DiDi Food", "Uber Eats", "Rappi"].map((label) => {
-                  const count = label ? finalizedOrders.filter((order) => platformLabel(order.platform) === label).length : finalizedOrders.length;
+                  const count = label ? tabOrders.filter((order) => platformLabel(order.platform) === label).length : tabOrders.length;
                   return (
                     <button
                       key={label || "todas"}
@@ -967,13 +1070,15 @@ function BridgeScreen() {
                 })}
               </div>
               <div className="mt-4 space-y-3">
-                {shownFinalized.length === 0 ? (
-                  <p className="text-sm text-zinc-500">{finalPlatform ? `No hay pedidos finalizados de ${finalPlatform}.` : "Todavía no hay pedidos finalizados."}</p>
+                {pastLoading ? (
+                  <p className="text-sm text-zinc-500">Cargando pedidos del turno…</p>
+                ) : shownFinalized.length === 0 ? (
+                  <p className="text-sm text-zinc-500">{finalPlatform ? `No hay pedidos finalizados de ${finalPlatform}.` : finalTab === "actual" ? "Todavía no hay pedidos finalizados en este turno." : "Ese turno no tuvo pedidos de plataformas."}</p>
                 ) : (
                   shownFinalized.map((order) => (
                     <button
                       type="button"
-                      key={`final-${normalize(order.platform)}-${order.orderId}-${order.id}`}
+                      key={`final-${orderKey(order)}-${order.id}`}
                       onClick={() => setOpenFinal(order)}
                       className="block w-full rounded-2xl border border-emerald-900/70 bg-emerald-950/20 p-4 text-left transition hover:border-emerald-500"
                     >
@@ -985,12 +1090,21 @@ function BridgeScreen() {
                         Plataforma: {platformLabel(order.platform)} · #{String(order.orderId || "SIN-ID")}
                       </p>
                       <p className="mt-1 text-xs text-zinc-500">
-                        {order.customer?.name || "Cliente de plataforma"} · Venta creada
+                        {order.customer?.name || "Cliente de plataforma"} · Venta creada{receivedMs(order) ? ` · ${shiftLabel(new Date(receivedMs(order)).toISOString())}` : ""}
                       </p>
                     </button>
                   ))
                 )}
               </div>
+              </>)}
+              <button
+                type="button"
+                onClick={() => void clearHistory()}
+                disabled={clearingHistory}
+                className="mt-6 text-xs font-bold text-zinc-600 underline disabled:opacity-50"
+              >
+                {clearingHistory ? "Borrando…" : "Borrar historial de finalizados (solo para pruebas)"}
+              </button>
             </section>
           )}
         </main>

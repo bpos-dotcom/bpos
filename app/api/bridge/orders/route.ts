@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { bridgeAuth } from "@/lib/bridge/api-guard";
-import { bridgeStore, orderKey } from "@/lib/bridge/store";
+import { bridgeStore } from "@/lib/bridge/store";
+import { baseOrderKey, validKey } from "@/lib/bridge/order-identity";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import type { FinalOrderValidation } from "@/lib/bridge/validate-order";
 import type { SaleReadyPayload } from "@/lib/bridge/prepare-sale";
@@ -67,9 +68,17 @@ export async function GET(request: NextRequest) {
   const auth = await bridgeAuth(request);
   if ("denied" in auth) return auth.denied;
   // ?trabajo=1: solo lo que el procesador en segundo plano tiene que revisar (pocos pedidos, no el historial)
-  const work = request.nextUrl.searchParams.get("trabajo") === "1";
+  // ?desde=ISO: finalizados desde el inicio del turno · ?desde=ISO&hasta=ISO: solo los finalizados de un turno anterior
+  const params = request.nextUrl.searchParams;
+  const work = params.get("trabajo") === "1";
+  const since = params.get("desde") || undefined;
+  const until = params.get("hasta") || undefined;
   const store = bridgeStore(auth.ctx);
-  const orders = (await (work ? store.workOrders(WORK_WINDOW_MS) : store.orders())) as BridgeOrder[];
+  const orders = (await (work
+    ? store.workOrders(WORK_WINDOW_MS)
+    : since && until
+      ? store.finishedBetween(since, until)
+      : store.orders(since))) as BridgeOrder[];
 
   return NextResponse.json(
     {
@@ -166,6 +175,8 @@ export async function PATCH(request: NextRequest) {
     const body = (await request.json()) as {
       platform?: string;
       orderId?: string;
+      /** Llave del pedido si repite número de otro día (bridgeKey) */
+      key?: string;
       /** Apartar el pedido para este equipo antes de procesarlo (ver claimOrder) */
       claim?: string;
       status?: BridgeStatus;
@@ -179,7 +190,8 @@ export async function PATCH(request: NextRequest) {
     const platform = normalizePlatform(body.platform);
     const orderId = normalizeOrderId(body.orderId);
 
-    const key = orderKey({ platform, orderId });
+    const base = baseOrderKey({ platform, orderId });
+    const key = validKey(body.key, base) || base;
 
     if (body.claim) {
       const claimed = await store.claimOrder(key, String(body.claim).replace(/[^\w:-]/g, "").slice(0, 80), CLAIM_STALE_MS);
@@ -286,7 +298,8 @@ export async function DELETE(request: NextRequest) {
   const platform = request.nextUrl.searchParams.get("platform");
   const orderId = request.nextUrl.searchParams.get("orderId");
   if (platform !== null && orderId !== null) {
-    const removed = await bridgeStore(auth.ctx).deletePendingOrder({ platform, orderId });
+    const bridgeKey = validKey(request.nextUrl.searchParams.get("key"), baseOrderKey({ platform, orderId })) || undefined;
+    const removed = await bridgeStore(auth.ctx).deletePendingOrder({ platform, orderId, bridgeKey });
     if (!removed) return NextResponse.json({ success: false, error: "El pedido ya no está pendiente o ya tiene venta creada." }, { status: 409 });
     return NextResponse.json({ success: true });
   }
