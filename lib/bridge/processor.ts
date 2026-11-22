@@ -18,6 +18,7 @@ import { getAdminIngredients, getAdminProducts, getAdminRecipes } from "@/lib/ad
 import { addAuditEvent } from "@/lib/audit";
 import { bridgeFetch } from "@/lib/bridge/bridge-fetch";
 import { createAutomaticSale } from "@/lib/bridge/create-automatic-sale";
+import { orderKey } from "@/lib/bridge/order-identity";
 import { buildDeliveryTicket } from "@/lib/bridge/delivery-ticket";
 import type { OrderInterpretation } from "@/lib/bridge/interpret-order";
 import { buildOrderTickets } from "@/lib/bridge/order-tickets";
@@ -29,6 +30,8 @@ import { printDeliveryTickets } from "@/lib/localService";
 
 export type ProcessorOrder = {
   platform?: string;
+  /** Llave si repite número de otro día (ver order-identity) */
+  bridgeKey?: string;
   orderId?: string | null;
   receivedAt?: string;
   bridgeReceivedAt?: string;
@@ -48,15 +51,7 @@ export type ProcessorOrder = {
 // Pedidos más viejos no se mandan a estaciones (ej. al prender la caja horas después)
 export const STATION_PRINT_MAX_AGE_MS = 2 * 60 * 60 * 1000;
 
-const normalize = (value: unknown) =>
-  String(value ?? "")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .trim();
-
-const keyOf = (order: ProcessorOrder) => `${normalize(order.platform)}:${order.orderId}`;
+const keyOf = (order: ProcessorOrder) => orderKey(order);
 
 /** Sin la fecha de cuándo se calculó: para saber si de verdad cambió algo */
 const core = (value: object | null | undefined, stamp: string) => (value ? JSON.stringify({ ...value, [stamp]: undefined }) : "");
@@ -99,7 +94,7 @@ async function patchOrder(order: ProcessorOrder, changes: Record<string, unknown
   const response = await bridgeFetch("/api/bridge/orders", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ platform: order.platform, orderId: order.orderId, ...changes }),
+    body: JSON.stringify({ platform: order.platform, orderId: order.orderId, key: order.bridgeKey, ...changes }),
   });
   const payload = (await response.json().catch(() => ({}))) as { success?: boolean; order?: ProcessorOrder; error?: string };
   if (!response.ok || !payload.success) throw new Error(payload.error || "No se pudo guardar el pedido.");
@@ -110,7 +105,7 @@ async function claim(order: ProcessorOrder) {
   const response = await bridgeFetch("/api/bridge/orders", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ platform: order.platform, orderId: order.orderId, claim: claimId() }),
+    body: JSON.stringify({ platform: order.platform, orderId: order.orderId, key: order.bridgeKey, claim: claimId() }),
   });
   const payload = (await response.json().catch(() => ({}))) as { claimed?: boolean };
   return response.ok && payload.claimed === true;
@@ -259,6 +254,7 @@ export async function processBridgeOrders(orders: ProcessorOrder[], aliases: unk
       if (!finished(order) && order.readyForSale && order.saleReadyPayload) {
         const result = createAutomaticSale(order.saleReadyPayload, {
           receivedAt: order.bridgeReceivedAt || order.receivedAt,
+          bridgeKey: orderKey(order),
           // Para reimprimir desde Historial de pedidos con los mismos renglones del pedido
           ticket: buildDeliveryTicket(order, stationsByLine(order.interpretation, catalog.products, getAdminRecipes())),
         });

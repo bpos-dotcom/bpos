@@ -9,9 +9,9 @@ import path from "node:path";
 import type { BridgeContext } from "@/lib/bridge/api-guard";
 import { BRIDGE_DATA_DIR } from "@/lib/bridge/data-dir";
 import { bridgeOrders, saveBridgeOrders } from "@/lib/bridge/orders-store";
+import { baseOrderKey, isSameOrder, orderKey, repeatKey } from "@/lib/bridge/order-identity";
 
-/** DiDi reinicia sus números cada día: el mismo número de hace más de 12 h es otro pedido */
-const SAME_ORDER_WINDOW_MS = 12 * 60 * 60 * 1000;
+export { orderKey };
 
 export type StoredBridgeOrder = {
   platform?: string;
@@ -24,8 +24,13 @@ export type StoredBridgeOrder = {
 export type StoredAlias = { id: string; [key: string]: unknown };
 
 export type BridgeStore = {
-  /** Pedidos, el más nuevo primero */
-  orders(): Promise<StoredBridgeOrder[]>;
+  /**
+   * Pedidos, el más nuevo primero: todos los que siguen en proceso y los
+   * finalizados que llegaron desde `since` (el inicio del turno; sin él, las últimas 36 h).
+   */
+  orders(since?: string): Promise<StoredBridgeOrder[]>;
+  /** Finalizados que llegaron entre dos fechas (turnos anteriores) */
+  finishedBetween(from: string, to: string): Promise<StoredBridgeOrder[]>;
   /** Solo los que siguen en proceso (sin Finalizado ni Error): para las alertas de pendientes, sin bajar todo */
   activeOrders(): Promise<StoredBridgeOrder[]>;
   /** Un solo pedido (para cambiarlo sin bajar todos) */
@@ -43,23 +48,40 @@ export type BridgeStore = {
   claimOrder(key: string, device: string, staleMs: number): Promise<boolean>;
   /** Huella de pedidos y equivalencias (cuántos y el último cambio): si no cambió, no hay que volver a bajarlos */
   version(): Promise<string>;
-  /** false si ya existía (misma plataforma y número) */
+  /** false si es el mismo pedido que ya estaba (ver isSameOrder); si repite número pero es otro, se guarda aparte */
   addOrder(order: StoredBridgeOrder): Promise<boolean>;
   saveOrder(order: StoredBridgeOrder): Promise<void>;
   clearOrders(): Promise<void>;
   /** Borra el historial de pedidos finalizados; así un ticket repetido ya no cuenta como duplicado */
   clearFinishedOrders(): Promise<number>;
   /** Quita un pedido que no tiene venta (prueba o ticket ilegible); false si no estaba o ya tiene venta */
-  deletePendingOrder(order: { platform: string; orderId: string }): Promise<boolean>;
+  deletePendingOrder(order: { platform: string; orderId: string; bridgeKey?: string }): Promise<boolean>;
   aliases(): Promise<StoredAlias[]>;
   saveAlias(alias: StoredAlias): Promise<void>;
   deleteAlias(id: string): Promise<boolean>;
 };
 
-const KEEP_FINISHED_MS = 3 * 24 * 60 * 60 * 1000;
+/** Los finalizados se conservan 30 días (para ver turnos anteriores) */
+const KEEP_FINISHED_MS = 30 * 24 * 60 * 60 * 1000;
+/** Sin turno abierto: finalizados de las últimas 36 horas */
+const DEFAULT_FINISHED_MS = 36 * 60 * 60 * 1000;
 
-export function orderKey(order: { platform?: unknown; orderId?: unknown }) {
-  return `${String(order.platform ?? "").trim().toLowerCase()}|${String(order.orderId ?? "").trim().toUpperCase()}`;
+const sinceOr = (since?: string) => (since && Number.isFinite(Date.parse(since)) ? new Date(since).toISOString() : new Date(Date.now() - DEFAULT_FINISHED_MS).toISOString());
+const receivedMs = (o: StoredBridgeOrder) => Date.parse(String(o.bridgeReceivedAt || o.receivedAt || "")) || 0;
+const isFinished = (o: StoredBridgeOrder) => o.status === "Finalizado";
+
+/**
+ * Decide la llave del pedido que llega: "" si es el mismo que uno anterior;
+ * la llave normal si es el primero; la de repetidos si repite número.
+ */
+export function keyForIncoming(order: StoredBridgeOrder, previous: { at: number; data: StoredBridgeOrder } | null, now = Date.now()) {
+  const base = baseOrderKey(order);
+  if (!previous) return base;
+  const same = isSameOrder(
+    { platform: previous.data.platform, at: previous.at, total: previous.data.total, items: previous.data.items },
+    { platform: order.platform, at: now, total: order.total, items: order.items }
+  );
+  return same ? "" : repeatKey(base, now);
 }
 
 function fail(error: { message: string } | null) {
@@ -69,20 +91,33 @@ function fail(error: { message: string } | null) {
 function cloudStore(ctx: Extract<BridgeContext, { mode: "cloud" }>): BridgeStore {
   const { db, businessId, branchId } = ctx;
   return {
-    async orders() {
-      // Los finalizados se conservan 3 días; los pendientes, siempre
+    async orders(since) {
+      // Los finalizados se conservan 30 días; los pendientes, siempre
       await db
         .from("bpos_bridge_orders")
         .delete()
         .eq("branch_id", branchId)
         .eq("status", "Finalizado")
         .lt("updated_at", new Date(Date.now() - KEEP_FINISHED_MS).toISOString());
+      // En proceso: todos. Finalizados: solo los del turno (los anteriores se piden aparte)
+      const [active, finished] = await Promise.all([
+        db.from("bpos_bridge_orders").select("data").eq("branch_id", branchId).neq("status", "Finalizado").order("received_at", { ascending: false }).limit(150),
+        db.from("bpos_bridge_orders").select("data").eq("branch_id", branchId).eq("status", "Finalizado").gte("received_at", sinceOr(since)).order("received_at", { ascending: false }).limit(400),
+      ]);
+      fail(active.error);
+      fail(finished.error);
+      return [...(active.data ?? []), ...(finished.data ?? [])].map((row) => row.data as StoredBridgeOrder).sort((a, b) => receivedMs(b) - receivedMs(a));
+    },
+    async finishedBetween(from, to) {
       const { data, error } = await db
         .from("bpos_bridge_orders")
         .select("data")
         .eq("branch_id", branchId)
+        .eq("status", "Finalizado")
+        .gte("received_at", new Date(from).toISOString())
+        .lt("received_at", new Date(to).toISOString())
         .order("received_at", { ascending: false })
-        .limit(300);
+        .limit(600);
       fail(error);
       return (data ?? []).map((row) => row.data as StoredBridgeOrder);
     },
@@ -142,23 +177,30 @@ function cloudStore(ctx: Extract<BridgeContext, { mode: "cloud" }>): BridgeStore
       return (data ?? []).map((row) => row.data as StoredBridgeOrder);
     },
     async addOrder(order) {
-      // Mismo número de otro día (DiDi reinicia cada día) y ya terminado: se quita para que entre el nuevo
-      await db
+      // El último con ese número (cualquier día): ¿es el mismo pedido o uno nuevo que repite número?
+      const base = baseOrderKey(order);
+      const { data: prev, error: prevError } = await db
         .from("bpos_bridge_orders")
-        .delete()
+        .select("data, received_at")
         .eq("branch_id", branchId)
-        .eq("order_key", orderKey(order))
-        .in("status", ["Finalizado", "Venta creada"])
-        .lt("received_at", new Date(Date.now() - SAME_ORDER_WINDOW_MS).toISOString());
-      const { data, error } = await db
+        .or(`order_key.eq."${base}",order_key.like."${base}|*"`)
+        .order("received_at", { ascending: false })
+        .limit(1);
+      fail(prevError);
+      const last = prev?.[0];
+      const key = keyForIncoming(order, last ? { at: Date.parse(last.received_at), data: last.data as StoredBridgeOrder } : null);
+      if (!key) return false;
+      const data = key === base ? order : { ...order, bridgeKey: key };
+      const { data: saved, error } = await db
         .from("bpos_bridge_orders")
         .upsert(
-          { business_id: businessId, branch_id: branchId, order_key: orderKey(order), data: order, status: order.status || "Recibido" },
+          { business_id: businessId, branch_id: branchId, order_key: key, data, status: order.status || "Recibido" },
           { onConflict: "branch_id,order_key", ignoreDuplicates: true }
         )
         .select("order_key");
       fail(error);
-      return (data ?? []).length > 0;
+      if ((saved ?? []).length > 0 && key !== base) order.bridgeKey = key;
+      return (saved ?? []).length > 0;
     },
     async saveOrder(order) {
       const { error } = await db
@@ -234,8 +276,14 @@ function writeAliasFile(aliases: StoredAlias[]) {
 }
 
 const diskStore: BridgeStore = {
-  async orders() {
-    return bridgeOrders<StoredBridgeOrder>();
+  async orders(since) {
+    const from = Date.parse(sinceOr(since));
+    return bridgeOrders<StoredBridgeOrder>().filter((o) => !isFinished(o) || receivedMs(o) >= from);
+  },
+  async finishedBetween(from, to) {
+    const a = Date.parse(from);
+    const b = Date.parse(to);
+    return bridgeOrders<StoredBridgeOrder>().filter((o) => isFinished(o) && receivedMs(o) >= a && receivedMs(o) < b);
   },
   async activeOrders() {
     return bridgeOrders<StoredBridgeOrder>().filter((o) => o.status !== "Finalizado" && o.status !== "Error");
@@ -264,11 +312,14 @@ const diskStore: BridgeStore = {
   },
   async addOrder(order) {
     const list = bridgeOrders<StoredBridgeOrder>();
-    const stale = (o: StoredBridgeOrder) =>
-      (o.status === "Finalizado" || o.status === "Venta creada") && Date.now() - (Date.parse(String(o.bridgeReceivedAt || "")) || 0) > SAME_ORDER_WINDOW_MS;
-    for (let i = list.length - 1; i >= 0; i--) if (orderKey(list[i]) === orderKey(order) && stale(list[i])) list.splice(i, 1);
-    if (list.some((o) => orderKey(o) === orderKey(order))) return false;
+    const base = baseOrderKey(order);
+    const last = list.filter((o) => baseOrderKey(o) === base).sort((a, b) => receivedMs(b) - receivedMs(a))[0];
+    const key = keyForIncoming(order, last ? { at: receivedMs(last), data: last } : null);
+    if (!key || list.some((o) => orderKey(o) === key)) return false;
+    if (key !== base) order.bridgeKey = key;
     list.unshift(order);
+    // Los finalizados de más de 30 días ya no se guardan
+    for (let i = list.length - 1; i >= 0; i--) if (isFinished(list[i]) && Date.now() - receivedMs(list[i]) > KEEP_FINISHED_MS) list.splice(i, 1);
     saveBridgeOrders();
     return true;
   },
