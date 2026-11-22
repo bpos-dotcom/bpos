@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Product } from "@/data/products";
 import { bulkQuantity, formatQty, isBulk, smallUnitOf, unitOf, unitShort } from "@/lib/retail";
+import { getScaleSettings, readSerialWeight, weightToUnit } from "@/lib/scale";
 
 const money = (n: number) => `$${(Math.round(n * 100) / 100).toFixed(2)}`;
 
@@ -20,6 +21,26 @@ export function RetailQtyModal({ product, onClose, onConfirm }: { product: Produ
   const [value, setValue] = useState("");
   const [note, setNote] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  /** Báscula por cable: solo para lo que se vende por peso (kg o g) */
+  const [scaleOn] = useState(() => bulk && getScaleSettings().serialEnabled && (unit === "kg" || unit === "g"));
+  const [weighing, setWeighing] = useState(false);
+  const [scaleError, setScaleError] = useState("");
+
+  async function weigh() {
+    setWeighing(true);
+    setScaleError("");
+    try {
+      const kg = await readSerialWeight();
+      const q = weightToUnit(kg, unit);
+      if (!q) throw new Error("La báscula marca 0: pon el producto encima.");
+      setMode("unidad");
+      setValue(String(q));
+    } catch (e) {
+      setScaleError(e instanceof Error ? e.message : "No se pudo leer la báscula.");
+    } finally {
+      setWeighing(false);
+    }
+  }
   useEffect(() => {
     inputRef.current?.focus();
   }, [mode]);
@@ -73,6 +94,13 @@ export function RetailQtyModal({ product, onClose, onConfirm }: { product: Produ
             ))}
           </div>
         )}
+
+        {scaleOn && (
+          <button type="button" onClick={() => void weigh()} disabled={weighing} data-weigh className="mt-4 w-full rounded-2xl border border-orange-500 py-3 text-lg font-black text-orange-300 disabled:opacity-50">
+            {weighing ? "Pesando..." : "⚖️ Pesar"}
+          </button>
+        )}
+        {scaleError && <p className="mt-2 text-sm font-bold text-red-300">{scaleError}</p>}
 
         <label className="mt-4 block">
           <span className="mb-1 block text-sm font-bold text-zinc-400">

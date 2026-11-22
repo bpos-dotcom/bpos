@@ -14,7 +14,7 @@ import { cleanScannedCode } from "@/lib/barcode-camera";
 type Detector = { detect: (source: HTMLVideoElement) => Promise<{ rawValue: string }[]> };
 type DetectorClass = { new (opts: { formats: string[] }): Detector; getSupportedFormats?: () => Promise<string[]> };
 
-const FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "code_93", "itf", "codabar"];
+const FORMATS = ["ean_13", "ean_8", "upc_a", "upc_e", "code_128", "code_39", "code_93", "itf", "codabar", "qr_code"];
 
 /** ¿Este equipo tiene cámara que se pueda usar? (se pregunta el permiso al abrir) */
 export function cameraAvailable() {
@@ -22,7 +22,23 @@ export function cameraAvailable() {
 }
 
 /** Botón 📷 que abre la cámara; al leer un código llama onCode y se cierra */
-export function CameraScanButton({ onCode, label = "📷", title = "Escanear con la cámara", className = "" }: { onCode: (code: string) => void; label?: string; title?: string; className?: string }) {
+export function CameraScanButton({
+  onCode,
+  label = "📷",
+  title = "Escanear con la cámara",
+  className = "",
+  prompt,
+  checkDigit = true,
+}: {
+  onCode: (code: string) => void;
+  label?: string;
+  title?: string;
+  className?: string;
+  /** Texto arriba de la cámara */
+  prompt?: string;
+  /** false si no es código de producto (tarjeta del club) */
+  checkDigit?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const [can, setCan] = useState(false);
   useEffect(() => {
@@ -37,6 +53,8 @@ export function CameraScanButton({ onCode, label = "📷", title = "Escanear con
       </button>
       {open && (
         <CameraScanner
+          prompt={prompt}
+          checkDigit={checkDigit}
           onClose={() => setOpen(false)}
           onCode={(code) => {
             setOpen(false);
@@ -48,15 +66,17 @@ export function CameraScanButton({ onCode, label = "📷", title = "Escanear con
   );
 }
 
-export function CameraScanner({ onCode, onClose }: { onCode: (code: string) => void; onClose: () => void }) {
+export function CameraScanner({ onCode, onClose, prompt = "📷 Apunta al código de barras", checkDigit = true }: { onCode: (code: string) => void; onClose: () => void; prompt?: string; checkDigit?: boolean }) {
   const video = useRef<HTMLVideoElement>(null);
   const [error, setError] = useState("");
   const [starting, setStarting] = useState(true);
   const done = useRef(false);
   const handler = useRef(onCode);
+  const checkDigitRef = useRef(checkDigit);
   useEffect(() => {
     handler.current = onCode;
-  }, [onCode]);
+    checkDigitRef.current = checkDigit;
+  }, [onCode, checkDigit]);
 
   useEffect(() => {
     let stream: MediaStream | null = null;
@@ -65,7 +85,7 @@ export function CameraScanner({ onCode, onClose }: { onCode: (code: string) => v
     let stopped = false;
 
     const found = (raw: string) => {
-      const code = cleanScannedCode(raw);
+      const code = cleanScannedCode(raw, { checkDigit: checkDigitRef.current });
       if (!code || done.current) return;
       done.current = true;
       try {
@@ -134,7 +154,7 @@ export function CameraScanner({ onCode, onClose }: { onCode: (code: string) => v
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" onClick={onClose} data-camera-scanner>
       <div className="w-full max-w-md rounded-3xl border border-zinc-800 bg-zinc-950 p-4" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between gap-3">
-          <p className="font-black text-white">📷 Apunta al código de barras</p>
+          <p className="font-black text-white">{prompt}</p>
           <button type="button" onClick={onClose} className="rounded-full bg-zinc-800 px-3 py-1 text-lg text-white" aria-label="Cerrar">
             ✕
           </button>

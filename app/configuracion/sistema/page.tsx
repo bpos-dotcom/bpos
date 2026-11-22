@@ -12,6 +12,7 @@ import { AgentCard } from "@/components/agent/AgentCard";
 import { BrandCard } from "@/components/settings/BrandCard";
 import { PrimaryDeviceCard } from "@/components/settings/PrimaryDeviceCard";
 import { CajaLocalCard } from "@/components/settings/CajaLocalCard";
+import { ScaleCard } from "@/components/retail/ScaleCard";
 import { setTouchKeypad, setWhatsappApp, touchKeypadEnabled, whatsappAppEnabled } from "@/lib/device-settings";
 import { getTheme, setTheme, THEME_EVENT, type Theme } from "@/lib/theme";
 
@@ -45,6 +46,7 @@ export default function SistemaPage() {
           <PrimaryDeviceCard className="lg:col-span-2" />
           <CajaLocalCard className="lg:col-span-2" />
           <BrandCard className="lg:col-span-2" />
+          <ScaleCard className="lg:col-span-2" />
           <section className={card}>
             <h2 className="text-lg font-black">🎨 Apariencia (este dispositivo)</h2>
             <p className="mt-1 text-sm text-zinc-400">También puedes cambiarlo con el botón de arriba a la derecha.</p>

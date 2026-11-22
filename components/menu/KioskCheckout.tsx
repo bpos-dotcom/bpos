@@ -12,6 +12,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { KioskEat, OnlineOrderLine } from "@/lib/digital-menu";
 import { kioskFetch, setKioskBusy, type KioskSession } from "@/lib/kiosk/client";
+import { cartCount, qtyText, stepQty } from "@/lib/bulk-online";
 
 type Line = OnlineOrderLine & { key: string };
 type Placed = { id: string; folio: string; total: number; status: "esperando" | "pagado" | "fallo"; detail?: string; club?: string; ticket?: boolean };
@@ -93,7 +94,7 @@ export function KioskCheckout({
   }
 
   const total = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
-  const count = cart.reduce((s, l) => s + l.quantity, 0);
+  const count = cartCount(cart);
 
   // Mientras se cobra, la pantalla no vuelve sola al inicio
   useEffect(() => {
@@ -138,7 +139,7 @@ export function KioskCheckout({
   }, [step, left, onDone]);
 
   function qty(key: string, delta: number) {
-    setCart((c) => c.map((l) => (l.key === key ? { ...l, quantity: l.quantity + delta } : l)).filter((l) => l.quantity > 0));
+    setCart((c) => c.map((l) => (l.key === key ? { ...l, quantity: stepQty(l, delta) } : l)).filter((l) => l.quantity > 0));
   }
 
   async function pay() {
@@ -161,7 +162,7 @@ export function KioskCheckout({
           eat,
           name: name.trim(),
           ...(club && clubPhone.length === 10 ? { club: clubPhone } : {}),
-          lines: cart.map(({ productId, quantity, picks, comment }) => ({ productId, quantity, picks, ...(comment ? { comment } : {}) })),
+          lines: cart.map(({ productId, quantity, picks, comment, unit }) => ({ productId, quantity, picks, ...(comment ? { comment } : {}), ...(unit ? { unit } : {}) })),
         }),
       });
       setPlaced(r);
@@ -290,7 +291,7 @@ export function KioskCheckout({
               </div>
               <div className="flex items-center gap-3">
                 <button onClick={() => qty(l.key, -1)} className="h-14 w-14 rounded-full bg-zinc-100 text-2xl font-black" aria-label="Quitar uno">−</button>
-                <span className="w-8 text-center text-2xl font-black">{l.quantity}</span>
+                <span className="min-w-8 whitespace-nowrap text-center text-2xl font-black">{qtyText(l.quantity, l.unit)}</span>
                 <button onClick={() => qty(l.key, 1)} className="h-14 w-14 rounded-full bg-zinc-100 text-2xl font-black" aria-label="Agregar uno">+</button>
               </div>
             </div>

@@ -7,6 +7,7 @@
  */
 import { useCallback, useEffect, useState } from "react";
 import type { OnlineOrderData } from "@/lib/digital-menu";
+import { lineLabel } from "@/lib/bulk-online";
 
 export type CustomerAccount = { id: string; name: string; phone: string; email: string; address: { address?: string; reference?: string; location?: { lat: number; lng: number } } };
 export type CustomerOrder = { id: string; token: string; folio: string; status: string; data: OnlineOrderData; created_at: string };
@@ -360,7 +361,7 @@ export function AccountSheet({
                     <p className="text-xs text-zinc-500">
                       {new Date(o.created_at).toLocaleString("es-MX", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })} · {money(o.data.total)}
                     </p>
-                    <p className="mt-1 line-clamp-2 text-sm">{o.data.lines.map((l) => `${l.quantity} ${l.name}`).join(", ")}</p>
+                    <p className="mt-1 line-clamp-2 text-sm">{o.data.lines.map((l) => lineLabel(l, "").replace("  ", " ")).join(", ")}</p>
                     <div className="mt-2 flex gap-2">
                       {onReorder && (
                         <button onClick={() => onReorder(o)} className="flex-1 rounded-xl py-2 text-sm font-black text-white" style={{ background: color }}>

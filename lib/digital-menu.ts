@@ -8,6 +8,7 @@
  * Lo usan la página pública y B-POS, así que no depende del navegador.
  */
 import { normalizePromotions, type Promotion } from "@/lib/promotions";
+import { lineLabel } from "@/lib/bulk-online";
 import type { ModifierGroup, Product } from "@/data/products";
 import { cleanSchedule, isOnSale, scheduleLabel, type SaleSchedule } from "@/lib/sale-schedule";
 
@@ -651,6 +652,8 @@ export type OnlineOrderLine = {
   /** Texto de lo elegido para mostrar ("Aderezo: Ranch · Refresco: Coca") */
   summary: string;
   comment?: string;
+  /** A granel: la unidad de la cantidad (kg, g, L, m); quantity lleva decimales (0.25 = ¼ kg) */
+  unit?: string;
 };
 
 export type OnlineOrderType = "Recoger" | "Domicilio" | "Mesa";
@@ -760,7 +763,7 @@ export function orderWhatsappText(businessName: string, folio: string, d: Online
   const money = (n: number) => `$${Number(n || 0).toFixed(2)}`;
   const lines = d.lines.map((l) => {
     const extra = [l.summary, l.comment ? `"${l.comment}"` : ""].filter(Boolean).join(" · ");
-    return `• ${l.quantity} × ${l.name}${extra ? ` (${extra})` : ""} ${money(l.unitPrice * l.quantity)}`;
+    return `• ${lineLabel(l)}${extra ? ` (${extra})` : ""} ${money(l.unitPrice * l.quantity)}`;
   });
   const where =
     d.type === "Domicilio"
