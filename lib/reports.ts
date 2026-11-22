@@ -134,7 +134,7 @@ export function orderPayment(order: ReportOrder) {
 export function makeCostLookup(history: IngredientCostRecord[]) {
   const byIngredient = new Map<number, IngredientCostRecord[]>();
   history
-    .filter((h) => h.unitCost > 0)
+    .filter((h) => h.unitCost > 0 && !h.occasional) // compra de emergencia: no es el costo del insumo
     .forEach((h) => {
       const list = byIngredient.get(h.ingredientId) ?? [];
       list.push(h);

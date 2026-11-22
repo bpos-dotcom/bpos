@@ -51,20 +51,49 @@ function ownTicketItems(ticket: DeliveryTicket | undefined, line: PreparedLine) 
  * Racha". "Ranch No, Gracias" o "Sin cebolla" es que NO lo quiso: solo
  * cuenta si una opción se llama exactamente así.
  */
-export function pickOptions(said: string[], options: { key: string; name: string }[]) {
+export function pickOptions(said: string[], options: { key: string; name: string }[], groupName = "") {
   const names = options.map((o) => ({ key: o.key, name: plain(o.name) }));
   const matched: string[] = [];
   for (const raw of said) {
     const s = plain(raw);
     if (!s) continue;
     const declined = /(^| )(no|sin|nada)( |$)/.test(s);
-    const best = names
-      .filter((o) => (declined ? o.name === s : optionNameMatches(s, o.name)))
-      .sort((a, b) => Number(b.name === s) - Number(a.name === s) || Math.abs(a.name.length - s.length) - Math.abs(b.name.length - s.length))[0];
+    const best =
+      names
+        .filter((o) => (declined ? o.name === s : optionNameMatches(s, o.name)))
+        .sort((a, b) => Number(b.name === s) - Number(a.name === s) || Math.abs(a.name.length - s.length) - Math.abs(b.name.length - s.length))[0] ||
+      (declined ? undefined : looseOption(s, names, groupName));
     if (best && !matched.includes(best.key)) matched.push(best.key);
   }
   return matched;
 }
+
+/**
+ * Cuando la plataforma nombra la opción a su manera:
+ * - "newyork (tocino, bbq y aros)" es la "Hamburguesa NewYork BBQ": todas las
+ *   palabras propias de la opción (sin "hamburguesa" ni las del grupo) vienen
+ *   en el ticket. Si caben varias, la que tiene más palabras (la Doble solo si
+ *   dice "doble").
+ * - "BBQ" es la "Salsa BBQ": la palabra solo está en UNA opción del grupo.
+ * Si sigue habiendo empate no se adivina.
+ */
+function looseOption(said: string, names: { key: string; name: string }[], groupName: string) {
+  const saidWords = new Set(said.split(" "));
+  const generic = new Set(["hamburguesa", "de", "la", "el", "con", "y", ...plain(groupName).split(" ")]);
+  const scored = names
+    .map((o) => ({ o, core: o.name.split(" ").filter((w) => w && !generic.has(w)) }))
+    .filter(({ core }) => core.join("").length >= 4 && core.every((w) => saidWords.has(w)))
+    .sort((a, b) => b.core.length - a.core.length);
+  if (scored.length && (scored.length === 1 || scored[0].core.length > scored[1].core.length)) return scored[0].o;
+  if (said.length >= 3 && !said.includes(" ")) {
+    const holders = names.filter((o) => o.name.split(" ").includes(said));
+    if (holders.length === 1) return holders[0];
+  }
+  return undefined;
+}
+
+/** "No, Gracias", "No", "Sin refresco", "Nada": el cliente dijo que no */
+const saysNo = (name: string) => /^(no|sin|nada|ninguno|ninguna)( |$)/.test(plain(name));
 
 /**
  * Opciones de un combo de delivery: lo que el cliente eligió en la
@@ -75,11 +104,14 @@ export function pickOptions(said: string[], options: { key: string; name: string
  * combos con hamburguesas distintas en el mismo pedido no se cruzan.
  */
 function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
-  const said = ownTicketItems(ticket, line).flatMap((i) => [...i.choices.map((c) => c.name), ...i.notes]).map(plain).filter(Boolean);
+  const own = ownTicketItems(ticket, line);
+  const said = own.flatMap((i) => [...i.choices.map((c) => c.name), ...i.notes]).map(plain).filter(Boolean);
   const picks: Record<string, string[]> = {};
+  /** Grupos a los que el cliente contestó "No, gracias" en la plataforma (aunque el grupo de B-POS no tenga esa opción) */
+  const declined = new Set<string>();
   for (const group of product.modifierGroups || []) {
     if (isAutoGroup(group)) continue; // ya se llena solo
-    const matched = pickOptions(said, group.options.map((o) => ({ key: o.key, name: optionName(o, catalog) })));
+    const matched = pickOptions(said, group.options.map((o) => ({ key: o.key, name: optionName(o, catalog) })), group.name);
     const limit = group.max > 0 ? group.max : matched.length;
     if (matched.length) picks[group.key] = matched.slice(0, limit);
     else {
@@ -87,9 +119,11 @@ function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTic
       // grupo tiene su "No, gracias", el silencio del ticket es eso
       const no = declineOption(group);
       if (no && group.min > 0) picks[group.key] = [no.key];
+      // "Que tal una bebida? → No, Gracias": la misma pregunta que el grupo, contestada que no
+      else if (own.some((i) => i.choices.some((c) => saysNo(c.name) && c.question && optionNameMatches(plain(c.question), plain(group.name))))) declined.add(group.key);
     }
   }
-  return picks;
+  return { picks, declined };
 }
 
 /**
@@ -101,12 +135,14 @@ export function declineOption(group: ModifierGroup) {
 }
 
 /**
- * Ventas de delivery que ya avisaron "Combo sin opción obligatoria" por un
- * grupo que tiene "No, gracias" (antes de este arreglo): se les pone el
- * "No, gracias", se quita el aviso de la venta y se resuelve la alerta.
- * Nada cambia en inventario: esa opción no descuenta nada.
+ * Avisos "Combo sin opción obligatoria" que siguen abiertos: se vuelve a leer
+ * el ticket guardado de cada venta con las reglas de hoy ("No, gracias" a la
+ * misma pregunta, el refresco cambiado que se cobró aparte, la hamburguesa
+ * escrita a la manera de la plataforma, el "No, gracias" que no se imprime).
+ * Si ahora sí se sabe la opción, la venta se corrige, el inventario descuenta
+ * lo que faltaba (anotado en la bitácora) y el aviso se resuelve solo.
  */
-export function clearDeclinedComboAlerts(by = "B-POS") {
+export function recheckComboAlerts(by = "B-POS") {
   if (typeof window === "undefined") return 0;
   const open = getOperationsAlerts().filter((a) => a.id.startsWith("bridge-combo:") && a.status !== "resolved");
   if (!open.length) return 0;
@@ -116,32 +152,39 @@ export function clearDeclinedComboAlerts(by = "B-POS") {
   let changed = false;
   for (const alert of open) {
     const orderId = Number(alert.id.slice("bridge-combo:".length));
-    const order = orders.find((o) => Number(o.id) === orderId);
+    const index = orders.findIndex((o) => Number(o.id) === orderId);
+    const order = orders[index];
     if (!order) continue;
+    // La venta ya está completa (se corrigió en el Bridge o en otra caja): el aviso ya no aplica
+    if (!order.items.some((i) => i.missingChoices?.length)) {
+      resolveOperationsAlert(alert.id, by, "Venta corregida");
+      cleared++;
+      continue;
+    }
+    const soldApart = order.items.map((i) => ({ externalName: i.externalName || "", category: i.category }));
     let touched = false;
     const items = order.items.map((item) => {
       if (!item.missingChoices?.length) return item;
       const product = catalog.find((p) => Number(p.id) === Number(item.id));
-      const groups = product?.modifierGroups || [];
-      const declined: SoldModifier[] = [];
-      const still = item.missingChoices.filter((name) => {
-        const group = groups.find((g) => g.name === name);
-        const no = group && declineOption(group);
-        if (!group || !no) return true;
-        declined.push({ name: no.name, group: group.name, price: 0 });
-        return false;
-      });
-      if (!declined.length) return item;
+      if (!product?.modifierGroups?.length) return item;
+      const fresh = deliverySelection(product, catalog, order.deliveryTicket, { externalName: item.externalName }, soldApart.filter((s) => s.externalName !== item.externalName));
+      if ((fresh.missingChoices || []).length >= item.missingChoices.length) return item;
       touched = true;
-      const { missingChoices: _old, ...rest } = item;
-      void _old;
-      return { ...rest, modifiers: [...(item.modifiers || []), ...declined], ...(still.length ? { missingChoices: still } : {}) };
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { missingChoices, parts, modifiers, ownTicket, ...rest } = item;
+      return { ...rest, ...fresh };
     });
     if (!touched) continue;
-    order.items = items;
+    const updated = { ...order, items };
+    try {
+      correctInventoryForOrder(updated, `se volvió a leer el combo del ticket (${by})`);
+    } catch {
+      continue; // falta un insumo en inventario: la venta se queda como estaba y el aviso sigue
+    }
+    orders[index] = updated;
     changed = true;
     if (!items.some((i) => i.missingChoices?.length)) {
-      resolveOperationsAlert(alert.id, by, "El cliente no pidió extra (el ticket no lo imprime)");
+      resolveOperationsAlert(alert.id, by, "B-POS volvió a leer el ticket y ya encontró las opciones del combo");
       cleared++;
     }
   }
@@ -152,8 +195,15 @@ export function clearDeclinedComboAlerts(by = "B-POS") {
   return cleared;
 }
 
-export function deliverySelection(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
-  const picks = deliveryPicks(product, catalog, ticket, line);
+/**
+ * deliverySelection: opciones del combo según el ticket.
+ * soldApart: los productos del mismo pedido que se vendieron por separado
+ * (su nombre en el ticket y su categoría). Si el cliente cambió el refresco
+ * del combo por uno con costo ("Elige tu REF → Coca Cola 600ml +$25"), la
+ * Coca ya se vendió y descontó aparte: el grupo de refresco no falta.
+ */
+export function deliverySelection(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine, soldApart: { externalName: string; category?: string }[] = []) {
+  const { picks, declined } = deliveryPicks(product, catalog, ticket, line);
   const { parts, modifiers, ownTicket } = buildSelection(product, catalog, { [OWN_OPTIONS]: picks });
   // El cobro de extras ya viene en el total de la plataforma
   const kept = modifiers?.filter((m) => !m.extra);
@@ -161,7 +211,15 @@ export function deliverySelection(product: Product, catalog: Product[], ticket: 
   // hamburguesa, o una hamburguesa que no está en el combo del POS): no se inventa
   // la opción, pero se avisa porque esa parte no descuenta inventario (solo grupos de
   // productos enlazados: "¿Deseas agregar algún extra?" sin contestar no falta nada)
-  const missing = (product.modifierGroups || []).filter((g) => g.min > 0 && !isAutoGroup(g) && g.options.some((o) => o.productId) && !picks[g.key]?.length).map((g) => g.name);
+  let missingGroups = (product.modifierGroups || []).filter((g) => g.min > 0 && !isAutoGroup(g) && g.options.some((o) => o.productId) && !picks[g.key]?.length && !declined.has(g.key));
+  // Opciones del ticket de este combo que se vendieron como producto propio: cubren el grupo de su misma categoría
+  const choices = ownTicketItems(ticket, line).flatMap((i) => i.choices.map((c) => plain(c.name)));
+  for (const sold of soldApart) {
+    if (!sold.category || !choices.includes(plain(sold.externalName))) continue;
+    const covered = missingGroups.find((g) => g.options.some((o) => o.productId && catalog.find((p) => Number(p.id) === Number(o.productId))?.category === sold.category));
+    if (covered) missingGroups = missingGroups.filter((g) => g !== covered);
+  }
+  const missing = missingGroups.map((g) => g.name);
   return { ...(parts?.length ? { parts, ownTicket } : {}), ...(kept?.length ? { modifiers: kept } : {}), ...(missing.length ? { missingChoices: missing } : {}) };
 }
 
@@ -295,6 +353,8 @@ export const SAME_ORDER_WINDOW_MS = 12 * 60 * 60 * 1000;
 function buildSaleItems(payload: SaleReadyPayload, ticket: DeliveryTicket | undefined): { items: AutomaticSaleItem[] } | { error: string } {
   const catalog = getAdminProducts();
   const items: AutomaticSaleItem[] = [];
+  // Lo que se vendió como producto propio (para saber si un refresco cambiado del combo ya se cobró aparte)
+  const soldApart = payload.products.map((p) => ({ externalName: p.externalName || "", category: catalog.find((c) => String(c.id) === String(p.productId))?.category }));
   for (const preparedProduct of payload.products) {
     const product = catalog.find((candidate) => String(candidate.id) === String(preparedProduct.productId));
     if (!product) return { error: `El producto ${preparedProduct.productId} ya no existe en el catálogo.` };
@@ -308,7 +368,7 @@ function buildSaleItems(payload: SaleReadyPayload, ticket: DeliveryTicket | unde
       externalName: preparedProduct.externalName,
       // Equivalencia compuesta: cada opción elegida va a su estación y descuenta
       // su receta. Sin ella, el producto se descuenta con su receta tal cual.
-      ...(isCompoundLine(product, preparedProduct) ? deliverySelection(product, catalog, ticket, preparedProduct) : {}),
+      ...(isCompoundLine(product, preparedProduct) ? deliverySelection(product, catalog, ticket, preparedProduct, soldApart.filter((s) => s.externalName !== preparedProduct.externalName)) : {}),
     });
   }
   if (items.length === 0) return { error: "El pedido no contiene productos vendibles." };

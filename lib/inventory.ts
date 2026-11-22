@@ -419,8 +419,9 @@ export function orderNetConsumption(orderId: number | string) {
 
 /** Último costo por unidad (Compras o "Puesto a mano"); 0 si no se conoce */
 export function latestUnitCost(ingredientId: number) {
-  const records = readJson<{ ingredientId: number; purchasedAt: string; unitCost: number }[]>("bpos_ingredient_cost_history", []);
-  const last = records.filter((r) => Number(r.ingredientId) === ingredientId).sort((a, b) => +new Date(b.purchasedAt) - +new Date(a.purchasedAt))[0];
+  const records = readJson<{ ingredientId: number; purchasedAt: string; unitCost: number; occasional?: boolean }[]>("bpos_ingredient_cost_history", []);
+  // Una compra de emergencia (ocasional) no es el costo del insumo
+  const last = records.filter((r) => Number(r.ingredientId) === ingredientId && !r.occasional).sort((a, b) => +new Date(b.purchasedAt) - +new Date(a.purchasedAt))[0];
   return Number(last?.unitCost) || 0;
 }
 

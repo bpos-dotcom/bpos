@@ -61,7 +61,7 @@ export function RetailProfit() {
     const history = getIngredientCostHistory();
     const lastCost = (id?: number) => {
       if (!id) return null;
-      const list = history.filter((h) => Number(h.ingredientId) === Number(id));
+      const list = history.filter((h) => Number(h.ingredientId) === Number(id) && !h.occasional);
       return list.length ? list[list.length - 1].unitCost : null;
     };
     const orders = buildReport(loadReportSources(), range).orders;
