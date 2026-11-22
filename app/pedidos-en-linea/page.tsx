@@ -14,6 +14,10 @@ import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, kioskLabel, 
 import {
   ONLINE_ORDERS_EVENT,
   acceptOnlineOrder,
+  acceptOnlineOrderLater,
+  cashOpen,
+  retryPendingOnlineSale,
+  waitingSale,
   buildOnlineCart,
   customerNoticeText,
   customerWhatsappLink,
@@ -371,6 +375,23 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       }
       noticeOrder = { ...order, data: { ...d, deliveryFee: fee, total: Math.max(0, Number(d.subtotal) + fee - onlineDiscount(d)) } };
     }
+    // Caja cerrada (por ejemplo desde el celular): se acepta y la venta se crea al abrir la caja
+    if (!cashOpen()) {
+      const ok = await ask(
+        "La caja está cerrada. ¿Aceptar el pedido de todos modos?\n\nSe le avisa al cliente y queda en preparación. La venta (cocina, comandas, inventario y caja) se crea sola en cuanto abran la caja.",
+        { ok: "Sí, aceptar", cancel: "Volver" }
+      );
+      if (!ok) return;
+      await step(
+        "aceptado",
+        async () => {
+          await acceptOnlineOrderLater(order, etaUse, getCurrentUser()?.name, quoting ? { deliveryFee: fee } : {});
+        },
+        { eta: etaUse },
+        noticeOrder
+      );
+      return;
+    }
     await step(
       "aceptado",
       async () => {
@@ -574,7 +595,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       )}
       {order.status === "aceptado" && (
         <div className="mt-4 flex flex-wrap gap-2">
-          <span className="rounded-xl bg-zinc-800 px-3 py-2 text-sm font-bold">👨‍🍳 En preparación · Pedido #{order.sale_order_id}</span>
+          <span className="rounded-xl bg-zinc-800 px-3 py-2 text-sm font-bold">👨‍🍳 En preparación{order.sale_order_id ? ` · Pedido #${order.sale_order_id}` : ""}</span>
           {d.type === "Domicilio" && (
             <button onClick={() => setDispatching(true)} className="rounded-2xl border border-orange-500 px-4 py-2 font-black text-orange-300">
               🛵 Mandar a repartidor
@@ -589,6 +610,21 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         <button disabled={busy} onClick={() => void step("entregado", () => markOnlineOrder(order, "entregado"))} className="mt-4 rounded-2xl border border-zinc-700 px-4 py-2 font-black">
           Marcar entregado
         </button>
+      )}
+      {waitingSale(order) && (
+        <div className="mt-3 rounded-2xl border border-sky-500/50 bg-sky-500/10 p-3 text-sm" data-sale-later>
+          <p className="font-black text-sky-200">⏳ Aceptado con la caja cerrada{d.saleLater?.by ? ` por ${d.saleLater.by}` : ""}</p>
+          {d.saleLater?.error ? (
+            <>
+              <p className="mt-1 text-xs font-bold text-red-300">No se pudo crear la venta: {d.saleLater.error}</p>
+              <button type="button" disabled={busy} onClick={() => void run(() => retryPendingOnlineSale(order))} className="mt-2 rounded-xl border border-sky-400 px-3 py-1.5 text-xs font-black text-sky-200 disabled:opacity-50">
+                🔁 Volver a intentar
+              </button>
+            </>
+          ) : (
+            <p className="mt-1 text-xs text-sky-100/80">La venta (comandas, inventario y caja) se crea sola en cuanto abran la caja.</p>
+          )}
+        </div>
       )}
       {order.status === "rechazado" && <p className="mt-3 text-sm text-red-300">Rechazado: {order.reason}</p>}
       {order.status === "entregado" && <p className="mt-3 text-sm text-zinc-500">Entregado ✅</p>}
@@ -642,6 +678,7 @@ export default function PedidosEnLineaPage() {
   const [orders, setOrders] = useState<OnlineOrder[] | null>(null);
   const [error, setError] = useState("");
   const [menuOn, setMenuOn] = useState(true);
+  const [open, setOpen] = useState(true);
 
   const load = useCallback(async () => {
     try {
@@ -656,19 +693,26 @@ export default function PedidosEnLineaPage() {
     const m = getDigitalMenu();
     // eslint-disable-next-line react-hooks/set-state-in-effect -- ajuste del navegador: solo después de montar
     setMenuOn(m.enabled && Boolean(m.slug));
+    setOpen(cashOpen());
     void load();
     const timer = setInterval(() => void load(), 10_000);
     const refresh = () => {
       const menu = getDigitalMenu();
       setMenuOn(menu.enabled && Boolean(menu.slug));
+      setOpen(cashOpen());
       void load();
     };
+    const shift = () => setOpen(cashOpen());
     window.addEventListener(ONLINE_ORDERS_EVENT, refresh);
     window.addEventListener(DIGITAL_MENU_EVENT, refresh);
+    window.addEventListener("bpos:shift-updated", shift);
+    window.addEventListener("storage", shift);
     return () => {
       clearInterval(timer);
       window.removeEventListener(ONLINE_ORDERS_EVENT, refresh);
       window.removeEventListener(DIGITAL_MENU_EVENT, refresh);
+      window.removeEventListener("bpos:shift-updated", shift);
+      window.removeEventListener("storage", shift);
     };
   }, [load]);
 
@@ -690,6 +734,11 @@ export default function PedidosEnLineaPage() {
               Configurar menú digital
             </Link>
           </div>
+        )}
+        {!open && menuOn && (
+          <p className="rounded-3xl border border-sky-500/40 bg-sky-500/10 p-4 text-sm text-sky-100" data-caja-cerrada>
+            🔒 <b>La caja está cerrada.</b> Puedes aceptar o rechazar pedidos desde aquí (también desde el celular). La venta de los que aceptes se crea sola al abrir la caja.
+          </p>
         )}
         {error && <p className="text-sm text-red-300">{error}</p>}
         {orders === null && !error && <p className="text-zinc-500">Cargando...</p>}

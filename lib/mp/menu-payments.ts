@@ -12,6 +12,7 @@
 import { supabaseAdmin } from "@/lib/billing/mercadopago";
 import { merchantToken, mpCall } from "@/lib/mp/merchant";
 import { PUSH_SERVER } from "@/lib/push/rules";
+import { notifyOnlineOrder } from "@/lib/push/online-order";
 import type { OnlineMpPayment, OnlineOrderData } from "@/lib/digital-menu";
 
 type OrderRow = { id: string; business_id: string; branch_id: string; folio: string; token: string; status: string; data: OnlineOrderData; created_at: string };
@@ -100,6 +101,8 @@ async function applyPayment(order: OrderRow, payment: MpPayment) {
     .update({ data: { ...order.data, mp: next }, updated_at: new Date().toISOString() })
     .eq("id", order.id);
   if (error) throw new Error(error.message);
+  // Ya pagó: ahora sí se le avisa al celular del negocio (antes de pagar no suena)
+  if (next.status === "approved") await notifyOnlineOrder(order.id).catch(() => 0);
   return next;
 }
 

@@ -20,6 +20,7 @@ export type PushPrefs = {
   opiniones: boolean; // opiniones de 1 a 3 estrellas del menú digital
   productividad: boolean; // recordatorios atendidos o sin atender e inventario ciego
   cenaPersonal: boolean; // cada cena del personal que se marca (o se deshace)
+  pedidosEnLinea: boolean; // cada pedido del menú digital (aunque la caja esté apagada)
 };
 
 export const DEFAULT_PUSH_PREFS: PushPrefs = {
@@ -32,6 +33,7 @@ export const DEFAULT_PUSH_PREFS: PushPrefs = {
   opiniones: true,
   productividad: true,
   cenaPersonal: true,
+  pedidosEnLinea: true,
 };
 
 /** Acciones de la bitácora que pueden generar aviso. */
@@ -70,6 +72,47 @@ export type PushEvent = {
 export type PushMessage = { title: string; body: string; tag: string; url: string };
 
 const money = (n: number) => `$${n.toLocaleString("es-MX", { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+
+type OnlineOrderForPush = {
+  id: string;
+  folio: string;
+  status: string;
+  data: {
+    type?: string;
+    table?: string;
+    payment?: string;
+    mp?: unknown;
+    kiosk?: unknown;
+    scheduledFor?: string;
+    total?: number;
+    customer?: { name?: string };
+    lines?: { quantity?: number }[];
+  };
+};
+
+const ONLINE_TYPE: Record<string, string> = { Recoger: "para recoger", Domicilio: "a domicilio", Mesa: "en mesa" };
+
+/**
+ * Aviso de un pedido nuevo del menú digital (lo arma el servidor, no la caja:
+ * llega aunque la caja esté apagada). null si no se avisa: ya lo atendieron,
+ * todavía no paga con Mercado Pago, o es del kiosco del local.
+ */
+export function onlineOrderPush(order: OnlineOrderForPush): PushMessage | null {
+  const d = order.data || {};
+  if (order.status !== "nuevo" || d.kiosk) return null;
+  if (d.payment === "Mercado Pago" && !d.mp) return null;
+  const pieces = (d.lines || []).reduce((sum, l) => sum + (Number(l.quantity) || 0), 0);
+  const when = d.scheduledFor
+    ? ` · para el ${new Date(d.scheduledFor).toLocaleString("es-MX", { timeZone: "America/Mexico_City", weekday: "short", day: "numeric", hour: "numeric", minute: "2-digit" })}`
+    : "";
+  const kind = d.type === "Mesa" && d.table ? `en mesa ${d.table}` : ONLINE_TYPE[d.type || ""] || "";
+  return {
+    title: `🌐 Pedido en línea ${order.folio} · ${money(Number(d.total) || 0)}`,
+    body: `${d.customer?.name || "Un cliente"}${kind ? ` · ${kind}` : ""} · ${pieces} producto${pieces === 1 ? "" : "s"}${when}. Acéptalo o recházalo en Pedidos en línea.`,
+    tag: `online-${order.id}`,
+    url: "/pedidos-en-linea",
+  };
+}
 
 /** El aviso para este evento según lo que pidió ese celular, o null si no se avisa. */
 export function pushMessage(event: PushEvent, prefsIn: Partial<PushPrefs> | null | undefined): PushMessage | null {
