@@ -164,3 +164,46 @@ export async function counts(db: Db) {
 }
 
 export { MAX_PARAMS };
+
+// ------------------------------------------------------------ regreso a Supabase
+
+/**
+ * Regreso: manda a Supabase una página de una tabla de la nube (upsert). En
+ * sync_records solo lo que cambió desde `sinceSeq` (lo nuevo después del
+ * cambio). Supabase vuelve a numerar esos cambios y las cajas los bajan.
+ */
+export async function copyBackPage(db: Db, target: Source, tableName: string, offset: number, pageSize = 200, sinceSeq = 0, blobs?: BucketLike) {
+  const table = TABLE.get(tableName);
+  if (!table) throw new Error(`Tabla desconocida: ${tableName}`);
+  const where = table.name === "sync_records" && sinceSeq > 0 ? " WHERE seq > ?" : "";
+  const params = where ? [sinceSeq] : [];
+  const rows = await db.all(`SELECT * FROM ${table.name}${where} ORDER BY ${table.pk.join(", ")} LIMIT ? OFFSET ?`, [...params, pageSize, offset]);
+  const decoded = await Promise.all(
+    rows.map(async (r) => {
+      const out: Record<string, unknown> = {};
+      for (const c of table.columns) {
+        // seq e identidades: los pone Supabase
+        if (c.default?.kind === "seq") continue;
+        let value = r[c.name];
+        if (c.type === "json" && typeof value === "string") {
+          if (value.startsWith('{"$blob":') && blobs) {
+            const obj = await blobs.get((JSON.parse(value) as { $blob: string }).$blob);
+            value = obj ? new TextDecoder().decode(await obj.arrayBuffer()) : null;
+          }
+          value = value === null ? null : JSON.parse(value as string);
+        } else if (c.type === "bool") value = value === 1 || value === true;
+        out[c.name] = value ?? null;
+      }
+      return out;
+    })
+  );
+  if (decoded.length) {
+    const res = await get(target)(`${target.url}/rest/v1/${table.name}?on_conflict=${table.pk.join(",")}`, {
+      method: "POST",
+      headers: { ...headers(target), "content-type": "application/json", prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify(decoded),
+    });
+    if (!res.ok) throw new Error(`Supabase respondió ${res.status} en ${table.name}: ${(await res.text()).slice(0, 200)}`);
+  }
+  return { copied: rows.length, done: rows.length < pageSize, next: offset + rows.length };
+}

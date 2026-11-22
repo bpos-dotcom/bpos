@@ -211,13 +211,25 @@ async function get(ctx: NubeCtx, req: RestRequest, head: boolean): Promise<Reply
 
 // ------------------------------------------------------------ escrituras
 
-function triggerCtx(ctx: NubeCtx, access: AccessCtx): TriggerCtx {
+/**
+ * Triggers con números de secuencia apartados por bloque: una consulta para
+ * los N cambios de una petición (en vez de una por fila).
+ */
+function triggerCtx(ctx: NubeCtx, access: AccessCtx, expected = 1): TriggerCtx {
+  const pools = new Map<string, { next: number; last: number }>();
   return {
     auth: ctx.auth,
     isAdmin: () => access.isAdmin(),
     nextSeq: async (name) => {
-      const r = await ctx.db.first<{ value: number }>("INSERT INTO nube_sequences (name, value) VALUES (?, 1) ON CONFLICT (name) DO UPDATE SET value = value + 1 RETURNING value", [name]);
-      return Number(r?.value);
+      let pool = pools.get(name);
+      if (!pool || pool.next > pool.last) {
+        const n = Math.max(1, expected);
+        const r = await ctx.db.first<{ value: number }>("INSERT INTO nube_sequences (name, value) VALUES (?, ?) ON CONFLICT (name) DO UPDATE SET value = value + ? RETURNING value", [name, n, n]);
+        const last = Number(r?.value);
+        pool = { next: last - n + 1, last };
+        pools.set(name, pool);
+      }
+      return pool.next++;
     },
   };
 }
@@ -323,7 +335,7 @@ async function post(ctx: NubeCtx, req: RestRequest): Promise<Reply> {
   if (!inputs.length) return reply([], req.headers, {}, 201);
 
   const access = new AccessCtx(ctx.db, ctx.auth);
-  const tctx = triggerCtx(ctx, access);
+  const tctx = triggerCtx(ctx, access, table.name === "sync_records" ? inputs.length : 1);
   const conflict = upsert ? (req.params.get("on_conflict") || table.pk.join(",")).split(",").map((s) => s.trim()) : null;
   if (conflict) for (const k of conflict) if (!table.columns.some((c) => c.name === k)) throw new RestError(400, "42703", `column ${k} does not exist`);
   const existing = conflict ? await existingByKeys(ctx, table, conflict, inputs) : null;
@@ -367,7 +379,7 @@ async function patch(ctx: NubeCtx, req: RestRequest): Promise<Reply> {
   const where = whereSql(table, req.params, access.using);
   const rows = await ctx.db.all(`SELECT * FROM ${table.name}${where.sql}`, where.params);
   const actx = new AccessCtx(ctx.db, ctx.auth);
-  const tctx = triggerCtx(ctx, actx);
+  const tctx = triggerCtx(ctx, actx, table.name === "sync_records" ? rows.length : 1);
   const statements: Stmt[] = [];
   for (const raw of rows) {
     const oldRow = decode(table, raw);

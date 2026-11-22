@@ -144,6 +144,19 @@ async function main() {
   const { data: viaNew } = await caja.from("branches").select("id");
   check("y con la nueva también", viaNew?.length === 1);
 
+  // ---------------------------------------------------------------- regreso a Supabase (lo nuevo de la nube)
+  const cut = Number((seqs.body as { seq: number }).seq);
+  await da.from("sync_records").upsert([{ business_id: a.businessId, scope: a.branchId, collection: "bpos_orders", record_id: "501", data: { id: 501, total: 250 }, deleted: false }]);
+  let off = 0;
+  for (;;) {
+    const r = await step("regresar", { table: "sync_records", offset: off, sinceSeq: cut });
+    off = (r.body as { next: number }).next;
+    if ((r.body as { done: boolean }).done) break;
+  }
+  const { data: back } = await sa.from("sync_records").select("data, seq").eq("collection", "bpos_orders").eq("record_id", "501").maybeSingle();
+  check("regreso: la venta hecha en la nube ya está en Supabase", (back?.data as { total: number })?.total === 250 && Number(back?.seq) > srcSeq, back);
+  check("regreso: solo lo nuevo (desde el cambio)", off <= 5, off);
+
   done();
 }
 

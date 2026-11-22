@@ -25,6 +25,44 @@
       "env": {
         "NEXT_PUBLIC_BPOS_LOCAL": "1"
       }
+    },
+    {
+      "name": "bpos-nube-local",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "next",
+        "dev",
+        "-p",
+        "3300"
+      ],
+      "port": 3300,
+      "env": {
+        "NEXT_PUBLIC_SUPABASE_URL": "http://localhost:4600/sb",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "nube-publica-local",
+        "NEXT_PUBLIC_BPOS_NUBE": "cloudflare",
+        "NEXT_PUBLIC_BPOS_SERVER": "http://localhost:3300",
+        "SUPABASE_SERVICE_ROLE_KEY": "nube-secreta-local",
+        "NEXT_PUBLIC_BPOS_LICENSE_KEY": "LzIUTEk6DkWNNBCxKLNTJf8CXYgSszxab4zCj5i0sb8"
+      }
+    },
+    {
+      "name": "bpos-nube-local-final",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "next",
+        "start",
+        "-p",
+        "3300"
+      ],
+      "port": 3300,
+      "env": {
+        "NEXT_PUBLIC_SUPABASE_URL": "http://localhost:4600/sb",
+        "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY": "nube-publica-local",
+        "NEXT_PUBLIC_BPOS_NUBE": "cloudflare",
+        "NEXT_PUBLIC_BPOS_SERVER": "http://localhost:3300",
+        "SUPABASE_SERVICE_ROLE_KEY": "nube-secreta-local",
+        "NEXT_PUBLIC_BPOS_LICENSE_KEY": "LzIUTEk6DkWNNBCxKLNTJf8CXYgSszxab4zCj5i0sb8"
+      }
     }
   ]
 }

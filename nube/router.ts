@@ -9,7 +9,7 @@ import { authFromRequest, handleAuth, type AuthEnv } from "./auth";
 import { errorReply, handleRest, type NubeCtx, type Reply } from "./rest";
 import { RestError } from "./postgrest";
 import { handleRpc } from "./rpc";
-import { copyFilesFolder, copyTablePage, copyUsersPage, counts, fixSequences, rewriteFileUrls, type Source } from "./migrate";
+import { copyBackPage, copyFilesFolder, copyTablePage, copyUsersPage, counts, fixSequences, rewriteFileUrls, type Source } from "./migrate";
 import type { BucketLike } from "./storage";
 
 export type NubeDeps = {
@@ -69,6 +69,7 @@ export async function handleNubeRequest(request: Request, deps: NubeDeps): Promi
       else if (step === "secuencias") out = { seq: await fixSequences(deps.db) };
       else if (step === "direcciones") out = await rewriteFileUrls(deps.db, String(body.oldBase), String(body.newBase));
       else if (step === "conteo") out = await counts(deps.db);
+      else if (step === "regresar") out = await copyBackPage(deps.db, m.source, String(body.table), Number(body.offset) || 0, Number(body.pageSize) || 200, Number(body.sinceSeq) || 0, deps.blobs);
       else return toResponse({ status: 404, headers: {}, body: null });
       return toResponse({ status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(out) });
     }
