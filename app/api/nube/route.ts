@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { NUBE_KIND } from "@/components/layout/NubeBadge";
 import { SUPABASE_KEY, SUPABASE_URL } from "@/lib/supabase/client";
 
 /**
@@ -10,7 +11,7 @@ export const dynamic = "force-dynamic";
 
 export function GET() {
   return NextResponse.json(
-    { url: SUPABASE_URL, key: SUPABASE_KEY, kind: process.env.NEXT_PUBLIC_BPOS_NUBE === "cloudflare" ? "cloudflare" : "supabase" },
+    { url: SUPABASE_URL, key: SUPABASE_KEY, kind: NUBE_KIND },
     { headers: { "cache-control": "no-store" } }
   );
 }

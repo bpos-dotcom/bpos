@@ -21,9 +21,24 @@
     { "pattern": "burgerplanet.com.mx", "custom_domain": true },
     { "pattern": "www.burgerplanet.com.mx", "custom_domain": true }
   ],
+  // Nube de Cloudflare (desde 22 nov 2026, docs/mudanza-cloudflare.md): la misma
+  // base D1, archivos R2 y tiempo real que la versión aparte bpos-nube. Secretos
+  // (panel): NUBE_ANON_KEY, NUBE_JWT_SECRET, NUBE_SERVICE_ROLE_KEY, MUDANZA_KEY.
+  // SUPABASE_SERVICE_ROLE_KEY sigue siendo la de Supabase (para regresar).
+  "d1_databases": [{ "binding": "NUBE_DB", "database_name": "bpos-nube", "database_id": "dcfb400b-24dc-4ceb-bf06-a94e6007c303" }],
+  "r2_buckets": [{ "binding": "NUBE_FILES", "bucket_name": "bpos-nube-archivos" }],
+  "durable_objects": {
+    "bindings": [{ "name": "NUBE_REALTIME", "class_name": "NubeRealtime" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["NubeRealtime"] }],
   // Valores que no son secretos (los secretos se guardan en el panel de Cloudflare)
   "vars": {
     "GOOGLE_WALLET_ISSUER_ID": "3388000000023229508",
-    "MP_CLIENT_ID": "5461571198046273"
+    "MP_CLIENT_ID": "5461571198046273",
+    "NUBE_PUBLIC_URL": "https://www.bpos.com.mx/sb",
+    "NUBE_ISSUER": "https://www.bpos.com.mx/sb/auth/v1",
+    // Supabase de antes: respaldo de sesiones (las cajas entran sin volver a escribir su contraseña)
+    "SOURCE_SUPABASE_URL": "https://fhsqwbtkxpzvmqplwqul.supabase.co",
+    "SOURCE_SUPABASE_ANON_KEY": "sb_publishable_noKOXLF2fFBR2TCbgkxGRg__GlHxzbS"
   }
 }
