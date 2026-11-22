@@ -21,7 +21,7 @@ import { RealtimeHub, type HubSocket, type SocketState } from "../nube/realtime"
 const PORT = 4600;
 
 // ws viene con las dependencias del proyecto; se carga por nombre con tipos mínimos
-type WebSocket = { readyState: number; send(t: string): void; on(ev: string, cb: (data?: unknown) => void): void };
+type WebSocket = { readyState: number; send(t: string): void; on(ev: string, cb: (data?: unknown, isBinary?: boolean) => void): void };
 type WssLike = { handleUpgrade(req: IncomingMessage, socket: unknown, head: unknown, cb: (ws: WebSocket) => void): void };
 const file = process.argv[2] || "nube-local.db";
 
@@ -106,7 +106,8 @@ async function main() {
       const entry = { ws, st: { vsn: url.searchParams.get("vsn") === "2.0.0" ? "2.0.0" : "1.0.0", joins: [] } as SocketState };
       sockets.add(entry);
       const me = hubSockets().find((s) => s.state() === entry.st)!;
-      ws.on("message", (data) => void hub.onMessage({ ...me, state: () => entry.st, save: (st) => (entry.st = st) }, String(data)));
+      // ws entrega Buffer en los dos casos: el binario (broadcast de supabase-js) se pasa como bytes
+      ws.on("message", (data, isBinary) => void hub.onMessage({ ...me, state: () => entry.st, save: (st) => (entry.st = st) }, isBinary ? new Uint8Array(data as unknown as ArrayBuffer) : String(data)));
       ws.on("close", () => sockets.delete(entry));
     });
   });

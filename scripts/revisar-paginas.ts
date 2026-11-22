@@ -18,7 +18,7 @@ const BASE = (process.argv[2] || process.env.BPOS_URL || "https://www.bpos.com.m
 const MENU = process.env.BPOS_MENU_SLUG || "burger-planet";
 
 /** Lo público primero: es lo que ven los clientes */
-const PAGES = process.env.BPOS_PAGES ? process.env.BPOS_PAGES.split(",") : [`/m/${MENU}`, "/", "/login", "/pos", "/kiosco", "/demo", "/ayuda", "/terminos", "/privacidad"];
+const PAGES = process.env.BPOS_PAGES ? process.env.BPOS_PAGES.split(",") : [`/m/${MENU}`, "/", "/login", "/pos", "/kiosco", "/escaner", "/demo", "/ayuda", "/terminos", "/privacidad"];
 
 /** Textos que solo salen cuando la página tronó */
 const CRASH_TEXT = ["This page couldn't load", "This page couldn’t load", "Application error", "client-side exception", "Maximum call stack"];

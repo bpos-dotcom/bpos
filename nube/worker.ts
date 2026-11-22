@@ -152,7 +152,7 @@ export class NubeRealtime {
   }
 
   async webSocketMessage(ws: WsLike, message: string | ArrayBuffer) {
-    if (typeof message !== "string") return;
+    // Texto (JSON) o binario (broadcast de supabase-js entre equipos)
     await this.hub.onMessage(this.wrap(ws), message);
   }
 

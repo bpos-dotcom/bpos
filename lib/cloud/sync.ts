@@ -67,6 +67,7 @@ const DEVICE_LOCAL_KEYS = new Set([
   "bpos_drawer_suspects", // cobros cerrados con el cajón abierto, esperando a ver si se cobran
   "bpos_productivity_rang", // cuándo sonó en ESTA caja cada recordatorio
   "bpos_productivity_owner_told", // avisos de "sin atender" que ya mandó esta caja
+  "bpos_phone_scanner", // llave del celular ligado como escáner a ESTA caja (lib/phone-scanner.ts)
 ]);
 
 /** Llaves compartidas por todas las sucursales del negocio */
