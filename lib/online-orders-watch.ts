@@ -3,11 +3,14 @@
  * Vigila los pedidos en línea nuevos de la sucursal desde cualquier
  * pantalla de B-POS: cuántos esperan (para el menú lateral; el sonido sale
  * de Configuración → Notificaciones) y, si el menú está en "Aceptar solos" y hay caja abierta, los acepta.
+ * Con caja abierta también crea la venta de los que se aceptaron con la caja
+ * cerrada (en la caja principal, o en la pantalla de Pedidos en línea).
  * Solo revisa si el menú digital está publicado.
  */
 import { useEffect, useRef, useState } from "react";
 import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, scheduledLater } from "@/lib/digital-menu";
-import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, expireUnpaidOrder, listOnlineOrders, type OnlineOrder } from "@/lib/online-orders";
+import { ONLINE_ORDERS_EVENT, acceptOnlineOrder, createPendingOnlineSale, expireUnpaidOrder, listOnlineOrders, waitingSale, type OnlineOrder } from "@/lib/online-orders";
+import { isPrimaryDevice } from "@/lib/cloud/sync";
 import { startBackgroundTicker } from "@/lib/background-ticker";
 import { POPUP_EVENT, announceNew, popupOrders, type OnlinePopupOrder } from "@/lib/online-orders-popup";
 
@@ -63,6 +66,18 @@ export function useOnlineOrdersWatch() {
               // otro dispositivo lo tomó o falta algo: queda para aceptarlo a mano
             }
           }
+        }
+        // Aceptados con la caja cerrada: ya hay caja, se crea su venta (cocina, inventario e impresión)
+        if (open && (isPrimaryDevice() || window.location.pathname === "/pedidos-en-linea")) {
+          let created = false;
+          for (const order of all.filter((o) => waitingSale(o) && !o.data.saleLater?.error)) {
+            try {
+              if (await createPendingOnlineSale(order)) created = true;
+            } catch {
+              // queda el motivo en el pedido (se ve en Pedidos en línea)
+            }
+          }
+          if (created) window.dispatchEvent(new Event(ONLINE_ORDERS_EVENT));
         }
         // Lo que sigue esperando a alguien (lo que no se aceptó solo)
         const left = fresh.filter((o) => !accepted.has(o.id));

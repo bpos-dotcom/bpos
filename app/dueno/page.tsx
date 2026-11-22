@@ -513,6 +513,7 @@ function OwnerApp() {
                     <p className="text-xs font-black text-emerald-400">✅ Te llegan avisos aunque la app esté cerrada</p>
                     {(
                       [
+                        ["pedidosEnLinea", "🌐 Pedidos del menú digital"],
                         ["delivery", "🛵 Pedidos de delivery (Rappi, Uber Eats, DiDi)"],
                         ["todasVentas", "Cada venta de mostrador"],
                         ["cancelaciones", "❌ Ventas canceladas"],

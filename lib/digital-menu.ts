@@ -686,6 +686,12 @@ export type OnlineOrderData = {
   total: number;
   /** Cambios que hizo el negocio antes de aceptarlo (ej. quitar algo agotado) */
   edits?: OnlineOrderEdit[];
+  /**
+   * Aceptado con la caja cerrada: la venta se crea sola al abrir la caja.
+   * deliveryFee = envío cotizado al aceptar; saleAt = cuándo se creó la venta;
+   * error = por qué no se pudo crear (se muestra en Pedidos en línea).
+   */
+  saleLater?: { at: string; by: string; deliveryFee?: number; saleAt?: string; error?: string };
 };
 
 export type OnlineOrderEdit = {

@@ -1163,6 +1163,8 @@ function Checkout({
       setCart([]);
       const p = placed as Placed;
       if (customer.token) void customer.linkOrder(p.id, p.token);
+      // Aviso al celular del negocio (aunque la caja esté apagada). Con Mercado Pago, hasta que pague.
+      if (payment !== "Mercado Pago") void fetch("/api/push/pedido", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ id: p.id, token: p.token }) }).catch(() => undefined);
       // Transferencia: se abre WhatsApp con el desglose (si el navegador lo bloquea, queda el botón en el seguimiento)
       if (payment === "Transferencia" && wa) window.open(waLink(wa, orderWhatsappText(data.business.name, p.folio, order)), "_blank");
       // Mercado Pago: a pagar; al terminar regresa al seguimiento (si falla, ahí queda el botón para pagar)

@@ -56,7 +56,7 @@ export async function listOnlineOrders(): Promise<OnlineOrder[]> {
     .from("bpos_online_orders")
     .select("id, folio, token, account_id, status, data, sale_order_id, eta_minutes, reason, created_at, updated_at")
     .eq("branch_id", branchId)
-    .or(`created_at.gte.${since},status.in.(nuevo,aceptando)`)
+    .or(`created_at.gte.${since},status.in.(nuevo,aceptando),and(status.in.(aceptado,listo,entregado),data->saleLater.not.is.null,or(sale_order_id.is.null,sale_order_id.eq.0))`)
     .order("created_at", { ascending: false })
     .limit(200);
   if (error) throw new Error(error.message);
@@ -157,23 +157,128 @@ const TYPE_LABEL: Record<OnlineOrderData["type"], string> = {
  * acepte también), crea la venta del turno, descuenta inventario e imprime.
  */
 export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, userName = "", options: { deliveryFee?: number } = {}) {
-  if (!localStorage.getItem("bpos_active_shift")) throw new Error("Abre la caja para aceptar pedidos en línea.");
+  if (!cashOpen()) throw new Error("Abre la caja para aceptar pedidos en línea.");
+  await checkAndClaim(order);
+  try {
+    return await createOnlineSale(order, { etaMinutes, userName, deliveryFee: options.deliveryFee });
+  } catch (e) {
+    // Si algo falló antes de crear la venta, el pedido vuelve a "nuevo"
+    const current = readOrders().some((o) => (o as { onlineOrderId?: string }).onlineOrderId === order.id);
+    if (!current) await setStatus(order.id, { status: "nuevo" }).catch(() => undefined);
+    throw e;
+  }
+}
+
+/** ¿Hay turno de caja abierto? (en la nube se comparte entre los equipos de la sucursal) */
+export const cashOpen = () => Boolean(localStorage.getItem("bpos_active_shift"));
+
+/** Lo que se revisa antes de aceptar y "tomar" el pedido (para que otro dispositivo no lo acepte también) */
+async function checkAndClaim(order: OnlineOrder) {
   if (awaitingOnlinePayment(order.data)) throw new Error("El cliente todavía no termina de pagar con Mercado Pago.");
   if (order.data.mp?.status === "refunded") throw new Error("Ya se le devolvió el pago de este pedido.");
-  const built = buildOnlineCart(order.data);
-  const { cart, subtotal, coupon } = built;
-  if (!cart.length) throw new Error("Ningún producto del pedido existe ya en B-POS. Recházalo.");
-  // Promoción solo para clientes nuevos o del club: se revisa que de verdad le toque
-  const promoProblem = built.promo ? await promoAudienceProblem(order) : "";
-  const promo = promoProblem ? null : built.promo;
+  if (!buildOnlineCart(order.data).cart.length) throw new Error("Ningún producto del pedido existe ya en B-POS. Recházalo.");
   const short = onlinePaymentShort(order.data);
   if (short) throw new Error(short);
-
   const { data: claimed, error } = await getSupabase().rpc("bpos_online_claim", { p_id: order.id });
   if (error) throw new Error(error.message);
   if (!claimed) throw new Error("Otro dispositivo ya está atendiendo este pedido.");
+}
 
+/**
+ * Acepta el pedido con la caja cerrada (por ejemplo desde el celular): se le
+ * avisa al cliente y queda "En preparación", pero la venta (número, cocina,
+ * inventario, impresión y caja) se crea sola en cuanto alguien abra la caja.
+ */
+export async function acceptOnlineOrderLater(order: OnlineOrder, etaMinutes: number, userName = "", options: { deliveryFee?: number } = {}) {
+  await checkAndClaim(order);
   try {
+    const quoted = order.data.type === "Domicilio" && order.data.deliveryQuote;
+    const fee = quoted ? Math.max(0, Number(options.deliveryFee) || 0) : undefined;
+    await setStatus(order.id, {
+      status: "aceptado",
+      sale_order_id: null,
+      eta_minutes: etaMinutes,
+      data: {
+        ...order.data,
+        saleLater: { at: new Date().toISOString(), by: userName || "B-POS", ...(fee !== undefined ? { deliveryFee: fee } : {}) },
+        // Envío cotizado: el cliente ve el costo y su total actualizado en su liga
+        ...(fee !== undefined ? { deliveryFee: fee, total: Math.max(0, Number(order.data.subtotal) + fee - onlineDiscount(order.data)) } : {}),
+      },
+    });
+  } catch (e) {
+    await setStatus(order.id, { status: "nuevo" }).catch(() => undefined);
+    throw e;
+  }
+  addAuditEvent({
+    category: "Venta",
+    action: "online.accepted_later",
+    description: `${userName || "B-POS"} aceptó el pedido en línea ${order.folio} con la caja cerrada: la venta se crea al abrir la caja`,
+    metadata: { folio: order.folio, total: order.data.total, type: order.data.type },
+  });
+}
+
+/** Aceptado con la caja cerrada y todavía sin venta */
+export function waitingSale(order: Pick<OnlineOrder, "status" | "sale_order_id" | "data">) {
+  return Boolean(order.data.saleLater) && !order.sale_order_id && ["aceptado", "listo", "entregado"].includes(order.status);
+}
+
+/**
+ * Ya hay caja abierta: crea la venta de un pedido que se aceptó con la caja
+ * cerrada. Un solo equipo lo hace (lo aparta poniendo sale_order_id = 0; si
+ * ese equipo se apagó a medias, a los 2 minutos otro lo puede tomar).
+ * Regresa la venta, o null si otro equipo ya lo tomó.
+ */
+export async function createPendingOnlineSale(order: OnlineOrder, userName = "Caja") {
+  if (!cashOpen()) throw new Error("Abre la caja para crear la venta.");
+  if (!waitingSale(order)) return null;
+  if (readOrders().some((o) => (o as { onlineOrderId?: string }).onlineOrderId === order.id)) return null;
+  const stale = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const { data: claimed, error } = await getSupabase()
+    .from("bpos_online_orders")
+    .update({ sale_order_id: 0, updated_at: new Date().toISOString() })
+    .eq("id", order.id)
+    .or(`sale_order_id.is.null,and(sale_order_id.eq.0,updated_at.lt.${stale})`)
+    .select("id");
+  if (error) throw new Error(error.message);
+  if (!claimed?.length) return null;
+  try {
+    const data = await freshData(order);
+    const result = await createOnlineSale({ ...order, data }, { userName, deliveryFee: data.saleLater?.deliveryFee, later: true });
+    return result;
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "No se pudo crear la venta.";
+    // Se guarda el motivo para mostrarlo en Pedidos en línea (no se reintenta solo hasta que lo pidan)
+    const data = await freshData(order).catch(() => order.data);
+    await setStatus(order.id, { sale_order_id: null, data: { ...data, saleLater: { ...(data.saleLater || { at: new Date().toISOString(), by: "" }), error: message } } }).catch(() => undefined);
+    throw e;
+  }
+}
+
+/** Quita el error para que la caja vuelva a intentar crear la venta */
+export async function retryPendingOnlineSale(order: OnlineOrder) {
+  const data = await freshData(order);
+  if (!data.saleLater) return;
+  const { error: _drop, ...rest } = data.saleLater;
+  void _drop;
+  await setStatus(order.id, { data: { ...data, saleLater: rest } });
+}
+
+/**
+ * La venta del pedido: precios y opciones de B-POS, número del turno, cocina,
+ * inventario, club e impresión. later = el pedido ya estaba aceptado (con la
+ * caja cerrada): solo se le pone el número de venta.
+ */
+async function createOnlineSale(order: OnlineOrder, opts: { etaMinutes?: number; userName?: string; deliveryFee?: number; later?: boolean }) {
+  const userName = opts.userName || "";
+  const options = { deliveryFee: opts.deliveryFee };
+  const etaMinutes = opts.etaMinutes ?? order.eta_minutes ?? 0;
+  const built = buildOnlineCart(order.data);
+  const { cart, subtotal, coupon } = built;
+  if (!cart.length) throw new Error("Ningún producto del pedido existe ya en B-POS.");
+  // Promoción solo para clientes nuevos o del club: se revisa que de verdad le toque
+  const promoProblem = built.promo ? await promoAudienceProblem(order) : "";
+  const promo = promoProblem ? null : built.promo;
+  {
     const sequence = allocateShiftOrderNumber();
     const orders = readOrders();
     // El envío va en el total (no es un producto: no pasa por cocina ni inventario).
@@ -226,22 +331,28 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
     if (order.account_id) void earnLoyalty(order.account_id, total, `online:${order.id}`, userName);
     discountInventoryByOrder(sale.id, cart);
     notifyKdsUpdated(sale.id);
-    await setStatus(order.id, {
-      status: "aceptado",
-      sale_order_id: sale.id,
-      eta_minutes: etaMinutes,
-      // Envío cotizado: el cliente ve el costo y su total actualizado en su liga
-      ...(order.data.deliveryQuote
-        ? { data: { ...order.data, deliveryFee, total: Math.max(0, Number(order.data.subtotal) + deliveryFee - onlineDiscount(order.data)) } }
-        : {}),
-    });
+    if (opts.later) {
+      await setStatus(order.id, { sale_order_id: sale.id, data: { ...order.data, saleLater: { ...order.data.saleLater!, saleAt: new Date().toISOString(), error: undefined } } });
+    } else {
+      await setStatus(order.id, {
+        status: "aceptado",
+        sale_order_id: sale.id,
+        eta_minutes: etaMinutes,
+        // Envío cotizado: el cliente ve el costo y su total actualizado en su liga
+        ...(order.data.deliveryQuote
+          ? { data: { ...order.data, deliveryFee, total: Math.max(0, Number(order.data.subtotal) + deliveryFee - onlineDiscount(order.data)) } }
+          : {}),
+      });
+    }
 
     addAuditEvent({
       category: "Venta",
       action: "online.accepted",
-      description: `${userName || "B-POS"} aceptó el pedido en línea ${order.folio} como Pedido #${formatOrderNumber(sale)} por $${total.toFixed(2)}`,
+      description: opts.later
+        ? `Se creó la venta del pedido en línea ${order.folio} (aceptado con la caja cerrada por ${order.data.saleLater?.by || "B-POS"}) como Pedido #${formatOrderNumber(sale)} por ${total.toFixed(2)}`
+        : `${userName || "B-POS"} aceptó el pedido en línea ${order.folio} como Pedido #${formatOrderNumber(sale)} por ${total.toFixed(2)}`,
       entityId: String(sale.id),
-      metadata: { folio: order.folio, total, type: order.data.type, ...(promo ? { promo: promo.name } : {}) },
+      metadata: { folio: order.folio, total, type: order.data.type, ...(promo ? { promo: promo.name } : {}), ...(opts.later ? { later: true } : {}) },
     });
     if (promoProblem) {
       addAuditEvent({
@@ -255,11 +366,6 @@ export async function acceptOnlineOrder(order: OnlineOrder, etaMinutes: number, 
     // Comandas por estación y ticket del cliente en Caja
     const failed = await printSale(sale, { stations: saleStations(sale), customer: true }, false).catch(() => ["impresoras"]);
     return { sale, printFailed: failed, promoProblem };
-  } catch (e) {
-    // Si algo falló antes de crear la venta, el pedido vuelve a "nuevo"
-    const current = readOrders().some((o) => (o as { onlineOrderId?: string }).onlineOrderId === order.id);
-    if (!current) await setStatus(order.id, { status: "nuevo" }).catch(() => undefined);
-    throw e;
   }
 }
 
@@ -465,7 +571,8 @@ export async function editOnlineOrder(order: OnlineOrder, quantities: number[], 
   const fresh = await freshData(order);
   if (JSON.stringify(fresh.lines) !== JSON.stringify(order.data.lines)) throw new Error("El pedido cambió en otro dispositivo: revisa y vuelve a intentar.");
   const data = applyOrderEdit(fresh, quantities, reason, options.userName);
-  const accepted = order.status !== "nuevo" ? await editAcceptedSale(order, fresh, data, reason.trim(), Boolean(options.prepared)) : null;
+  // Aceptado con la caja cerrada: todavía no hay venta, se cambia solo el pedido (la venta sale de él)
+  const accepted = order.status !== "nuevo" && !waitingSale(order) ? await editAcceptedSale(order, fresh, data, reason.trim(), Boolean(options.prepared)) : null;
   const edit = data.edits![data.edits!.length - 1];
   // Ya aceptado: lo que se cobra es lo de la caja (con los precios de B-POS)
   if (accepted) {
