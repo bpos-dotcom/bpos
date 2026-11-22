@@ -24,6 +24,8 @@ export type NubeDeps = {
   storage?: (request: Request, path: string, auth: Awaited<ReturnType<typeof authFromRequest>>) => Promise<Response>;
   /** Mudanza desde Supabase (solo con la llave de la mudanza) */
   migrate?: { key: string; source: Source; bucket?: BucketLike };
+  /** R2 para columnas grandes (respaldos diarios) */
+  blobs?: BucketLike;
 };
 
 const CORS = {
@@ -61,7 +63,7 @@ export async function handleNubeRequest(request: Request, deps: NubeDeps): Promi
       const body = ((await readBody(request)) || {}) as Row;
       const step = path.slice("/_mudanza/".length);
       let out: unknown;
-      if (step === "tabla") out = await copyTablePage(deps.db, m.source, String(body.table), Number(body.offset) || 0, Number(body.pageSize) || 500);
+      if (step === "tabla") out = await copyTablePage(deps.db, m.source, String(body.table), Number(body.offset) || 0, Number(body.pageSize) || 500, deps.blobs);
       else if (step === "usuarios") out = await copyUsersPage(deps.db, m.source, Number(body.offset) || 0);
       else if (step === "fotos" && m.bucket) out = await copyFilesFolder(m.source, m.bucket, String(body.bucket || "bpos-media"), String(body.prefix || ""));
       else if (step === "secuencias") out = { seq: await fixSequences(deps.db) };
@@ -84,7 +86,7 @@ export async function handleNubeRequest(request: Request, deps: NubeDeps): Promi
 
     if (path.startsWith("/rest/v1/")) {
       const table = decodeURIComponent(path.slice("/rest/v1/".length).split("/")[0]);
-      return toResponse(await handleRest({ db: deps.db, auth, onSyncHead: deps.onSyncHead }, { method: request.method, table, params: url.searchParams, headers: request.headers, body: await readBody(request) }));
+      return toResponse(await handleRest({ db: deps.db, auth, onSyncHead: deps.onSyncHead, blobs: deps.blobs }, { method: request.method, table, params: url.searchParams, headers: request.headers, body: await readBody(request) }));
     }
 
     if (path === "/realtime/v1/api/broadcast" && request.method === "POST") {

@@ -58,6 +58,7 @@ function deps(env: NubeEnv, ctx: CtxLike | null): NubeDeps {
     broadcast: async (messages) => {
       if (stub && messages.length) later(stub.fetch("https://realtime/broadcast", { method: "POST", body: JSON.stringify({ messages }) }));
     },
+    blobs: env.NUBE_FILES,
     storage: env.NUBE_FILES ? (request, path, auth) => handleStorage(request, path, auth, { db, bucket: env.NUBE_FILES! }) : undefined,
     ...(env.MUDANZA_KEY && env.SOURCE_SUPABASE_URL && env.SOURCE_SUPABASE_SERVICE_KEY
       ? { migrate: { key: env.MUDANZA_KEY, source: { url: env.SOURCE_SUPABASE_URL, key: env.SOURCE_SUPABASE_SERVICE_KEY }, bucket: env.NUBE_FILES } }

@@ -150,6 +150,34 @@ async function main() {
   const plan = await sa.from("businesses").update({ plan: "max", plan_status: "active", name: "Burger Prueba 2" }).eq("id", a.businessId).select("plan, name").single();
   check("el dueño cambia el nombre pero no su plan", plan.data?.plan === "basic" && plan.data?.name === "Burger Prueba 2", plan);
 
+  // ---------------------------------------------------------------- respaldos grandes (a R2)
+  const blobMap = new Map<string, Uint8Array>();
+  h.deps.blobs = {
+    async put(key, value) {
+      blobMap.set(key, value instanceof Uint8Array ? value : new Uint8Array(value as ArrayBuffer));
+    },
+    async get(key) {
+      const d = blobMap.get(key);
+      return d ? { body: null, arrayBuffer: async () => d.slice().buffer as ArrayBuffer } : null;
+    },
+    async head(key) {
+      return blobMap.has(key) ? {} : null;
+    },
+    async delete(keys) {
+      for (const k of Array.isArray(keys) ? keys : [keys]) blobMap.delete(k);
+    },
+  };
+  const big = { businessId: a.businessId, records: Array.from({ length: 5000 }, (_, i) => ({ k: i, v: "x".repeat(500) })) };
+  const day = "2026-11-21";
+  const bk = await sa.from("bpos_backups").upsert({ business_id: a.businessId, day, data: big, size: JSON.stringify(big).length }, { onConflict: "business_id,day" });
+  check("respaldo de 2.5 MB guardado (el contenido va a R2)", !bk.error && blobMap.has(`blobs/bpos_backups/${a.businessId}/${day}.json`), bk.error);
+  const { data: listB } = await sa.from("bpos_backups").select("day, size").eq("business_id", a.businessId);
+  check("la lista de respaldos no baja el contenido", listB?.length === 1 && listB[0].day === day && !("data" in listB[0]));
+  const { data: gotB } = await sa.from("bpos_backups").select("data").eq("business_id", a.businessId).eq("day", day).maybeSingle();
+  check("el respaldo regresa completo", (gotB?.data as typeof big)?.records?.length === 5000, (gotB?.data as typeof big)?.records?.length);
+  await sa.from("bpos_backups").delete().eq("business_id", a.businessId).in("day", [day]);
+  check("al borrarlo se borra de R2", blobMap.size === 0);
+
   // ---------------------------------------------------------------- admin (servidor)
   const made = await svc.auth.admin.createUser({ email: "mesero@prueba.mx", password: "mesero123", email_confirm: true, user_metadata: { kind: "waiter-device" } });
   check("admin crea usuario", Boolean(made.data.user?.id) && made.data.user?.user_metadata?.kind === "waiter-device", made.error);

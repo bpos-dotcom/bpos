@@ -9,12 +9,53 @@ import { RELATIONS, TABLE, type Column, type Table } from "./tables";
 import { RestError, condSql, orderSql, parseFilters, parseSelect, type SelectNode } from "./postgrest";
 import { beforeDelete, beforeInsert, beforeUpdate, type TriggerCtx } from "./triggers";
 import { fromDb, nowIso, rowFromDb, toDb } from "./values";
+import type { BucketLike } from "./storage";
+
+/**
+ * Columnas muy grandes que no caben en D1 (máximo 2 MB por fila): el
+ * contenido va a R2 y en la tabla queda una marca {"$blob": "<llave>"}.
+ * Los respaldos diarios pesan hasta 10 MB.
+ */
+export const BLOB_COLUMNS: Record<string, { col: string; key: (row: Row) => string }> = {
+  bpos_backups: { col: "data", key: (row) => `blobs/bpos_backups/${row.business_id}/${String(row.day).slice(0, 10)}.json` },
+};
+const BLOB_PREFIX = '{"$blob":';
+
+/** Antes de guardar: el valor grande se sube a R2 y la fila lleva la marca */
+export async function stashBlob(table: string, row: Row, blobs: BucketLike | undefined) {
+  const spec = BLOB_COLUMNS[table];
+  if (!spec || !blobs) return row;
+  const value = row[spec.col];
+  if (value === null || value === undefined) return row;
+  const text = typeof value === "string" ? value : JSON.stringify(value);
+  if (text.startsWith(BLOB_PREFIX)) return row;
+  const key = spec.key(row);
+  await blobs.put(key, new TextEncoder().encode(text), { httpMetadata: { contentType: "application/json" } });
+  return { ...row, [spec.col]: { $blob: key } };
+}
+
+/** Al leer: la marca se cambia por el contenido de R2 (texto JSON como lo guarda D1) */
+async function unstashBlobs(table: string, rows: Row[], blobs: BucketLike | undefined) {
+  const spec = BLOB_COLUMNS[table];
+  if (!spec || !blobs) return rows;
+  return Promise.all(
+    rows.map(async (r) => {
+      const raw = r[spec.col];
+      if (typeof raw !== "string" || !raw.startsWith(BLOB_PREFIX)) return r;
+      const key = (JSON.parse(raw) as { $blob: string }).$blob;
+      const obj = await blobs.get(key);
+      return { ...r, [spec.col]: obj ? new TextDecoder().decode(await obj.arrayBuffer()) : null };
+    })
+  );
+}
 
 export type NubeCtx = {
   db: Db;
   auth: Auth;
   /** Se cambió sync_records de un negocio: su último número (para avisar en tiempo real) */
   onSyncHead?: (businessId: string, seq: number) => void | Promise<void>;
+  /** R2 para las columnas grandes (BLOB_COLUMNS) */
+  blobs?: BucketLike;
 };
 
 export type RestRequest = { method: string; table: string; params: URLSearchParams; headers: Headers; body: unknown };
@@ -112,8 +153,12 @@ async function loadEmbeds(ctx: NubeCtx, table: Table, nodes: SelectNode[], rows:
   return embeds;
 }
 
-async function shape(ctx: NubeCtx, table: Table, select: string | null, rows: Row[]) {
+async function shape(ctx: NubeCtx, table: Table, select: string | null, rawRows: Row[]) {
   const nodes = parseSelect(select);
+  const spec = BLOB_COLUMNS[table.name];
+  // Solo se baja de R2 si se pidió esa columna
+  const wantsBlob = spec && nodes.some((n) => n.kind === "star" || (n.kind === "col" && n.name === spec.col));
+  const rows = wantsBlob ? await unstashBlobs(table.name, rawRows, ctx.blobs) : rawRows;
   const embeds = await loadEmbeds(ctx, table, nodes, rows);
   let out = rows.map((r) => project(table, nodes, r, embeds));
   // "!inner": solo las filas que sí tienen su relación
@@ -296,12 +341,12 @@ async function post(ctx: NubeCtx, req: RestRequest): Promise<Reply> {
         if (!table.columns.some((c) => c.name === k)) throw new RestError(400, "PGRST204", `Could not find the '${k}' column of '${table.name}' in the schema cache`);
         merged[k] = value;
       }
-      const next = await beforeUpdate(table.name, oldRow, merged, tctx);
+      const next = await stashBlob(table.name, await beforeUpdate(table.name, oldRow, merged, tctx), ctx.blobs);
       if (updateAccess?.ok && updateAccess.check && !(await updateAccess.check(next, access))) deny(table.name, "update", ctx.auth);
       statements.push(updateStmt(table, next, oldRow));
       continue;
     }
-    const row = await beforeInsert(table.name, withDefaults(table, input, ctx.auth), tctx);
+    const row = await stashBlob(table.name, await beforeInsert(table.name, withDefaults(table, input, ctx.auth), tctx), ctx.blobs);
     if (insertAccess.check && !(await insertAccess.check(row, access))) deny(table.name, "insert", ctx.auth);
     // Por si otro equipo la creó en este instante: no truena, se mezcla o se ignora
     statements.push(insertStmt(table, row, conflict, p.ignore ? "ignore" : conflict ? "merge" : "error", Object.keys(input).concat(table.name === "sync_records" ? ["seq", "updated_at"] : [])));
@@ -326,7 +371,7 @@ async function patch(ctx: NubeCtx, req: RestRequest): Promise<Reply> {
   const statements: Stmt[] = [];
   for (const raw of rows) {
     const oldRow = decode(table, raw);
-    const next = await beforeUpdate(table.name, oldRow, { ...oldRow, ...changes }, tctx);
+    const next = await stashBlob(table.name, await beforeUpdate(table.name, oldRow, { ...oldRow, ...changes }, tctx), ctx.blobs);
     if (access.check && !(await access.check(next, actx))) deny(table.name, "update", ctx.auth);
     statements.push(updateStmt(table, next, oldRow));
   }
@@ -350,6 +395,12 @@ async function del(ctx: NubeCtx, req: RestRequest): Promise<Reply> {
     statements.push({ sql: `DELETE FROM ${table.name} WHERE ${table.pk.map((k) => `${k} = ?`).join(" AND ")}`, params: table.pk.map((k) => raw[k]) });
   }
   await ctx.db.batch(statements);
+  // Lo que estaba en R2 también se borra
+  const spec = BLOB_COLUMNS[table.name];
+  if (spec && ctx.blobs) {
+    const keys = gone.map((r) => r[spec.col]).filter((v): v is string => typeof v === "string" && v.startsWith(BLOB_PREFIX)).map((v) => (JSON.parse(v) as { $blob: string }).$blob);
+    if (keys.length) await ctx.blobs.delete(keys).catch(() => undefined);
+  }
   if (!prefer(req.headers).representation) return { status: 204, headers: {}, body: null };
   return reply(await shape(ctx, table, req.params.get("select"), gone), req.headers);
 }

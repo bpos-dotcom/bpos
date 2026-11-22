@@ -16,6 +16,7 @@ import { MAX_PARAMS, type Db, type Stmt } from "./db";
 import { TABLES, TABLE, type Table } from "./tables";
 import { normalizeTs, toDb } from "./values";
 import type { BucketLike } from "./storage";
+import { stashBlob } from "./rest";
 
 export type Source = { url: string; key: string; fetch?: typeof fetch };
 
@@ -30,13 +31,13 @@ function insertSql(table: Table, cols: string[]) {
 }
 
 /** Copia una página de una tabla. Regresa cuántas copió y si ya terminó */
-export async function copyTablePage(db: Db, source: Source, tableName: string, offset: number, pageSize = 500) {
+export async function copyTablePage(db: Db, source: Source, tableName: string, offset: number, pageSize = 500, blobs?: BucketLike) {
   const table = TABLE.get(tableName);
   if (!table) throw new Error(`Tabla desconocida: ${tableName}`);
   const order = table.pk.map((k) => `${k}.asc`).join(",");
   const res = await get(source)(`${source.url}/rest/v1/${table.name}?select=*&order=${order}&limit=${pageSize}&offset=${offset}`, { headers: headers(source) });
   if (!res.ok) throw new Error(`Supabase respondió ${res.status} en ${table.name}: ${(await res.text()).slice(0, 200)}`);
-  const rows = (await res.json()) as Record<string, unknown>[];
+  const rows = await Promise.all(((await res.json()) as Record<string, unknown>[]).map((r) => stashBlob(table.name, r, blobs)));
   const cols = table.columns.map((c) => c.name);
   const statements: Stmt[] = rows.map((r) => ({ sql: insertSql(table, cols), params: table.columns.map((c) => toDb(c.type, r[c.name] ?? null)) }));
   // De a poco: D1 aguanta transacciones medianas
