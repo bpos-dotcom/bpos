@@ -38,6 +38,7 @@ import {
   type OnlineOrder,
 } from "@/lib/online-orders";
 import { onlineDiscount } from "@/lib/promotions";
+import { qtyText } from "@/lib/bulk-online";
 
 import { ReservationsPanel } from "@/components/menu/ReservationsPanel";
 import { openWhatsapp, whatsappLink, whatsappTarget } from "@/lib/whatsapp";
@@ -524,7 +525,7 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
       <ul className="mt-3 space-y-1 text-sm">
         {d.lines.map((l, i) => (
           <li key={i}>
-            <b>{l.quantity} ×</b> {l.name} <span className="text-zinc-500">{money(l.unitPrice * l.quantity)}</span>
+            <b>{l.unit ? `${qtyText(l.quantity, l.unit)} de` : `${l.quantity} ×`}</b> {l.name} <span className="text-zinc-500">{money(l.unitPrice * l.quantity)}</span>
             {l.summary && <p className="pl-5 text-xs text-zinc-400">{l.summary}</p>}
             {l.comment && <p className="pl-5 text-xs italic text-yellow-200">“{l.comment}”</p>}
           </li>

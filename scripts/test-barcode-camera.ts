@@ -24,6 +24,8 @@ check("Code 128 con letras pasa", cleanScannedCode("BP-00123") === "BP-00123");
 check("código interno de 10 dígitos pasa (sin dígito de control)", cleanScannedCode("2000000001") === "2000000001");
 const internal = generateInternalBarcode([]);
 check("el código que crea B-POS (etiquetas) se lee con la cámara", cleanScannedCode(internal) === internal, internal);
+check("tarjeta del club: código de 8 dígitos pasa sin dígito de control", cleanScannedCode("12345678", { checkDigit: false }) === "12345678");
+check("producto: el mismo código se ignora (no cuadra)", cleanScannedCode("12345678") === "");
 check("muy corto no sirve", cleanScannedCode("12") === "");
 check("vacío no sirve", cleanScannedCode(undefined) === "");
 

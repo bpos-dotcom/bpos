@@ -26,6 +26,7 @@ import { getSupabase } from "@/lib/supabase/client";
 import type { CartItem } from "@/components/CartPanel";
 import type { SavedOrder } from "@/components/OrderHistoryPanel";
 import { whatsappLink } from "@/lib/whatsapp";
+import { bulkUnitOf, cleanOnlineQty } from "@/lib/bulk-online";
 
 export type OnlineOrderStatus = "nuevo" | "aceptando" | "aceptado" | "rechazado" | "listo" | "entregado";
 
@@ -100,7 +101,8 @@ export function buildOnlineCart(data: OnlineOrderData) {
     const price = Number(product.price) + extrasPrice(selection.modifiers, selection.parts);
     const comment = String(line.comment || "").trim().slice(0, 140);
     const lineId = lineIdFor(product.id, selection.parts, selection.modifiers) + (comment ? `|c:${comment}` : "");
-    const quantity = Math.max(1, Math.min(50, Math.round(Number(line.quantity) || 1)));
+    // Por pieza entera; a granel con decimales (¼ kg, 1.5 m)
+    const quantity = cleanOnlineQty(line.quantity, bulkUnitOf(product));
     const existing = cart.find((c) => c.lineId === lineId);
     if (existing) {
       existing.quantity += quantity;

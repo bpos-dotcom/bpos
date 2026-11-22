@@ -57,6 +57,7 @@ import { PendingNoticeButtons } from "@/components/pos/PendingNoticeButtons";
 import { BRANDS_EVENT, getBrands, isAppsOnly, type Brand } from "@/lib/brands";
 import { isRetailType, useBusinessType } from "@/lib/business-type";
 import { codesOf, findByBarcode, isBulk, unitPriceFor } from "@/lib/retail";
+import { findByPlu, getScaleSettings, labelLine, parseScaleLabel } from "@/lib/scale";
 import { RetailQtyModal } from "@/components/retail/RetailQtyModal";
 import { useBarcodeScanner } from "@/lib/barcode-scanner";
 import { CameraScanButton } from "@/components/retail/CameraScanner";
@@ -460,6 +461,16 @@ function PosScreen() {
     }
     if (findByBarcode(products, code)) {
       notify(`El código ${code} es de un artículo que no se vende solo.`, "error");
+      return true;
+    }
+    // Etiqueta de la báscula (empieza con 2): el artículo con su peso o importe
+    const scale = getScaleSettings();
+    const label = scale.labelsEnabled ? parseScaleLabel(code, scale) : null;
+    if (label) {
+      const item = findByPlu(sellable, label.plu);
+      const line = item ? labelLine(item, label) : null;
+      if (item && line) addMeasuredLine(item, line.quantity, line.price);
+      else notify(`La etiqueta es del artículo ${label.plu} de la báscula y no hay uno con ese código en B-POS.`, "error");
       return true;
     }
     if (/^\d{6,14}$/.test(code)) {

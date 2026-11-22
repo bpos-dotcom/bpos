@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Product } from "@/data/products";
 import { priceWithUnit } from "@/lib/retail";
+import { bulkChoices, bulkUnitOf, cartCount, cleanOnlineQty, lineLabel, qtyText, stepQty } from "@/lib/bulk-online";
 import { OWN_OPTIONS, buildSelection, extrasPrice, extraCount, isAutoGroup, modifierProblem, optionName } from "@/lib/compound";
 import {
   awaitingOnlinePayment,
@@ -288,7 +289,7 @@ function Menu({
   }, [data.top, byId, visible, design.top.count]);
   const featured = design.featured.productId !== null ? byId.get(design.featured.productId) : undefined;
   const total = cart.reduce((s, l) => s + l.unitPrice * l.quantity, 0);
-  const count = cart.reduce((s, l) => s + l.quantity, 0);
+  const count = cartCount(cart);
   const wa = whatsappNumber(menu.whatsapp);
   const channels = design.channels;
   const links = [
@@ -313,7 +314,10 @@ function Menu({
     setChoosing(product);
   }
 
-  function add(product: Product, picks: Picks, comment: string) {
+  function add(product: Product, picks: Picks, comment: string, amount = 1) {
+    // A granel: la cantidad que eligió (¼ kg, 1.5 m); por pieza, de a una
+    const unit = bulkUnitOf(product);
+    const quantity = cleanOnlineQty(amount, unit);
     const selection = buildSelection(product, data.products, { [OWN_OPTIONS]: picks });
     const unitPrice = Number(product.price) + extrasPrice(selection.modifiers, selection.parts);
     const summary = [
@@ -326,8 +330,8 @@ function Menu({
     flashTimer.current = window.setTimeout(() => setFlash(null), 900);
     setCart((c) => {
       const found = c.find((l) => l.key === key);
-      if (found) return c.map((l) => (l.key === key ? { ...l, quantity: l.quantity + 1 } : l));
-      return [...c, { key, productId: product.id, name: product.name, quantity: 1, unitPrice, picks: { [OWN_OPTIONS]: picks }, summary, ...(comment ? { comment } : {}) }];
+      if (found) return c.map((l) => (l.key === key ? { ...l, quantity: unit ? cleanOnlineQty(l.quantity + quantity, unit) : l.quantity + 1 } : l));
+      return [...c, { key, productId: product.id, name: product.name, quantity, unitPrice, picks: { [OWN_OPTIONS]: picks }, summary, ...(comment ? { comment } : {}), ...(unit ? { unit } : {}) }];
     });
   }
 
@@ -345,7 +349,8 @@ function Menu({
       const selection = buildSelection(product, data.products, { [OWN_OPTIONS]: picks });
       const unitPrice = Number(product.price) + extrasPrice(selection.modifiers, selection.parts);
       const comment = l.comment || "";
-      lines.push({ key: `${product.id}|${JSON.stringify(picks)}|${comment}`, productId: product.id, name: product.name, quantity: l.quantity, unitPrice, picks: { [OWN_OPTIONS]: picks }, summary: l.summary, ...(comment ? { comment } : {}) });
+      const unit = bulkUnitOf(product);
+      lines.push({ key: `${product.id}|${JSON.stringify(picks)}|${comment}`, productId: product.id, name: product.name, quantity: cleanOnlineQty(l.quantity, unit), unitPrice, picks: { [OWN_OPTIONS]: picks }, summary: l.summary, ...(comment ? { comment } : {}), ...(unit ? { unit } : {}) });
     }
     setCart((c) => {
       const next = [...c];
@@ -366,7 +371,7 @@ function Menu({
   const opensIn = open ? "" : opensInLabel(menu, now);
   /** Cuántos de cada producto lleva el cliente (todas sus variantes) */
   const inCart = new Map<number, number>();
-  for (const l of cart) inCart.set(Number(l.productId), (inCart.get(Number(l.productId)) || 0) + l.quantity);
+  for (const l of cart) inCart.set(Number(l.productId), (inCart.get(Number(l.productId)) || 0) + (l.unit ? 1 : l.quantity));
   /** El "+" cambia por cuántos lleva */
   const plusBtn = (product: Product) => {
     const n = inCart.get(Number(product.id)) || 0;
@@ -742,8 +747,8 @@ function Menu({
           menu={menu}
           color={color}
           onClose={() => setChoosing(null)}
-          onAdd={(picks, comment) => {
-            add(choosing, picks, comment);
+          onAdd={(picks, comment, amount) => {
+            add(choosing, picks, comment, amount);
             setChoosing(null);
           }}
         />
@@ -821,8 +826,10 @@ function ChoiceSheet({
   menu: DigitalMenuSettings;
   color: string;
   onClose: () => void;
-  onAdd: (picks: Picks, comment: string) => void;
+  onAdd: (picks: Picks, comment: string, amount?: number) => void;
 }) {
+  const bulk = bulkUnitOf(product);
+  const [amount, setAmount] = useState(() => (bulk ? (bulk === "g" ? 250 : bulk === "m" ? 1 : 0.5) : 1));
   const { groups } = useMemo(() => onlineGroups(product, catalog, menu), [product, catalog, menu]);
   const [picks, setPicks] = useState<Picks>(() => Object.fromEntries(groups.filter(isAutoGroup).map((g) => [g.key, Array(g.min).fill(g.options[0].key)])));
   const [comment, setComment] = useState("");
@@ -838,7 +845,7 @@ function ChoiceSheet({
   });
 
   function tryAdd() {
-    if (!problem) return onAdd(picks, comment.trim());
+    if (!problem) return onAdd(picks, comment.trim(), amount);
     if (!missing) return;
     const el = groupRefs.current[missing.key];
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -867,7 +874,7 @@ function ChoiceSheet({
             <div className="flex-1">
               <h2 className="text-xl font-black">{product.name}</h2>
               {product.description && <p className="text-sm text-zinc-500">{product.description}</p>}
-              <p className="font-black" style={{ color }}>{money(Number(product.price))}</p>
+              <p className="font-black" style={{ color }}>{bulk ? priceTag(product) : money(Number(product.price))}</p>
             </div>
             <button onClick={onClose} className="rounded-full bg-zinc-100 px-3 py-1 text-lg" aria-label="Cerrar">✕</button>
           </div>
@@ -917,6 +924,25 @@ function ChoiceSheet({
             );
           })}
 
+          {bulk && (
+            <div className="mt-5" data-bulk-amount>
+              <p className="font-black">¿Cuánto quieres?</p>
+              <div className="mt-2 grid grid-cols-4 gap-2">
+                {bulkChoices(bulk).map((q) => (
+                  <button
+                    key={q}
+                    type="button"
+                    onClick={() => setAmount(q)}
+                    className="rounded-xl border px-2 py-3 text-sm font-black"
+                    style={amount === q ? { borderColor: color, background: `${color}14`, color } : { borderColor: "#e4e4e7" }}
+                  >
+                    {qtyText(q, bulk)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
           <label className="mt-5 block text-sm font-bold">
             Indicaciones (opcional)
             <input value={comment} maxLength={140} onChange={(e) => setComment(e.target.value)} placeholder="Ej. sin cebolla" className="mt-1 w-full rounded-xl border border-zinc-200 px-4 py-3" />
@@ -933,7 +959,7 @@ function ChoiceSheet({
             className="w-full rounded-2xl py-4 text-lg font-black text-white"
             style={problem ? { background: "#a1a1aa" } : { background: color }}
           >
-            Agregar · {money(total)}
+            Agregar{bulk ? ` ${qtyText(amount, bulk)}` : ""} · {money(Math.round(total * (bulk ? amount : 1) * 100) / 100)}
           </button>
         </div>
       </div>
@@ -1116,7 +1142,7 @@ function Checkout({
   const belowMin = menu.minOrder > 0 && subtotal < menu.minOrder;
 
   function qty(key: string, delta: number) {
-    setCart((c) => c.map((l) => (l.key === key ? { ...l, quantity: l.quantity + delta } : l)).filter((l) => l.quantity > 0));
+    setCart((c) => c.map((l) => (l.key === key ? { ...l, quantity: stepQty(l, delta) } : l)).filter((l) => l.quantity > 0));
   }
 
   async function send() {
@@ -1145,7 +1171,7 @@ function Checkout({
       ...(payment === "Efectivo" && Number(cashWith) > 0 ? { cashWith: Number(cashWith) } : {}),
       note: note.trim().slice(0, 200),
       ...(scheduledFor ? { scheduledFor } : {}),
-      lines: cart.map(({ productId, name: n, quantity, unitPrice, picks, summary, comment }) => ({ productId, name: n, quantity, unitPrice, picks, summary, ...(comment ? { comment } : {}) })),
+      lines: cart.map(({ productId, name: n, quantity, unitPrice, picks, summary, comment, unit }) => ({ productId, name: n, quantity, unitPrice, picks, summary, ...(comment ? { comment } : {}), ...(unit ? { unit } : {}) })),
       subtotal,
       deliveryFee: fee,
       ...(quote ? { deliveryQuote: true } : {}),
@@ -1204,7 +1230,7 @@ function Checkout({
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => qty(l.key, -1)} className="h-8 w-8 rounded-full bg-zinc-100 font-black" aria-label="Quitar uno">−</button>
-                <span className="w-5 text-center font-black">{l.quantity}</span>
+                <span className="min-w-5 whitespace-nowrap text-center font-black">{qtyText(l.quantity, l.unit)}</span>
                 <button onClick={() => qty(l.key, 1)} className="h-8 w-8 rounded-full bg-zinc-100 font-black" aria-label="Agregar uno">+</button>
               </div>
             </div>
@@ -1692,7 +1718,7 @@ function OrderTracking({ slug, placed, data, customer, onBack }: { slug: string;
           <div className="my-3 border-t border-dashed border-zinc-300" />
           {d.lines.map((l, i) => (
             <div key={i} className="mb-1">
-              <p className="flex justify-between gap-2"><span>{l.quantity} x {l.name}</span><span>{money(l.unitPrice * l.quantity)}</span></p>
+              <p className="flex justify-between gap-2"><span>{lineLabel(l, "x")}</span><span>{money(l.unitPrice * l.quantity)}</span></p>
               {l.summary && <p className="pl-4 text-xs text-zinc-500">{l.summary}</p>}
               {l.comment && <p className="pl-4 text-xs italic text-zinc-500">“{l.comment}”</p>}
             </div>

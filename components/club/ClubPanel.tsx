@@ -10,6 +10,7 @@ import { useEffect, useState } from "react";
 import { getCurrentUser } from "@/lib/auth";
 import { LOYALTY_EVENT, balanceLabel, clubName, getLoyalty, type LoyaltyConfig } from "@/lib/loyalty";
 import { findMembers, redeemLoyalty, welcomeGiftClaimed, type ClubMember } from "@/lib/loyalty-pos";
+import { CameraScanButton } from "@/components/retail/CameraScanner";
 import { getBusinessSettings } from "@/lib/business-settings";
 
 /**
@@ -59,11 +60,11 @@ export function ClubPanel({
   if (!config?.enabled) return null;
   const name = clubName(config, getBusinessSettings().businessName || "");
 
-  async function search() {
+  async function search(q = query) {
     setBusy(true);
     setMessage("");
     try {
-      const found = await findMembers(query);
+      const found = await findMembers(q);
       setResults(found);
       if (found.length === 1) pick(found[0]);
       if (!found.length) setMessage("No hay un cliente con ese teléfono o código.");
@@ -159,6 +160,18 @@ export function ClubPanel({
               onKeyDown={(e) => e.key === "Enter" && void search()}
               placeholder="Teléfono o código de tarjeta"
               className="min-w-0 flex-1 rounded-2xl border border-zinc-800 bg-black px-3 py-2.5 text-sm text-white"
+            />
+            {/* Sin lector: el QR de la tarjeta del socio con la cámara del equipo */}
+            <CameraScanButton
+              title="Escanear la tarjeta del club con la cámara"
+              prompt="📷 Apunta al QR de la tarjeta del club"
+              checkDigit={false}
+              className="shrink-0 rounded-2xl border border-zinc-700 px-3 text-sm font-black text-zinc-200 hover:border-orange-500"
+              onCode={(code) => {
+                const q = code.toUpperCase();
+                setQuery(q);
+                void search(q);
+              }}
             />
             <button disabled={busy || !query.trim()} onClick={() => void search()} className="rounded-2xl border border-orange-500 px-3 text-sm font-black text-orange-300 disabled:opacity-40">
               {busy ? "..." : "Buscar"}

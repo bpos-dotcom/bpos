@@ -4,10 +4,11 @@
  * de control cuadra, para no agregar un artículo equivocado por una lectura
  * borrosa. "" = no sirve, se sigue leyendo.
  */
-export function cleanScannedCode(raw: unknown) {
+export function cleanScannedCode(raw: unknown, opts: { checkDigit?: boolean } = {}) {
   const code = String(raw ?? "").replace(/\s+/g, "").trim();
   if (code.length < 4 || code.length > 40) return "";
-  if (/^\d+$/.test(code) && [8, 12, 13].includes(code.length) && !validCheckDigit(code)) return "";
+  // checkDigit false: no es de un producto (ej. el QR de la tarjeta del club)
+  if (opts.checkDigit !== false && /^\d+$/.test(code) && [8, 12, 13].includes(code.length) && !validCheckDigit(code)) return "";
   return code;
 }
 
