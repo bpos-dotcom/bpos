@@ -38,7 +38,8 @@ const server = express();
 // Solo B-POS puede mandarle órdenes (imprimir, abrir el cajón): antes cualquier página
 // abierta en esta computadora podía hacerlo. Chrome además pide permiso para que una
 // página de internet hable con la computadora local (Private Network Access).
-const ALLOWED_ORIGINS = new Set(["https://www.bpos.com.mx", "https://bpos.com.mx", "http://localhost:3000", "http://localhost:3200", "http://127.0.0.1:3000", "http://127.0.0.1:3200"]);
+// La versión Cloudflare (prueba de la mudanza) también manda a imprimir
+const ALLOWED_ORIGINS = new Set(["https://www.bpos.com.mx", "https://bpos.com.mx", "https://bpos-nube.maderorecords.workers.dev", "http://localhost:3000", "http://localhost:3200", "http://127.0.0.1:3000", "http://127.0.0.1:3200"]);
 server.use((req, res, next) => {
   if (req.headers["access-control-request-private-network"]) res.setHeader("Access-Control-Allow-Private-Network", "true");
   next();

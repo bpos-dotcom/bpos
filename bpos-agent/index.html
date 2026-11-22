@@ -69,6 +69,13 @@
         <div class="muted" id="linkInfo"></div>
       </div>
 
+      <div class="box wide" id="modeBox">
+        <h2>Versión de B-POS</h2>
+        <div class="val" id="modeMsg">...</div>
+        <div class="muted" id="modeHelp"></div>
+        <div class="row" style="margin-top: 8px"><button id="modeBtn">...</button></div>
+      </div>
+
       <div class="box">
         <h2>Impresora virtual</h2>
         <div class="val"><span id="printerDot" class="dot warn"></span>"B-POS Agent Virtual Printer"</div>
@@ -131,6 +138,14 @@
         $("linkInfo").textContent = c.linked
           ? `${c.businessName} · ${c.branchName}${c.pending ? ` · ${c.pending} pedido(s) en espera de subir` : ""}`
           : "";
+        // Versión Cloudflare (prueba de la mudanza) o la de siempre
+        $("modeMsg").textContent = c.prueba ? "☁️ Versión Cloudflare (prueba)" : "B-POS de siempre (www.bpos.com.mx)";
+        $("modeMsg").style.color = c.prueba ? "var(--pair-title)" : "";
+        $("modeHelp").textContent = c.prueba
+          ? "Los pedidos de las plataformas llegan a la versión Cloudflare, no a tu caja de siempre. Regresa cuando termines de probar."
+          : "Para probar la versión Cloudflare con pedidos de verdad. Se regresa con un botón, sin volver a vincular.";
+        $("modeBtn").textContent = c.prueba ? "Regresar a www.bpos.com.mx" : "Probar con versión Cloudflare";
+        $("modeBtn").className = c.prueba ? "primary" : "";
         const p = s.printer || {};
         $("printerDot").className = `dot ${p.ok === true ? "ok" : p.ok === false ? "bad" : "warn"}`;
         $("printerMsg").textContent = p.ok === true ? "Ahí se mandan los tickets de las plataformas" : p.message || "Revisando...";
@@ -187,6 +202,16 @@
         if (e.key === "Enter") pair();
       });
       $("unlinkBtn").onclick = () => window.bpos.unlink();
+      $("modeBtn").onclick = async () => {
+        const s = await window.bpos.getState();
+        $("modeBtn").disabled = true;
+        $("pairErr").textContent = "";
+        try {
+          render(await window.bpos.setMode(!s.cloud.prueba));
+        } finally {
+          $("modeBtn").disabled = false;
+        }
+      };
       $("updateBtn").onclick = async () => {
         const s = await window.bpos.getState();
         if (s.update.state === "ready") window.bpos.installUpdate();
