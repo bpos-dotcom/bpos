@@ -26,6 +26,11 @@ export type NubeEnv = {
   NUBE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
   NUBE_ISSUER?: string;
+  /** Mudanza: llave de las copias y el Supabase de origen (también respaldo de sesiones) */
+  MUDANZA_KEY?: string;
+  SOURCE_SUPABASE_URL?: string;
+  SOURCE_SUPABASE_SERVICE_KEY?: string;
+  SOURCE_SUPABASE_ANON_KEY?: string;
 };
 
 /** ¿Este Worker tiene la nube prendida? (la versión aparte sí; la de Supabase no) */
@@ -40,7 +45,13 @@ function deps(env: NubeEnv, ctx: CtxLike | null): NubeDeps {
   return {
     db,
     base: NUBE_BASE,
-    auth: { jwtSecret: env.NUBE_JWT_SECRET!, serviceKey: env.SUPABASE_SERVICE_ROLE_KEY!, anonKey: env.NUBE_ANON_KEY!, issuer: env.NUBE_ISSUER || "nube-bpos" },
+    auth: {
+      jwtSecret: env.NUBE_JWT_SECRET!,
+      serviceKey: env.SUPABASE_SERVICE_ROLE_KEY!,
+      anonKey: env.NUBE_ANON_KEY!,
+      issuer: env.NUBE_ISSUER || "nube-bpos",
+      ...(env.SOURCE_SUPABASE_URL && env.SOURCE_SUPABASE_ANON_KEY ? { legacy: { url: env.SOURCE_SUPABASE_URL, anonKey: env.SOURCE_SUPABASE_ANON_KEY } } : {}),
+    },
     onSyncHead: (businessId, seq) => {
       if (stub) later(stub.fetch("https://realtime/notify", { method: "POST", body: JSON.stringify({ businessId, seq }) }));
     },
@@ -48,6 +59,9 @@ function deps(env: NubeEnv, ctx: CtxLike | null): NubeDeps {
       if (stub && messages.length) later(stub.fetch("https://realtime/broadcast", { method: "POST", body: JSON.stringify({ messages }) }));
     },
     storage: env.NUBE_FILES ? (request, path, auth) => handleStorage(request, path, auth, { db, bucket: env.NUBE_FILES! }) : undefined,
+    ...(env.MUDANZA_KEY && env.SOURCE_SUPABASE_URL && env.SOURCE_SUPABASE_SERVICE_KEY
+      ? { migrate: { key: env.MUDANZA_KEY, source: { url: env.SOURCE_SUPABASE_URL, key: env.SOURCE_SUPABASE_SERVICE_KEY }, bucket: env.NUBE_FILES } }
+      : {}),
   };
 }
 

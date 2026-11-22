@@ -17,7 +17,38 @@ import { nowIso } from "./values";
 export const ACCESS_TTL_S = 3600;
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8", "x-supabase-api-version": "2024-01-01" };
 
-export type AuthEnv = { jwtSecret: string; serviceKey: string; anonKey: string; issuer: string };
+export type AuthEnv = {
+  jwtSecret: string;
+  serviceKey: string;
+  anonKey: string;
+  issuer: string;
+  /**
+   * Supabase de antes (respaldo): las sesiones que ya tenían las cajas antes
+   * del cambio se aceptan y se cambian por una de la nube, sin volver a entrar.
+   */
+  legacy?: { url: string; anonKey: string; fetch?: typeof fetch };
+};
+
+/** Sesiones de Supabase ya revisadas (token → usuario), para no preguntarle en cada petición */
+const legacyCache = new Map<string, { uid: string; email: string | null; until: number }>();
+
+async function legacyUser(env: AuthEnv, token: string) {
+  if (!env.legacy) return null;
+  const hit = legacyCache.get(token);
+  if (hit && hit.until > Date.now()) return hit;
+  try {
+    const res = await (env.legacy.fetch || fetch)(`${env.legacy.url}/auth/v1/user`, { headers: { apikey: env.legacy.anonKey, authorization: `Bearer ${token}` } });
+    if (!res.ok) return null;
+    const user = (await res.json()) as { id?: string; email?: string };
+    if (!user.id) return null;
+    const entry = { uid: user.id, email: user.email ?? null, until: Date.now() + 5 * 60000 };
+    if (legacyCache.size > 500) legacyCache.clear();
+    legacyCache.set(token, entry);
+    return entry;
+  } catch {
+    return null;
+  }
+}
 
 // ------------------------------------------------------------ JWT (HS256)
 
@@ -64,6 +95,11 @@ export async function authFromRequest(headers: Headers, env: AuthEnv): Promise<A
     const claims = await verifyJwt(bearer, env.jwtSecret);
     if (claims?.role === "service_role") return { role: "service", uid: null };
     if (claims && typeof claims.sub === "string") return { role: "authenticated", uid: claims.sub, email: typeof claims.email === "string" ? claims.email : null };
+    // Sesión de Supabase de antes del cambio: vale mientras la caja la cambia por una de la nube
+    if (!claims && bearer.split(".").length === 3) {
+      const legacy = await legacyUser(env, bearer);
+      if (legacy) return { role: "authenticated", uid: legacy.uid, email: legacy.email };
+    }
   }
   return { role: "anon", uid: null };
 }
@@ -175,6 +211,17 @@ export async function handleAuth(db: Db, env: AuthEnv, auth: Auth, method: strin
       if (grant === "refresh_token") {
         const token = String(body.refresh_token || "");
         const row = await db.first<{ token: string; user_id: string; session_id: string; revoked: number; used_at: string | null }>("SELECT * FROM nube_refresh_tokens WHERE token = ?", [token]);
+        if (!row && env.legacy) {
+          // Refresh token de Supabase (de antes del cambio): se cambia por una sesión de la nube
+          const res = await (env.legacy.fetch || fetch)(`${env.legacy.url}/auth/v1/token?grant_type=refresh_token`, {
+            method: "POST",
+            headers: { apikey: env.legacy.anonKey, "content-type": "application/json" },
+            body: JSON.stringify({ refresh_token: token }),
+          }).catch(() => null);
+          const old = res && res.ok ? ((await res.json()) as { user?: { id?: string } }) : null;
+          const user = old?.user?.id ? await userById(db, old.user.id) : null;
+          if (user) return ok(await issueSession(db, env, user));
+        }
         if (!row || row.revoked) return fail(400, "refresh_token_not_found", "Invalid Refresh Token: Refresh Token Not Found");
         // Usado hace menos de 10 s: otra pestaña lo cambió al mismo tiempo; se acepta (como Supabase)
         if (row.used_at && Date.now() - Date.parse(row.used_at) > 10_000) {

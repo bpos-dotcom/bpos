@@ -9,6 +9,8 @@ import { authFromRequest, handleAuth, type AuthEnv } from "./auth";
 import { errorReply, handleRest, type NubeCtx, type Reply } from "./rest";
 import { RestError } from "./postgrest";
 import { handleRpc } from "./rpc";
+import { copyFilesFolder, copyTablePage, copyUsersPage, counts, fixSequences, rewriteFileUrls, type Source } from "./migrate";
+import type { BucketLike } from "./storage";
 
 export type NubeDeps = {
   db: Db;
@@ -20,6 +22,8 @@ export type NubeDeps = {
   broadcast?: (messages: { topic: string; event: string; payload: unknown }[]) => Promise<void>;
   /** Archivos (R2) */
   storage?: (request: Request, path: string, auth: Awaited<ReturnType<typeof authFromRequest>>) => Promise<Response>;
+  /** Mudanza desde Supabase (solo con la llave de la mudanza) */
+  migrate?: { key: string; source: Source; bucket?: BucketLike };
 };
 
 const CORS = {
@@ -49,6 +53,23 @@ export async function handleNubeRequest(request: Request, deps: NubeDeps): Promi
   const path = url.pathname.startsWith(deps.base) ? url.pathname.slice(deps.base.length) : url.pathname;
   try {
     const auth = await authFromRequest(request.headers, deps.auth);
+
+    // Mudanza: copiar de Supabase (por pedazos). Solo con la llave de la mudanza.
+    if (path.startsWith("/_mudanza/")) {
+      const m = deps.migrate;
+      if (!m || !m.key || request.headers.get("x-mudanza") !== m.key) return toResponse({ status: 403, headers: {}, body: null });
+      const body = ((await readBody(request)) || {}) as Row;
+      const step = path.slice("/_mudanza/".length);
+      let out: unknown;
+      if (step === "tabla") out = await copyTablePage(deps.db, m.source, String(body.table), Number(body.offset) || 0, Number(body.pageSize) || 500);
+      else if (step === "usuarios") out = await copyUsersPage(deps.db, m.source, Number(body.offset) || 0);
+      else if (step === "fotos" && m.bucket) out = await copyFilesFolder(m.source, m.bucket, String(body.bucket || "bpos-media"), String(body.prefix || ""));
+      else if (step === "secuencias") out = { seq: await fixSequences(deps.db) };
+      else if (step === "direcciones") out = await rewriteFileUrls(deps.db, String(body.oldBase), String(body.newBase));
+      else if (step === "conteo") out = await counts(deps.db);
+      else return toResponse({ status: 404, headers: {}, body: null });
+      return toResponse({ status: 200, headers: { "content-type": "application/json" }, body: JSON.stringify(out) });
+    }
 
     if (path.startsWith("/auth/v1")) {
       const body = ((await readBody(request)) || {}) as Row;

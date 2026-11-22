@@ -76,7 +76,22 @@ const taskEvidenceItem: RpcFn = async ({ db }, args) => {
   return items;
 };
 
+/** Usuarios con su contraseña cifrada (solo el servidor; sirve para mudarse de regreso a Supabase) */
+const exportUsers: RpcFn = async (ctx, args) => {
+  if (ctx.auth.role !== "service") throw new RpcError("Solo el servidor", 403, "42501");
+  const rows = await ctx.db.all<Row>("SELECT * FROM nube_users ORDER BY created_at, id LIMIT ? OFFSET ?", [Math.min(1000, Number(args.p_limit) || 500), Number(args.p_offset) || 0]);
+  const parse = (s: unknown) => {
+    try {
+      return JSON.parse(String(s || "{}"));
+    } catch {
+      return {};
+    }
+  };
+  return rows.map((u) => ({ id: u.id, email: u.email, encrypted_password: u.encrypted_password, email_confirmed_at: u.email_confirmed_at, raw_user_meta_data: parse(u.user_metadata), raw_app_meta_data: { provider: "email", providers: ["email"], ...parse(u.app_metadata) }, banned_until: u.banned_until, last_sign_in_at: u.last_sign_in_at, created_at: u.created_at, updated_at: u.updated_at }));
+};
+
 export const ADMIN_RPC: Record<string, RpcFn> = {
+  nube_export_usuarios: exportUsers,
   create_business: createBusiness,
   bpos_admin_businesses: adminBusinesses,
   bpos_admin_update_business: adminUpdateBusiness,
