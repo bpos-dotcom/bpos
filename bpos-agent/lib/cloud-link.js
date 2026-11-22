@@ -22,6 +22,17 @@ const license = require("./license");
 const DEFAULT_NUBE = { url: "https://fhsqwbtkxpzvmqplwqul.supabase.co", key: "sb_publishable_noKOXLF2fFBR2TCbgkxGRg__GlHxzbS" };
 /** B-POS en la web (botón "Abrir B-POS"); para probar la versión aparte se cambia con BPOS_WEB_URL */
 const WEB_URL = process.env.BPOS_WEB_URL || "https://www.bpos.com.mx";
+/**
+ * Versión Cloudflare (mudanza 2026): el Agent se puede pasar a ella para
+ * probarla con pedidos de verdad y regresar con un botón. Cada versión
+ * guarda su propia vinculación, así regresar no pide código nuevo.
+ */
+const PRUEBA_URL = process.env.BPOS_PRUEBA_URL || "https://bpos-nube.maderorecords.workers.dev";
+let prueba = false;
+/** A qué B-POS habla ahora: el de siempre o la versión Cloudflare */
+function getWebUrl() {
+  return prueba ? PRUEBA_URL : WEB_URL;
+}
 const NUBE_EVERY_MS = 10 * 60_000;
 let nube = { ...DEFAULT_NUBE };
 let nubeTimer = null;
@@ -48,7 +59,10 @@ let wakePending = false; // llegó un aviso durante la vuelta: revisar otra vez 
 let wakeTopic = ""; // canal del despertador ya abierto (agent-<id>)
 
 function nubeFile() {
-  return path.join(dataDir, "nube.json");
+  return path.join(dataDir, prueba ? "nube-prueba.json" : "nube.json");
+}
+function modeFile() {
+  return path.join(dataDir, "version-bpos.json");
 }
 
 /** La nube válida: dirección https y llave */
@@ -59,7 +73,7 @@ function validNube(n) {
 /** Pregunta a B-POS a qué nube hablar; si cambió, se guarda y se reabre el despertador */
 async function refreshNube() {
   try {
-    const response = await fetch(`${WEB_URL}/api/nube`, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+    const response = await fetch(`${getWebUrl()}/api/nube`, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
     const next = validNube(await response.json());
     if (!response.ok || !next) return;
     if (next.url === nube.url && next.key === nube.key) return;
@@ -76,7 +90,7 @@ async function refreshNube() {
 }
 
 function linkFile() {
-  return path.join(dataDir, "agent-link.json");
+  return path.join(dataDir, prueba ? "agent-link-prueba.json" : "agent-link.json");
 }
 function outboxFile() {
   return path.join(dataDir, "outbox.json");
@@ -97,6 +111,8 @@ function getStatus() {
     businessName: link?.businessName || "",
     branchName: link?.branchName || "",
     pending: readOutbox().length,
+    prueba,
+    webUrl: getWebUrl(),
   };
 }
 
@@ -232,7 +248,7 @@ async function pair(code) {
 }
 
 function unlink() {
-  license.clear();
+  if (!prueba) license.clear();
   writeLink(null);
   setStatus({ state: "unlinked", message: "Sin vincular" });
 }
@@ -320,7 +336,8 @@ async function pollOnce() {
     setStatus({ state: "connected", message: "Conectado a B-POS", lastPollAt: new Date().toISOString() });
     // Permiso de uso: se renueva cada 6 h mientras hay internet
     // (o ya mismo si el permiso no está vigente, p. ej. recién pagó o volvió el internet)
-    void license.refresh(WEB_URL, link.token, !license.status().ok);
+    // (solo con el B-POS de siempre: la versión de prueba no da permisos)
+    if (!prueba) void license.refresh(WEB_URL, link.token, !license.status().ok);
     for (const job of result.jobs || []) await runJob(job);
     return POLL_MS;
   } catch (error) {
@@ -380,10 +397,11 @@ function startCloudLink(opts) {
   applyStationPrinters = opts.applyStationPrinters;
   license.init(dataDir);
   try {
-    nube = validNube(JSON.parse(fs.readFileSync(nubeFile(), "utf8"))) || { ...DEFAULT_NUBE };
+    prueba = JSON.parse(fs.readFileSync(modeFile(), "utf8"))?.prueba === true;
   } catch {
-    nube = { ...DEFAULT_NUBE };
+    prueba = false;
   }
+  loadNube();
   void refreshNube();
   nubeTimer = setInterval(() => void refreshNube(), NUBE_EVERY_MS);
   link = readLink();
@@ -403,9 +421,42 @@ function stopCloudLink() {
   clearInterval(outboxTimer);
 }
 
+function loadNube() {
+  try {
+    nube = validNube(JSON.parse(fs.readFileSync(nubeFile(), "utf8"))) || { ...DEFAULT_NUBE };
+  } catch {
+    nube = { ...DEFAULT_NUBE };
+  }
+}
+
+/**
+ * Pasa el Agent a la versión Cloudflare (prueba = true) o lo regresa al
+ * B-POS de siempre. Los pedidos que lleguen se mandan a la versión elegida.
+ */
+async function setMode(next) {
+  next = next === true;
+  if (next === prueba) return getStatus();
+  clearTimeout(pollTimer);
+  stopWake();
+  wakeTopic = "";
+  prueba = next;
+  fs.mkdirSync(dataDir, { recursive: true });
+  fs.writeFileSync(modeFile(), JSON.stringify({ prueba }));
+  loadNube();
+  link = readLink();
+  lastPrintersAt = 0;
+  lastStationConfig = "";
+  console.log(`B-POS Agent: ahora habla con ${getWebUrl()}`);
+  setStatus(link ? { state: "connecting", message: "Conectando..." } : { state: "unlinked", message: "Sin vincular" });
+  await refreshNube();
+  // Antes de saber la nube de la versión Cloudflare no se puede vincular: sin ella se queda en la de siempre
+  schedulePoll(0);
+  return getStatus();
+}
+
 /** A qué nube habla ahora (para la ventana y las pruebas) */
 function getNube() {
   return { ...nube };
 }
 
-module.exports = { startCloudLink, stopCloudLink, submitOrder, pair, unlink, onStatus, getStatus, getLinkInfo, getNube, refreshNube, validNube, WEB_URL };
+module.exports = { startCloudLink, stopCloudLink, submitOrder, pair, unlink, onStatus, getStatus, getLinkInfo, getNube, refreshNube, validNube, setMode, getWebUrl, WEB_URL, PRUEBA_URL };

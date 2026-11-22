@@ -79,18 +79,18 @@ function setAutoStart() {
 
 function openBpos(route = "/") {
   // Caja local activada: B-POS se abre en su ventana (datos en el disco), no en Chrome
-  if (caja.isEnabled()) {
+  if (caja.isEnabled() && !cloudLink.getStatus().prueba) {
     caja.openCaja(route === "/" ? "/inicio" : route);
     return Promise.resolve();
   }
-  return shell.openExternal(`${cloudLink.WEB_URL}${route}`);
+  return shell.openExternal(`${cloudLink.getWebUrl()}${route}`);
 }
 
 function state() {
   return {
     appVersion: app.getVersion(),
     cloud: cloudLink.getStatus(),
-    webUrl: cloudLink.WEB_URL,
+    webUrl: cloudLink.getWebUrl(),
     update: updater.getUpdateStatus(),
     // Con los mismos args que setAutoStart, si no Windows no lo reconoce como el mismo registro
     autoStart: app.isPackaged ? app.getLoginItemSettings({ args: ["--hidden"] }).openAtLogin : false,
@@ -145,7 +145,7 @@ function refreshTray() {
       { label: "Abrir B-POS", click: () => openBpos("/") },
       { label: "Ver estado", click: showWindow },
       ...(caja.isEnabled()
-        ? [{ label: "Abrir B-POS en Chrome (no en la caja local)", click: () => shell.openExternal(`${cloudLink.WEB_URL}/inicio`) }]
+        ? [{ label: "Abrir B-POS en Chrome (no en la caja local)", click: () => shell.openExternal(`${cloudLink.getWebUrl()}/inicio`) }]
         : []),
       { type: "separator" },
       u.state === "ready"
@@ -218,6 +218,11 @@ function registerIpc() {
       detail: "Dejará de imprimir y de mandar los pedidos de delivery hasta que escribas un código nuevo.",
     });
     if (response === 0) cloudLink.unlink();
+    broadcast();
+    return state();
+  });
+  ipcMain.handle("bpos:set-mode", async (_e, prueba) => {
+    await cloudLink.setMode(prueba === true);
     broadcast();
     return state();
   });

@@ -17,4 +17,5 @@ contextBridge.exposeInMainWorld("bpos", {
   openLogs: () => ipcRenderer.invoke("bpos:open-logs"),
   tailLog: () => ipcRenderer.invoke("bpos:tail-log"),
   setAutoStart: (enabled) => ipcRenderer.invoke("bpos:set-autostart", enabled),
+  setMode: (prueba) => ipcRenderer.invoke("bpos:set-mode", prueba),
 });
