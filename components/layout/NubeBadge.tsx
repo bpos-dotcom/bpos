@@ -3,7 +3,10 @@
  * B-POS se compiló para la nube de Cloudflare (NEXT_PUBLIC_BPOS_NUBE), así el
  * dueño sabe a simple vista qué versión está usando. No estorba los clics.
  */
-export const NUBE_KIND = process.env.NEXT_PUBLIC_BPOS_NUBE === "cloudflare" ? "cloudflare" : "supabase";
+import { SUPABASE_URL } from "@/lib/supabase/client";
+
+/** Cloudflare si así se compiló o si la dirección de la nube es la de Cloudflare (termina en /sb) */
+export const NUBE_KIND = process.env.NEXT_PUBLIC_BPOS_NUBE === "cloudflare" || SUPABASE_URL.endsWith("/sb") ? "cloudflare" : "supabase";
 
 export function NubeBadge() {
   if (NUBE_KIND !== "cloudflare") return null;

@@ -14,12 +14,26 @@ import { NUBE_BASE, handleNube, installInternalFetch, nubeEnabled, type NubeEnv 
 
 export { NubeRealtime } from "./nube/worker";
 
-type Env = { CRON_SECRET?: string; NUBE_PUBLIC_URL?: string } & NubeEnv & Record<string, unknown>;
+type Env = { CRON_SECRET?: string; NUBE_PUBLIC_URL?: string; NUBE_SERVICE_ROLE_KEY?: string } & NubeEnv & Record<string, unknown>;
 type Ctx = { waitUntil(p: Promise<unknown>): void };
 
 const CRONS: Record<string, string> = {
   "0 14 * * 1": "/api/cron/asesor-semanal",
 };
+
+/**
+ * Llave de servidor de la nube de Cloudflare: en producción se guarda como
+ * NUBE_SERVICE_ROLE_KEY para no pisar la de Supabase (SUPABASE_SERVICE_ROLE_KEY,
+ * que se queda para poder regresar). Con la nube prendida, el servidor de
+ * B-POS y la nube usan la de Cloudflare.
+ */
+function useNubeServiceKey(env: Env) {
+  const key = env.NUBE_SERVICE_ROLE_KEY;
+  if (typeof key === "string" && key && env.NUBE_DB) {
+    env.SUPABASE_SERVICE_ROLE_KEY = key;
+    if (typeof process !== "undefined" && process.env) process.env.SUPABASE_SERVICE_ROLE_KEY = key;
+  }
+}
 
 /** Direcciones con las que el propio servidor llama a la nube (supabase-js): la pública de la compilación y la de esta petición */
 function nubeUrls(env: Env, request?: Request) {
@@ -28,6 +42,7 @@ function nubeUrls(env: Env, request?: Request) {
 
 export default {
   async fetch(request: Request, env: Env, ctx: Ctx) {
+    useNubeServiceKey(env);
     if (nubeEnabled(env)) {
       installInternalFetch(env, nubeUrls(env, request));
       const path = new URL(request.url).pathname;
@@ -36,6 +51,7 @@ export default {
     return handler.fetch(request, env, ctx);
   },
   async scheduled(event: { cron: string }, env: Env, ctx: Ctx) {
+    useNubeServiceKey(env);
     const path = CRONS[event.cron];
     if (!path) return;
     if (nubeEnabled(env)) installInternalFetch(env, nubeUrls(env));
