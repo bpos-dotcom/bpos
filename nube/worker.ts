@@ -25,6 +25,8 @@ export type NubeEnv = {
   NUBE_JWT_SECRET?: string;
   NUBE_ANON_KEY?: string;
   SUPABASE_SERVICE_ROLE_KEY?: string;
+  /** Llave de la nube cuando el Worker también guarda la de Supabase (www.bpos.com.mx) */
+  NUBE_SERVICE_ROLE_KEY?: string;
   NUBE_ISSUER?: string;
   /** Mudanza: llave de las copias y el Supabase de origen (también respaldo de sesiones) */
   MUDANZA_KEY?: string;
@@ -112,7 +114,8 @@ export class NubeRealtime {
     this.hub = new RealtimeHub({
       db: d1Db(env.NUBE_DB!),
       jwtSecret: env.NUBE_JWT_SECRET || "",
-      serviceKey: env.SUPABASE_SERVICE_ROLE_KEY || "",
+      // El Durable Object recibe el env original: en www.bpos.com.mx SUPABASE_SERVICE_ROLE_KEY es la de Supabase
+      serviceKey: env.NUBE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY || "",
       sockets: () => this.state.getWebSockets().map((ws) => this.wrap(ws)),
     });
   }
