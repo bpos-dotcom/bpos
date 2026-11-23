@@ -173,6 +173,14 @@ let rawRemove: (key: string) => void = () => undefined;
 let rawGet: (key: string) => string | null = () => null;
 let shadow: Shadow = {};
 let meta: SyncMeta | null = null;
+/** Estado del canal de tiempo real ("SUBSCRIBED" = llegan los avisos al instante) */
+let liveStatus = "CONNECTING";
+
+/** Cada cuánto revisar la nube por si un aviso no llegó */
+export function pollEveryMs(live: boolean, visible: boolean) {
+  if (live) return visible ? 60_000 : 120_000;
+  return visible ? 10_000 : 30_000;
+}
 let dirty = new Set<string>();
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 let pullTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1138,12 +1146,23 @@ export function startSync(acc: ReadyAccount) {
       schedulePull();
     }
   );
-  channel.subscribe();
+  channel.subscribe((status: string) => {
+    liveStatus = status;
+    // Al volver el tiempo real, de una vez lo que se pudo haber perdido
+    if (status === "SUBSCRIBED") schedulePull(100);
+  });
 
-  // Respaldo: revisión periódica (el tiempo real ya avisa de cada cambio), al volver la conexión y al regresar a la pestaña
+  // Respaldo: revisión periódica. Con tiempo real basta cada minuto; sin él (se cayó la
+  // conexión o la nube la rechazó) cada 10 s para que pedidos y mensajes no tarden.
+  // Si la pantalla está escondida se sigue revisando, más despacio (el navegador lo frena).
+  let lastPoll = Date.now();
   setInterval(() => {
-    if (document.visibilityState === "visible") void pull();
-  }, 60000);
+    const visible = document.visibilityState === "visible";
+    const every = pollEveryMs(liveStatus === "SUBSCRIBED", visible);
+    if (Date.now() - lastPoll < every) return;
+    lastPoll = Date.now();
+    void pull();
+  }, 5000);
   // Al cambiar de mes, el mes antepasado se va a la nube
   setInterval(() => void enqueue(async () => pruneArchivedOrders()), 60 * 60 * 1000);
   // El kardex viejo se va a la nube (al abrir y cada hora)
