@@ -10,8 +10,8 @@
  * la clave del proveedor de la fila. Claude sin clave propia usa
  * ANTHROPIC_API_KEY de Vercel; Gemini sin clave regresa a Claude Opus.
  *
- * Cifrado: AES-256-GCM con BPOS_SECRETS_KEY (si existe en Vercel) o, si no,
- * una llave derivada de SUPABASE_SERVICE_ROLE_KEY.
+ * Cifrado: AES-256-GCM con una llave derivada de la primera de secretBases()
+ * (BPOS_SECRETS_KEY o la llave de servidor de Supabase); al leer se prueban todas.
  */
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
@@ -90,10 +90,28 @@ export function adminDb() {
   return createClient(SUPABASE_URL, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
+/**
+ * Llaves con las que se pudieron cifrar las claves, de la que se usa para
+ * guardar a las de antes. La llave de servidor cambia con la nube (Supabase →
+ * Cloudflare, 22 nov 2026) y las claves ya guardadas no deben perderse:
+ *  - BPOS_SECRETS_KEY: la propia, si existe;
+ *  - SUPABASE_ORIGINAL_SERVICE_ROLE_KEY: la de Supabase que la nube de
+ *    Cloudflare reemplaza en SUPABASE_SERVICE_ROLE_KEY (custom-worker.ts);
+ *  - SOURCE_SUPABASE_SERVICE_KEY: la de Supabase en la versión aparte bpos-nube;
+ *  - SUPABASE_SERVICE_ROLE_KEY: la de la nube actual.
+ * Así www y bpos-nube cifran con la misma (la de Supabase) y leen las viejas.
+ */
+export function secretBases(env: Record<string, string | undefined> = process.env) {
+  const all = [env.BPOS_SECRETS_KEY, env.SUPABASE_ORIGINAL_SERVICE_ROLE_KEY, env.SOURCE_SUPABASE_SERVICE_KEY, env.SUPABASE_SERVICE_ROLE_KEY];
+  return [...new Set(all.map((k) => (k || "").trim()).filter(Boolean))];
+}
+
+const derive = (base: string) => createHash("sha256").update(`bpos-ai-keys:${base}`).digest();
+
 function secret() {
-  const base = process.env.BPOS_SECRETS_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-  if (!base) throw new Error("Falta la llave de cifrado en Vercel.");
-  return createHash("sha256").update(`bpos-ai-keys:${base}`).digest();
+  const base = secretBases()[0];
+  if (!base) throw new Error("Falta la llave de cifrado en el servidor.");
+  return derive(base);
 }
 
 export function encryptKey(plain: string) {
@@ -106,13 +124,16 @@ export function encryptKey(plain: string) {
 function decryptKey(stored: string) {
   const [v, iv, tag, data] = stored.split(":");
   if (v !== "v1" || !iv || !tag || !data) return "";
-  try {
-    const decipher = createDecipheriv("aes-256-gcm", secret(), Buffer.from(iv, "base64"));
-    decipher.setAuthTag(Buffer.from(tag, "base64"));
-    return Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8");
-  } catch {
-    return "";
+  for (const base of secretBases()) {
+    try {
+      const decipher = createDecipheriv("aes-256-gcm", derive(base), Buffer.from(iv, "base64"));
+      decipher.setAuthTag(Buffer.from(tag, "base64"));
+      return Buffer.concat([decipher.update(Buffer.from(data, "base64")), decipher.final()]).toString("utf8");
+    } catch {
+      // probar con la siguiente llave
+    }
   }
+  return "";
 }
 
 export const keyHint = (key: string) => (key ? `…${key.slice(-4)}` : "");

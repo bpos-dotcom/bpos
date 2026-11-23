@@ -17,6 +17,8 @@ export async function GET(request: NextRequest) {
   const session = await aiSession(request, false);
   if ("error" in session) return session.error;
   const a = session.allowance;
-  const reason = a.plan !== "max" ? "plan" : !a.active ? "inactive" : a.spent >= a.budget ? "limit" : null;
-  return aiReply(request, { success: true, plan: a.plan, active: a.active, available: !reason && Boolean(await getAiConfig("interprete")), reason });
+  const blocked = a.plan !== "max" ? "plan" : !a.active ? "inactive" : a.spent >= a.budget ? "limit" : null;
+  // Plan al corriente pero sin clave de IA que se pueda usar: es de B-POS, no del plan
+  const reason = blocked || ((await getAiConfig("interprete")) ? null : "unavailable");
+  return aiReply(request, { success: true, plan: a.plan, active: a.active, available: !reason, reason });
 }

@@ -29,6 +29,29 @@ async function main() {
   const again = { provider: "openai" as const, key_cipher: s.encryptKey(JSON.stringify({ openai: "sk-prueba-1234" })) };
   check("vuelta a pegar: se lee con la llave nueva", s.readKeys(again).openai === "sk-prueba-1234");
 
+  // Mudanza a la nube de Cloudflare (22 nov 2026): la llave de servidor cambia,
+  // pero las claves guardadas con la de Supabase se siguen leyendo
+  const env = process.env as Record<string, string | undefined>;
+  const reset = () => { for (const k of ["BPOS_SECRETS_KEY", "SUPABASE_ORIGINAL_SERVICE_ROLE_KEY", "SOURCE_SUPABASE_SERVICE_KEY", "SUPABASE_SERVICE_ROLE_KEY"]) delete env[k]; };
+  reset();
+  env.SUPABASE_SERVICE_ROLE_KEY = "llave-supabase";
+  const old = { provider: "gemini" as const, key_cipher: s.encryptKey(JSON.stringify({ gemini: "gem-5678" })) };
+  reset();
+  env.SUPABASE_SERVICE_ROLE_KEY = "llave-nube";
+  env.SUPABASE_ORIGINAL_SERVICE_ROLE_KEY = "llave-supabase";
+  check("www con la nube: lee las guardadas con Supabase", s.readKeys(old).gemini === "gem-5678", s.readKeys(old));
+  const fromWww = { provider: "gemini" as const, key_cipher: s.encryptKey(JSON.stringify({ gemini: "gem-9999" })) };
+  reset();
+  env.SUPABASE_SERVICE_ROLE_KEY = "llave-nube";
+  env.SOURCE_SUPABASE_SERVICE_KEY = "llave-supabase";
+  check("bpos-nube: lee las guardadas con Supabase", s.readKeys(old).gemini === "gem-5678", s.readKeys(old));
+  check("bpos-nube: lee las que se guardaron en www", s.readKeys(fromWww).gemini === "gem-9999", s.readKeys(fromWww));
+  const fromNube = { provider: "gemini" as const, key_cipher: s.encryptKey(JSON.stringify({ gemini: "gem-1111" })) };
+  reset();
+  env.SUPABASE_SERVICE_ROLE_KEY = "llave-supabase";
+  check("de regreso a Supabase: lee las que se guardaron en la nube", s.readKeys(fromNube).gemini === "gem-1111", s.readKeys(fromNube));
+  check("sin llaves repetidas ni vacías", JSON.stringify(s.secretBases({ BPOS_SECRETS_KEY: " ", SOURCE_SUPABASE_SERVICE_KEY: "a", SUPABASE_SERVICE_ROLE_KEY: "a" })) === '["a"]');
+
   console.log(`\n${ok} bien, ${bad} mal`);
   if (bad) process.exit(1);
 }
