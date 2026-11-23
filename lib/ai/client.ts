@@ -5,7 +5,7 @@
  */
 import { getSupabase } from "@/lib/supabase/client";
 
-export type AiStatus = { plan: string; active: boolean; available: boolean; reason: "plan" | "inactive" | "limit" | null };
+export type AiStatus = { plan: string; active: boolean; available: boolean; reason: "plan" | "inactive" | "limit" | "unavailable" | null };
 
 async function token() {
   const { data } = await getSupabase().auth.getSession();
@@ -35,4 +35,5 @@ export const AI_REASON_TEXT: Record<string, string> = {
   plan: "Las funciones con IA vienen en el plan Max.",
   inactive: "Tu plan no está activo. Revísalo en Configuración → Mi plan.",
   limit: "Ya usaste las funciones con IA de este mes. Vuelven el próximo mes.",
+  unavailable: "La IA de B-POS no está disponible por ahora; tu plan sí la incluye. Intenta más tarde.",
 };

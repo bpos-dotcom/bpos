@@ -30,6 +30,12 @@ const CRONS: Record<string, string> = {
 function useNubeServiceKey(env: Env) {
   const key = env.NUBE_SERVICE_ROLE_KEY;
   if (typeof key === "string" && key && env.NUBE_DB) {
+    // La de Supabase se guarda aparte: con ella están cifradas las claves de IA (lib/ai/settings.ts)
+    const original = env.SUPABASE_SERVICE_ROLE_KEY;
+    if (typeof original === "string" && original && original !== key && !env.SUPABASE_ORIGINAL_SERVICE_ROLE_KEY) {
+      env.SUPABASE_ORIGINAL_SERVICE_ROLE_KEY = original;
+      if (typeof process !== "undefined" && process.env) process.env.SUPABASE_ORIGINAL_SERVICE_ROLE_KEY = original;
+    }
     env.SUPABASE_SERVICE_ROLE_KEY = key;
     if (typeof process !== "undefined" && process.env) process.env.SUPABASE_SERVICE_ROLE_KEY = key;
   }
