@@ -57,8 +57,10 @@ export type InterpretedProduct = {
   quantity: number;
   /** Combo: leer sus sub-líneas para elegir opciones (ver BridgeAlias.compound) */
   compound?: boolean;
-  /** Sin equivalencia: se reconoció porque el nombre es igual al del producto del POS */
+  /** Sin equivalencia: se reconoció porque el nombre es igual (o claramente parecido) al de un producto del POS */
   auto?: boolean;
+  /** Opción sin costo del renglón de arriba (aderezo incluido): descuenta su inventario pero no suma al total */
+  free?: boolean;
 };
 
 export type InterpretedIngredient = {
@@ -216,6 +218,25 @@ function findAlias(
 /** Precio al final del renglón ("MX$0.00", "$25"); null si no trae */
 function linePrice(rawLine: string): number | null {
   return trailingPrice(rawLine);
+}
+
+/** "No, Gracias", "No", "Sin refresco", "Nada", "Ninguno": el cliente dijo que no */
+export function saysNo(name: string) {
+  return /^(no|sin|nada|ninguno|ninguna)( |,|$)/.test(normalize(name).replace(/[^a-z0-9ñ, ]+/g, " ").trim());
+}
+
+/**
+ * Producto del POS que nombra lo que dice el ticket: el de nombre igual o,
+ * si no, el ÚNICO claramente parecido ("Refresco Coca Cola ORIGINAL 600ml" →
+ * "Coca-Cola 600ml"). Si dos se parecen no se adivina (undefined).
+ */
+export function similarProduct<T extends { id: string | number; name: string }>(said: string, products: T[]): T | undefined {
+  const wanted = normalize(said);
+  if (!wanted || saysNo(said)) return undefined;
+  const exact = products.filter((p) => normalize(p.name) === wanted);
+  if (exact.length) return exact.length === 1 ? exact[0] : undefined;
+  const near = products.filter((p) => optionNameMatches(said, p.name));
+  return near.length === 1 ? near[0] : undefined;
 }
 
 /** Producto del POS cuyo nombre es igual al renglón (sin acentos ni mayúsculas) */
@@ -389,13 +410,22 @@ export function interpretOrder(input: {
     }
 
     if (!alias) {
-      // Sin equivalencia, pero el nombre es exactamente el de un producto del POS
-      const byName = findProductByName(input.products, line.externalName);
+      const price = linePrice(line.rawLine);
+      const subLine = parentIndex !== undefined;
+      const freeSub = subLine && (price === null || price === 0);
+      // "No, Gracias" debajo de un producto: el cliente no quiso, no hay nada que descontar ni avisar
+      if (subLine && saysNo(line.externalName)) {
+        ignored.push({ type: "ignore", aliasId: "auto:no-gracias", sourceIndex: line.index, externalName: line.externalName, sourceQuantity: line.quantity, reason: "free_option", parentIndex });
+        continue;
+      }
+      // Sin equivalencia, pero el nombre es el de un producto del POS (igual; en una
+      // sub-línea también el único claramente parecido): se vende y descuenta lo que dice
+      const byName = findProductByName(input.products, line.externalName) || (subLine ? similarProduct(line.externalName, input.products) : undefined);
       if (byName) {
-        const hasOptions = Array.isArray(byName.modifierGroups) && byName.modifierGroups.length > 0;
+        const hasOptions = !subLine && Array.isArray(byName.modifierGroups) && byName.modifierGroups.length > 0;
         products.push({
           type: "product",
-          aliasId: "auto:nombre",
+          aliasId: normalize(byName.name) === normalize(line.externalName) ? "auto:nombre" : "auto:parecido",
           sourceIndex: line.index,
           externalName: line.externalName,
           sourceQuantity: line.quantity,
@@ -404,13 +434,13 @@ export function interpretOrder(input: {
           quantity: line.quantity,
           auto: true,
           ...(hasOptions ? { compound: true } : {}),
+          ...(freeSub ? { free: true } : {}),
         });
         continue;
       }
 
-      // Sub-línea sin costo (opción gratis del producto, "No, gracias"...): no bloquea el pedido
-      const price = linePrice(line.rawLine);
-      if (parentIndex !== undefined && (price === null || price === 0)) {
+      // Sub-línea sin costo que no es ningún producto (instrucción, "Si"...): no bloquea el pedido
+      if (freeSub) {
         ignored.push({
           type: "ignore",
           aliasId: "auto:sin-costo",

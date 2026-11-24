@@ -9,9 +9,9 @@ import { createKdsCriticalError, notifyKdsUpdated } from "@/lib/kds";
 import type { KdsTicketLine } from "@/lib/bridge/ticket-structure";
 import { allocateShiftOrderNumber } from "@/lib/order-sequence";
 import { OWN_OPTIONS, buildSelection, isAutoGroup, optionName, type SoldModifier, type SoldPart } from "@/lib/compound";
-import type { ModifierGroup, Product } from "@/data/products";
+import type { ModifierGroup, ModifierOption, Product } from "@/data/products";
 import { addAuditEvent } from "@/lib/audit";
-import { optionNameMatches } from "@/lib/bridge/interpret-order";
+import { optionNameMatches, saysNo, similarProduct } from "@/lib/bridge/interpret-order";
 import { getOperationsAlerts, resolveOperationsAlert, upsertOperationsAlert } from "@/lib/notifications/operationsCenter";
 
 const plain = (s: string) => s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
@@ -92,8 +92,28 @@ function looseOption(said: string, names: { key: string; name: string }[], group
   return undefined;
 }
 
-/** "No, Gracias", "No", "Sin refresco", "Nada": el cliente dijo que no */
-const saysNo = (name: string) => /^(no|sin|nada|ninguno|ninguna)( |$)/.test(plain(name));
+/** "Si" (catsup aparte, ranch aparte): contesta una pregunta, no nombra un producto */
+const saysYes = (name: string) => /^(si|yes|ok|claro)$/.test(plain(name));
+
+/** Palabras con peso de una pregunta o un grupo ("Que tal una bebida?" → bebida), sin plural */
+const meaningful = (text: string) => new Set(plain(text).split(" ").filter((w) => w.length >= 5).map((w) => w.replace(/s$/, "")));
+
+/** Todo lo que describe un grupo: su nombre, sus opciones y la categoría de sus productos */
+function groupWords(group: ModifierGroup, catalog: Product[]) {
+  const text = [group.name, ...group.options.map((o) => optionName(o, catalog)), ...group.options.map((o) => (o.productId ? catalog.find((p) => Number(p.id) === Number(o.productId))?.category || "" : ""))].join(" ");
+  return meaningful(text);
+}
+
+/** El grupo al que se refiere una pregunta: el único con más palabras en común (ninguno si empatan o no hay) */
+function groupForQuestion(groups: ModifierGroup[], question: string, catalog: Product[]) {
+  const q = meaningful(question);
+  if (!q.size) return undefined;
+  const scored = groups.map((g) => {
+    const words = groupWords(g, catalog);
+    return { g, n: [...q].filter((w) => words.has(w)).length };
+  }).filter((s) => s.n > 0).sort((a, b) => b.n - a.n);
+  return scored.length && (scored.length === 1 || scored[0].n > scored[1].n) ? scored[0].g : undefined;
+}
 
 /**
  * Opciones de un combo de delivery: lo que el cliente eligió en la
@@ -103,12 +123,15 @@ const saysNo = (name: string) => /^(no|sin|nada|ninguno|ninguna)( |$)/.test(plai
  * sola). Solo cuentan las sub-líneas del renglón de este combo: dos
  * combos con hamburguesas distintas en el mismo pedido no se cruzan.
  */
-function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine) {
+function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine, soldApart: { externalName: string }[] = []) {
   const own = ownTicketItems(ticket, line);
   const said = own.flatMap((i) => [...i.choices.map((c) => c.name), ...i.notes]).map(plain).filter(Boolean);
   const picks: Record<string, string[]> = {};
   /** Grupos a los que el cliente contestó "No, gracias" en la plataforma (aunque el grupo de B-POS no tenga esa opción) */
   const declined = new Set<string>();
+  /** Productos del POS que el ticket eligió y no son opción del combo: se agregan al grupo como opción de esta venta */
+  const added: Record<string, ModifierOption[]> = {};
+  const groups = (product.modifierGroups || []).filter((g) => !isAutoGroup(g));
   for (const group of product.modifierGroups || []) {
     if (isAutoGroup(group)) continue; // ya se llena solo
     const matched = pickOptions(said, group.options.map((o) => ({ key: o.key, name: optionName(o, catalog) })), group.name);
@@ -123,7 +146,42 @@ function deliveryPicks(product: Product, catalog: Product[], ticket: DeliveryTic
       else if (own.some((i) => i.choices.some((c) => saysNo(c.name) && c.question && optionNameMatches(plain(c.question), plain(group.name))))) declined.add(group.key);
     }
   }
-  return { picks, declined };
+
+  // Grupos obligatorios (de productos) que siguen sin contestar: los que avisarían
+  const open = () => groups.filter((g) => g.min > 0 && g.options.some((o) => o.productId) && !picks[g.key]?.length && !declined.has(g.key));
+  const choices = own.flatMap((i) => i.choices);
+  const sold = new Set(soldApart.map((s) => plain(s.externalName)));
+  // Lo que el ticket eligió y no es opción de ningún grupo ni se vendió aparte
+  const leftover = choices.filter((c) => plain(c.name) && !saysNo(c.name) && !saysYes(c.name) && !sold.has(plain(c.name)) && !(product.modifierGroups || []).some((g) => pickOptions([c.name], g.options.map((o) => ({ key: o.key, name: optionName(o, catalog) })), g.name).length));
+  const unresolved: typeof leftover = [];
+  for (const choice of leftover) {
+    // Un producto que ya existe en el POS (igual o claramente parecido): se vende dentro del combo y descuenta su inventario
+    const found = similarProduct(choice.name, catalog.filter((p) => Number(p.id) !== Number(product.id)));
+    const candidates = open();
+    const target = found
+      ? candidates.filter((g) => (choice.question && (optionNameMatches(plain(choice.question), plain(g.name)) || groupForQuestion(candidates, choice.question, catalog) === g)) || g.options.some((o) => o.productId && catalog.find((p) => Number(p.id) === Number(o.productId))?.category === found.category))
+      : [];
+    if (!found || target.length !== 1) {
+      unresolved.push(choice);
+      continue;
+    }
+    const key = `ticket:${found.id}`;
+    added[target[0].key] = [...(added[target[0].key] || []), { key, name: found.name, productId: Number(found.id) }];
+    picks[target[0].key] = [key];
+  }
+  // "No, gracias" a una pregunta que no se llama como ningún grupo ("¿Qué tal un refresco?"):
+  // es el grupo que más se le parece (refresco → Refresco Importado, bebida → los de Bebidas); si
+  // solo queda un grupo sin contestar y nada más del ticket quedó sin entender, es ese
+  for (const choice of choices) {
+    if (!saysNo(choice.name)) continue;
+    const question = plain(choice.question || "");
+    if (question && groups.some((g) => optionNameMatches(question, plain(g.name)))) continue; // ya contestó su propio grupo
+    const candidates = open();
+    if (!candidates.length) break;
+    const target = groupForQuestion(candidates, question, catalog) || (candidates.length === 1 && !unresolved.length ? candidates[0] : undefined);
+    if (target) declined.add(target.key);
+  }
+  return { picks, declined, added };
 }
 
 /**
@@ -203,8 +261,10 @@ export function recheckComboAlerts(by = "B-POS") {
  * Coca ya se vendió y descontó aparte: el grupo de refresco no falta.
  */
 export function deliverySelection(product: Product, catalog: Product[], ticket: DeliveryTicket | undefined, line: PreparedLine, soldApart: { externalName: string; category?: string }[] = []) {
-  const { picks, declined } = deliveryPicks(product, catalog, ticket, line);
-  const { parts, modifiers, ownTicket } = buildSelection(product, catalog, { [OWN_OPTIONS]: picks });
+  const { picks, declined, added } = deliveryPicks(product, catalog, ticket, line, soldApart);
+  // Los productos del ticket que no son opción del combo entran como opción solo para esta venta
+  const withAdded = Object.keys(added).length ? { ...product, modifierGroups: (product.modifierGroups || []).map((g) => (added[g.key] ? { ...g, options: [...g.options, ...added[g.key]] } : g)) } : product;
+  const { parts, modifiers, ownTicket } = buildSelection(withAdded, catalog, { [OWN_OPTIONS]: picks });
   // El cobro de extras ya viene en el total de la plataforma
   const kept = modifiers?.filter((m) => !m.extra);
   // Grupo obligatorio que el ticket no eligió ("Combo El Favorito" sin decir qué
@@ -363,7 +423,8 @@ function buildSaleItems(payload: SaleReadyPayload, ticket: DeliveryTicket | unde
     items.push({
       ...product,
       // Un producto que no se vende por separado es un modificador de la plataforma: su precio ya va en el renglón principal
-      ...(product.notSoldAlone ? { price: 0 } : {}),
+      // Una opción sin costo de otro renglón (aderezo incluido) descuenta, pero en $0
+      ...(product.notSoldAlone || preparedProduct.free ? { price: 0 } : {}),
       quantity,
       externalName: preparedProduct.externalName,
       // Equivalencia compuesta: cada opción elegida va a su estación y descuenta
