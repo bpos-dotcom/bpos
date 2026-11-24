@@ -12,6 +12,8 @@ export type PreparedSaleProduct = {
   sourceIndex?: number;
   /** Combo con equivalencia compuesta: elegir opciones con las sub-líneas del ticket */
   compound?: boolean;
+  /** Opción sin costo de otro renglón: descuenta inventario pero va en $0 */
+  free?: boolean;
 };
 
 export type PreparedInventoryAdjustment = {
@@ -112,6 +114,7 @@ export function prepareSalePayload(input: {
       aliasId: product.aliasId,
       sourceIndex: product.sourceIndex,
       ...(product.compound ? { compound: true } : {}),
+      ...(product.free ? { free: true } : {}),
     })),
     inventoryAdjustments: [
       ...interpretation.ingredients.map((ingredient) => ({

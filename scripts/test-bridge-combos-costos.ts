@@ -91,14 +91,14 @@ async function main() {
   const sinNada = sale.deliverySelection(didi as never, catalog, ticket("Combo- Combo El Favorito", []), { externalName: "Combo- Combo El Favorito" });
   check("si el ticket no dice nada del refresco: sí avisa", (sinNada.missingChoices || []).includes("Que tal una bebida"), sinNada);
   const otraPregunta = sale.deliverySelection(clasico as never, catalog, ticket("Combo Especial", [{ name: "Hamburguesa Mexicana", question: "Elige tu hamburguesa" }, { name: "No, Gracias", question: "Deseas agregar extra?" }]), { externalName: "Combo Especial" });
-  check("un 'No, Gracias' de otra pregunta no tapa el refresco", (otraPregunta.missingChoices || []).includes("Refresco Importado"), otraPregunta);
+  check("'No, Gracias' a una pregunta que no es de ningún grupo: es el refresco que falta, no avisa", !("missingChoices" in otraPregunta), otraPregunta);
 
   const coca = ticket("Combo Especial", [{ name: "Hamburguesa Mexicana", question: "Elige tu hamburguesa especial" }, { name: "Refresco Coca Cola ORIGINAL 600ml", question: "Elige tu REF(SUJETO A DISPONIBLE)", price: 25 }]);
   const conCoca = sale.deliverySelection(clasico as never, catalog, coca, { externalName: "Combo Especial" }, [{ externalName: "Refresco Coca Cola ORIGINAL 600ml", category: "Bebidas" }]);
   check("refresco cambiado por Coca cobrada aparte: no falta el refresco", !("missingChoices" in conCoca), conCoca);
   check("y la hamburguesa sí va en el combo", (conCoca.parts || []).some((p) => p.name === "Hamburguesa Mexicana"), conCoca);
   const cocaSinVenta = sale.deliverySelection(clasico as never, catalog, coca, { externalName: "Combo Especial" });
-  check("si la Coca no se vendió aparte: sí avisa", (cocaSinVenta.missingChoices || []).includes("Refresco Importado"), cocaSinVenta);
+  check("Coca que no es opción del combo ni se vendió aparte: va en el combo y descuenta", !("missingChoices" in cocaSinVenta) && (cocaSinVenta.parts || []).some((p) => p.name === "Coca-Cola 600ml" && p.label === "Refresco Importado"), cocaSinVenta);
   const otraCategoria = sale.deliverySelection(clasico as never, catalog, coca, { externalName: "Combo Especial" }, [{ externalName: "Refresco Coca Cola ORIGINAL 600ml", category: "Postres" }]);
   check("algo vendido aparte de otra categoría no tapa el refresco", (otraCategoria.missingChoices || []).includes("Refresco Importado"), otraCategoria);
 
@@ -122,9 +122,8 @@ async function main() {
   const alerts = ops.getOperationsAlerts();
   const orders = JSON.parse(localStorage.getItem("bpos_orders") || "[]");
   const status = (id: number) => alerts.find((a) => a.id === `bridge-combo:${id}`)?.status;
-  check("se resuelven solos los 3 que ahora sí se entienden", cleared === 3, cleared);
-  check("800 (newyork), 751 (Coca aparte), 814 (No, gracias): resueltos", status(800) === "resolved" && status(751) === "resolved" && status(814) === "resolved", alerts);
-  check("657 (de verdad no dice la hamburguesa): sigue abierto", status(657) !== "resolved");
+  check("se resuelven solos los 4 que ahora sí se entienden", cleared === 4, cleared);
+  check("800 (newyork), 751 (Coca aparte), 814 y 657 (No, gracias a la bebida): resueltos", status(800) === "resolved" && status(751) === "resolved" && status(814) === "resolved" && status(657) === "resolved", alerts);
   check("la venta 800 ya lleva la NewYork BBQ", orders[0].items[0].parts?.some((p: { name: string }) => p.name === "Hamburguesa NewYork BBQ") && !orders[0].items[0].missingChoices, orders[0].items[0]);
   check("la venta 751 conserva la Coca aparte", orders[1].items.length === 2 && !orders[1].items[0].missingChoices, orders[1].items);
   check("segunda vez no hace nada", sale.recheckComboAlerts() === 0);
