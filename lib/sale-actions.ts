@@ -8,13 +8,11 @@ import type { SavedOrder } from "@/components/OrderHistoryPanel";
 import { addAuditEvent } from "@/lib/audit";
 import { paidShiftTag } from "@/lib/cash-register";
 import type { CurrentUser } from "@/lib/auth";
-import { getBusinessSettings } from "@/lib/business-settings";
 import { earnLoyalty, offerClubWhatsapp } from "@/lib/loyalty-pos";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { authorizeWithAdminPin, requirePermissionOrAdmin } from "@/lib/permissions";
 import { cancelSale, isCancelled } from "@/lib/sale-cancel";
 import { revertInventoryForOrder, type InventoryOrderLike } from "@/lib/inventory";
-import { openWhatsapp, whatsappLink } from "@/lib/whatsapp";
 import { reverseCreditForOrder } from "@/lib/customer-credit";
 
 export function printSaleTicket(order: SavedOrder) {
@@ -137,51 +135,6 @@ export function printSaleTicket(order: SavedOrder) {
 
   ticketWindow.document.close();
 }
-
-export function sendSaleWhatsapp(order: SavedOrder) {
-  const rawPhone = order.details.customerPhone.trim();
-
-  if (!rawPhone) {
-    alert("Este pedido no tiene WhatsApp registrado.");
-    return;
-  }
-
-  let phone = rawPhone.replace(/\D/g, "");
-
-  if (phone.length === 10) {
-    phone = `52${phone}`;
-  }
-
-  const items = order.items
-    .map(
-      (item) =>
-        `• ${item.quantity} x ${item.name} - ${(
-          item.price * item.quantity
-        ).toFixed(2)}${item.parts?.length ? ` (${item.parts.map((p) => p.name).join(", ")})` : ""}`
-    )
-    .join("\n");
-
-  const businessName = getBusinessSettings().businessName;
-  const message = `🧾 *${businessName} - Ticket #${formatOrderNumber(
-    order as SavedOrder & { localOrderNumber?: number }
-  )}*
-
-Hola ${order.details.customerName || "Cliente"}, este es tu pedido:
-
-${items}
-
-Subtotal: $${order.subtotal.toFixed(2)}
-Descuento: -$${order.details.discount.toFixed(2)}
-Total: *$${order.total.toFixed(2)}*
-
-Tipo: ${order.details.orderType}
-Pago: ${order.details.paymentMethod}
-
-Gracias por pedir en ${businessName} 🚀`;
-
-  openWhatsapp(whatsappLink(phone, message));
-}
-
 
 // ---------------------------------------------------------------- cambios a una venta guardada
 
