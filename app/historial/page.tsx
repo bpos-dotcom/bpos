@@ -8,7 +8,8 @@ import { getCashCloseHistory } from "@/lib/cash-history";
 import { moneyShiftOf } from "@/lib/cash-register";
 import { formatOrderNumber } from "@/lib/order-sequence";
 import { exportOrders } from "@/lib/exports";
-import { cancelSavedOrder, changeSavedOrderPayment, loadSavedOrders, markSavedOrderPaid, sendSaleWhatsapp } from "@/lib/sale-actions";
+import { cancelSavedOrder, changeSavedOrderPayment, loadSavedOrders, markSavedOrderPaid } from "@/lib/sale-actions";
+import { SaleWhatsappDialog } from "@/components/sale/SaleWhatsappDialog";
 import { ask } from "@/components/layout/Dialogs";
 import { archivedNotice, useArchivedOrders } from "@/lib/use-archived-orders";
 import { mergeOrders } from "@/lib/order-archive";
@@ -64,6 +65,7 @@ export default function OrderHistoryPage() {
   const [to, setTo] = useState("");
   /** Pedido a reimprimir (ventana para elegir estaciones y tickets) */
   const [reprint, setReprint] = useState<SavedOrder | null>(null);
+  const [whatsapp, setWhatsapp] = useState<SavedOrder | null>(null);
 
   // Reimprimir: se confirma (le avisa al dueño) y luego se elige a dónde. Sin PIN.
   async function askReprint(order: SavedOrder) {
@@ -155,7 +157,7 @@ export default function OrderHistoryPage() {
             if (order) void cancelSavedOrder(order, user);
           }}
           onPrint={(order) => void askReprint(order)}
-          onWhatsapp={sendSaleWhatsapp}
+          onWhatsapp={setWhatsapp}
           onMarkPaid={(order, method) => void markSavedOrderPaid(order, method, user)}
           onChangePayment={(order, method) => changeSavedOrderPayment(order, method, user)}
         />
@@ -178,6 +180,7 @@ export default function OrderHistoryPage() {
           </section>
         )}
       </div>
+      {whatsapp && <SaleWhatsappDialog order={whatsapp} onClose={() => setWhatsapp(null)} />}
       {reprint && <ReprintDialog sale={reprint as unknown as SaleForTickets} onClose={() => setReprint(null)} />}
     </AppShell>
   );
