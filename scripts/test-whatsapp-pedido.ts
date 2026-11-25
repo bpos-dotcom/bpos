@@ -2,7 +2,7 @@
  * Botón WhatsApp de un pedido: qué opciones salen y qué mensaje lleva cada una.
  *   npx tsx scripts/test-whatsapp-pedido.ts
  */
-import { markSaleWhatsapp, saleWhatsappOptions, saleWhatsappText } from "../lib/sale-whatsapp";
+import { markSaleWhatsapp, saleWhatsappOptions, saleWhatsappText, type SaleWhatsappOrder } from "../lib/sale-whatsapp";
 
 let ok = 0;
 let bad = 0;
@@ -12,7 +12,7 @@ const check = (name: string, cond: boolean, extra?: unknown) => {
   console.log(`${cond ? "OK   " : "FALLA"} ${name}${!cond && extra !== undefined ? ` → ${JSON.stringify(extra)}` : ""}`);
 };
 
-const llevar = {
+const llevar: SaleWhatsappOrder = {
   items: [
     { quantity: 2, name: "Boneless Orden Individual", price: 104 },
     { quantity: 1, name: "Combo Especial", price: 189, parts: [{ name: "Hamburguesa NewYork BBQ" }, { name: "Dr Pepper" }] },
