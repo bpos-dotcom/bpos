@@ -198,11 +198,11 @@ export async function cancelSavedOrder(order: SavedOrder, user: CurrentUser | nu
   addAuditEvent({
     category: "Venta",
     action: "sale.cancelled",
-    description: `${by} canceló el Pedido #${formatOrderNumber(order)} por $${order.total.toFixed(2)}: ${reason.trim()} · ${stock === "merma" ? "ya se había preparado (merma)" : "se regresó al inventario"}`,
+    description: `${by} canceló el Pedido #${formatOrderNumber(order)} por $${order.total.toFixed(2)}: ${reason.trim()} · ${stock === "merma" ? "ya se había preparado (merma)" : "se regresó al inventario"}${order.items.length ? `. Llevaba: ${order.items.map((i) => `${i.quantity}x ${i.name}`).join(", ")}` : ""}`,
     userId: user?.id ? String(user.id) : undefined,
     userName: by,
     entityId: String(order.id),
-    metadata: { total: order.total, reason: reason.trim(), inventory: stock, merma: result.merma },
+    metadata: { total: order.total, reason: reason.trim(), inventory: stock, merma: result.merma, items: order.items.map((i) => ({ name: i.name, quantity: i.quantity, price: i.price })) },
   });
   return true;
 }
