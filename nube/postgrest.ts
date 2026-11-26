@@ -209,8 +209,11 @@ export function condSql(table: Table, cond: Cond, params: unknown[]): string {
       const list = parseList(cond.value);
       if (!list.length) sql = "1 = 0";
       else {
-        list.forEach((x) => params.push(conv(x)));
-        sql = `${c.sql} IN (${list.map(() => "?").join(", ")})`;
+        // Una sola variable con la lista en JSON: D1 acepta máximo 100 variables por
+        // consulta y la caja pide hasta 200 cambios de golpe (con "?" por cada uno
+        // contestaba 500 y la caja se quedaba atorada sin bajar mensajes ni pedidos)
+        params.push(JSON.stringify(list.map(conv)));
+        sql = `${c.sql} IN (SELECT value FROM json_each(?))`;
       }
       break;
     }

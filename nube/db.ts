@@ -32,6 +32,9 @@ type D1Result = { results?: Row[]; meta?: { changes?: number; last_row_id?: numb
 type D1Prepared = { bind(...values: unknown[]): D1Prepared; all(): Promise<D1Result>; first(): Promise<Row | null>; run(): Promise<D1Result> };
 export type D1Like = { prepare(sql: string): D1Prepared; batch(statements: D1Prepared[]): Promise<D1Result[]> };
 
+/** Como D1: máximo 100 variables por consulta (las pruebas fallan igual que Cloudflare) */
+export const D1_MAX_PARAMS = 100;
+
 const clean = (params: unknown[] = []) => params.map((p) => (p === undefined ? null : typeof p === "boolean" ? (p ? 1 : 0) : p));
 
 export function d1Db(d1: D1Like): Db {
@@ -67,16 +70,20 @@ export function nodeDb(db: NodeSqlite): Db {
     for (const [k, value] of Object.entries(row)) out[k] = typeof value === "bigint" ? Number(value) : value;
     return out;
   };
+  const check = (params?: unknown[]) => {
+    if ((params?.length || 0) > D1_MAX_PARAMS) throw new Error(`too many SQL variables (${params!.length} > ${D1_MAX_PARAMS}, límite de D1)`);
+    return clean(params);
+  };
   const isRead = (sql: string) => /^\s*(select|with)\b/i.test(sql) || /\breturning\b/i.test(sql);
   const self: Db = {
     async all<T>(sql: string, params?: unknown[]) {
-      return db.prepare(sql).all(...clean(params)).map((r) => fix(r)) as T[];
+      return db.prepare(sql).all(...check(params)).map((r) => fix(r)) as T[];
     },
     async first<T>(sql: string, params?: unknown[]) {
-      return (fix(db.prepare(sql).get(...clean(params))) as T | undefined) ?? null;
+      return (fix(db.prepare(sql).get(...check(params))) as T | undefined) ?? null;
     },
     async run(sql: string, params?: unknown[]) {
-      const r = db.prepare(sql).run(...clean(params));
+      const r = db.prepare(sql).run(...check(params));
       return { changes: Number(r.changes), lastId: Number(r.lastInsertRowid) };
     },
     async batch(statements: Stmt[]) {
