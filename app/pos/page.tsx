@@ -66,6 +66,9 @@ import { accountKey, canCharge, chargeCredit } from "@/lib/customer-credit";
 const STORAGE_KEY = "bpos_orders";
 /** Pedido en curso (carrito y datos) para que no se pierda al cambiar de página */
 const DRAFT_KEY = "bpos_pos_draft";
+const newCartKey = () => `cuenta-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+/** ID de una cuenta en espera o de mesa para el aviso del cajón */
+const orderAccountKey = (id: string | number) => `pedido-${id}`;
 /** Cuadrícula o lista: preferencia de esta caja (no se sincroniza) */
 const POS_VIEW_KEY = "bpos_pos_view";
 const USERS_KEY = "bpos_users";
@@ -100,6 +103,8 @@ export default function Home() {
 function PosScreen() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
+  /** ID de la cuenta en curso: nace con el primer producto y se mantiene aunque le agreguen más (aviso del cajón) */
+  const [cartKey, setCartKey] = useState("");
   const [orders, setOrders] = useState<SavedOrder[]>([]);
   const [currentUser, setCurrentUserState] = useState<CurrentUser | null>(null);
   const [selectedCategory, setSelectedCategory] = useState("Todos");
@@ -158,8 +163,11 @@ function PosScreen() {
     try {
       const raw = localStorage.getItem(DRAFT_KEY);
       if (raw) {
-        const draft = JSON.parse(raw) as { cart?: CartItem[]; details?: OrderDetails };
-        if (Array.isArray(draft.cart) && draft.cart.length) setCart(draft.cart);
+        const draft = JSON.parse(raw) as { cart?: CartItem[]; details?: OrderDetails; key?: string };
+        if (Array.isArray(draft.cart) && draft.cart.length) {
+          setCart(draft.cart);
+          if (typeof draft.key === "string" && draft.key) setCartKey(draft.key);
+        }
         if (draft.details && typeof draft.details.orderType === "string") setDetails(draft.details);
       }
     } catch {
@@ -170,12 +178,18 @@ function PosScreen() {
   useEffect(() => {
     if (!draftLoaded.current) return;
     try {
-      if (cart.length) localStorage.setItem(DRAFT_KEY, JSON.stringify({ cart, details }));
+      if (cart.length) localStorage.setItem(DRAFT_KEY, JSON.stringify({ cart, details, key: cartKey }));
       else localStorage.removeItem(DRAFT_KEY);
     } catch {
       // sin espacio: el pedido sigue en pantalla
     }
-  }, [cart, details]);
+  }, [cart, details, cartKey]);
+  // La cuenta recibe su ID con el primer producto y lo suelta al vaciarse (cobrada, en espera o limpiada)
+  useEffect(() => {
+    if (!draftLoaded.current) return;
+    if (cart.length && !cartKey) setCartKey(newCartKey());
+    else if (!cart.length && cartKey) setCartKey("");
+  }, [cart.length, cartKey]);
 
   useEffect(() => {
     setProducts(
@@ -391,7 +405,7 @@ function PosScreen() {
     const number = formatOrderNumber(updated as SavedOrder & { localOrderNumber?: number });
     const where = order.details.table ? tableLabel(order.details.table) : `Pedido #${number}`;
     addAuditEvent({ category: "Venta", action: "sale.round", description: `${currentUser?.name || "Usuario"} ${order.details.table ? `mandó la ronda ${round} de ${where} (Pedido #${number})` : `agregó productos al ${where} en espera`}: ${cart.map((i) => `${i.quantity}x ${i.name}`).join(", ")}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(order.id), metadata: { round, total: updated.total } });
-    void clearDrawerSuspect(cart.reduce((sum, item) => sum + item.price * item.quantity, 0), "espera");
+    void clearDrawerSuspect(cart.reduce((sum, item) => sum + item.price * item.quantity, 0), "espera", { key: cartKey, folio: number });
     notify(order.details.table ? `Ronda ${round} de ${where} mandada a cocina. Total de la mesa: $${updated.total.toFixed(2)}.` : `Se agregó al ${where} y se mandó a cocina. Total de la cuenta: $${updated.total.toFixed(2)}.`);
     setAddingToId(null);
     setCart([]);
@@ -688,7 +702,7 @@ function PosScreen() {
       details: { ...order.details, paymentMethod: methodLabel(pay.payments), payments: pay.payments, ...(pay.couponCode ? { couponCode: pay.couponCode } : {}) },
     };
     saveOrders(orders.map((o) => (o.id === order.id ? paid : o)));
-    void clearDrawerSuspect(paid.total, "cobro");
+    void clearDrawerSuspect(paid.total, "cobro", { key: orderAccountKey(order.id), folio: formatOrderNumber(paid as SavedOrder & { localOrderNumber?: number }) });
     if (pay.couponCode) countCouponUse(pay.couponCode);
     if (order.clubAccountId) {
       void earnLoyalty(order.clubAccountId, paid.total, `pos:${(order as SavedOrder & { shiftSessionId?: string }).shiftSessionId || ""}:${order.id}`, currentUser?.name || "").then((r) => offerClubWhatsapp(order.details.customerPhone || "", order.details.customerName || "", r)).catch((e) =>
@@ -930,7 +944,7 @@ function PosScreen() {
       .catch(() => notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Historial de pedidos.`, "error"));
     addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por ${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
     // Si antes se cerró un cobro de esta cuenta con el cajón abierto, no era sospechoso (se guardó en espera o se cobró)
-    void clearDrawerSuspect(total, data.pending ? "espera" : "cobro");
+    void clearDrawerSuspect(total, data.pending ? "espera" : "cobro", { key: cartKey, folio: formatOrderNumber(newOrder) });
 
     notify(
       data.pending
@@ -992,6 +1006,7 @@ function PosScreen() {
         }}
         onConfirm={payingOrder ? payPending : confirmCheckout}
         orderType={payingOrder ? payingOrder.details.orderType : details.orderType}
+        account={payingOrder ? { key: orderAccountKey(payingOrder.id), items: payingOrder.items } : { key: cartKey, items: cart }}
         credit={(() => {
           // Fiado: solo en la tienda, con el nombre del cliente (o su socio del club)
           if (!retail || payingOrder) return undefined;

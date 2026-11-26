@@ -15,7 +15,7 @@ import { DRIVERS_EVENT, getDrivers, type Driver } from "@/lib/drivers";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { allocate } from "@/lib/sale-payments";
 import { openCashDrawer } from "@/lib/localService";
-import { drawerShouldOpen, getDrawerSettings, suspectDrawerWithoutSale } from "@/lib/cash-drawer";
+import { drawerShouldOpen, getDrawerSettings, suspectDrawerWithoutSale, type DrawerAccount } from "@/lib/cash-drawer";
 
 export type PaymentMethod = string;
 
@@ -65,12 +65,14 @@ type CheckoutModalProps = {
   orderType?: string;
   /** Tienda: se puede fiar a este cliente (su saldo y lo que le queda de límite; null = sin límite) */
   credit?: { name: string; balance: number; available: number | null };
+  /** La cuenta que se cobra (su ID y productos): si se cierra el cobro con el cajón abierto, el aviso dice qué llevaba */
+  account?: DrawerAccount;
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 const money = (n: number) => `$${n.toFixed(2)}`;
 
-export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConfirm, delivery, heading, split, orderType, credit }: CheckoutModalProps) {
+export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConfirm, delivery, heading, split, orderType, credit, account }: CheckoutModalProps) {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("Efectivo");
   const [cashReceived, setCashReceived] = useState("");
   const [cardAmount, setCardAmount] = useState("");
@@ -195,7 +197,7 @@ export function CheckoutModal({ total, clubCashback = 0, isOpen, onClose, onConf
   function checkDrawer() {
     if (!drawerOpened.current) return;
     drawerOpened.current = false;
-    suspectDrawerWithoutSale({ paymentMethod, total, orderType });
+    suspectDrawerWithoutSale({ paymentMethod, total, orderType, ...account });
   }
 
   function close() {

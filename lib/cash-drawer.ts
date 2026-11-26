@@ -60,20 +60,31 @@ export function drawerShouldOpen(paymentMethod: string, orderType: string | unde
  * (nube, no se puede borrar), como alerta en el Centro de operaciones y le
  * llega al dueño por push (preferencia "seguridad").
  */
-export async function reportDrawerWithoutCashSale(input: { paymentMethod: string; total: number; orderType?: string }): Promise<string | undefined> {
+/** La cuenta del cobro: su ID (se mantiene aunque le agreguen productos) y lo que llevaba */
+export type DrawerAccount = { key?: string; items?: { quantity: number; name: string }[] };
+type DrawerInput = { paymentMethod: string; total: number; orderType?: string } & DrawerAccount;
+
+export const drawerItemsText = (items: DrawerAccount["items"] = []) => items.map((i) => `${i.quantity}x ${i.name}`).join(", ");
+
+/** Texto del aviso: quién, cuánto, tipo de pedido y qué llevaba */
+export function drawerDescription(userName: string, input: DrawerInput) {
+  const why = `se abrió el cajón y el cobro de $${input.total.toFixed(2)} se canceló sin venta`;
+  const items = drawerItemsText(input.items);
+  return `${userName}: ${why}${input.orderType ? ` (${input.orderType})` : ""}.${items ? ` Llevaba: ${items}.` : ""}`;
+}
+
+export async function reportDrawerWithoutCashSale(input: DrawerInput): Promise<string | undefined> {
   if (typeof window === "undefined") return;
   const [{ addAuditEvent }, { getCurrentUser }, { upsertOperationsAlert }] = await Promise.all([import("@/lib/audit"), import("@/lib/auth"), import("@/lib/notifications/operationsCenter")]);
   const user = getCurrentUser();
-  const money = `$${input.total.toFixed(2)}`;
-  const why = `se abrió el cajón y el cobro de ${money} se canceló sin venta`;
-  const description = `${user.name}: ${why}${input.orderType ? ` (${input.orderType})` : ""}.`;
+  const description = drawerDescription(user.name, input);
   const event = addAuditEvent({
     category: "Seguridad",
     action: "drawer.unjustified",
     description,
     userId: user.id > 0 ? String(user.id) : undefined,
     userName: user.name,
-    metadata: { reason: "cancelado", paymentMethod: input.paymentMethod, total: input.total, orderType: input.orderType },
+    metadata: { reason: "cancelado", paymentMethod: input.paymentMethod, total: input.total, orderType: input.orderType, account: input.key || null, items: input.items || [] },
   });
   upsertOperationsAlert({
     id: `drawer:${event.id}`,
@@ -93,14 +104,28 @@ export async function reportDrawerWithoutCashSale(input: { paymentMethod: string
  * El cobro se cerró sin vender, pero a veces la cuenta se manda a espera
  * o se cobra un momento después (ej. cerraron el cobro y tocaron "Cuenta en
  * espera"). Por eso el aviso espera unos minutos: si en ese tiempo esa
- * cuenta (mismo total) se guarda en espera o se cobra, no se avisa. Si ya se
+ * cuenta (la misma, aunque le agreguen productos) se guarda en espera o se cobra, no se avisa. Si ya se
  * avisó y luego se cobra, la alerta se resuelve sola.
  */
 const SUSPECTS_KEY = "bpos_drawer_suspects"; // solo de este equipo
 const WAIT_MS = 3 * 60_000;
 const MATCH_MS = 60 * 60_000;
 
-type Suspect = { id: string; at: number; paymentMethod: string; total: number; orderType?: string; alertId?: string };
+export type Suspect = { id: string; at: number; paymentMethod: string; total: number; orderType?: string; alertId?: string } & DrawerAccount;
+
+/**
+ * El cobro cerrado que corresponde a esta cuenta: la del mismo ID (aunque ya
+ * cueste más porque le agregaron productos). Sin ID (avisos de antes), por el
+ * mismo total. Dos cuentas distintas con el mismo total no se confunden.
+ */
+export function findDrawerSuspect(list: Suspect[], total: number, key?: string) {
+  const recent = [...list].reverse();
+  if (key) {
+    const same = recent.find((s) => s.key === key);
+    if (same) return same;
+  }
+  return recent.find((s) => (!s.key || !key) && Math.abs(s.total - total) < 1);
+}
 
 function readSuspects(): Suspect[] {
   try {
@@ -119,7 +144,7 @@ function writeSuspects(list: Suspect[]) {
 }
 
 /** Cajón abierto y cobro cerrado sin venta: se anota y se avisa en 3 minutos si nadie la cobra */
-export function suspectDrawerWithoutSale(input: { paymentMethod: string; total: number; orderType?: string }) {
+export function suspectDrawerWithoutSale(input: DrawerInput) {
   if (typeof window === "undefined") return;
   writeSuspects([...readSuspects(), { id: `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 5)}`, at: Date.now(), ...input }]);
   setTimeout(() => void flushDrawerSuspects(), WAIT_MS + 1000);
@@ -143,18 +168,19 @@ export async function flushDrawerSuspects() {
 
 /**
  * Se guardó en espera o se cobró una cuenta: si coincide con un cobro que
- * se cerró sin vender (mismo total, en la última hora), no era sospechoso.
+ * se cerró sin vender (misma cuenta, en la última hora), no era sospechoso.
  */
-export async function clearDrawerSuspect(total: number, how: "espera" | "cobro") {
+export async function clearDrawerSuspect(total: number, how: "espera" | "cobro", account: { key?: string; folio?: string } = {}) {
   if (typeof window === "undefined" || !(total > 0)) return;
   const list = readSuspects();
-  const match = [...list].reverse().find((s) => Math.abs(s.total - total) < 1);
+  const match = findDrawerSuspect(list, total, account.key);
   if (!match) return;
   writeSuspects(list.filter((s) => s.id !== match.id));
   if (!match.alertId || match.alertId === "sin-alerta") return; // todavía no se avisaba: ya no se avisa
   const [{ resolveOperationsAlert }, { addAuditEvent }, { getCurrentUser }] = await Promise.all([import("@/lib/notifications/operationsCenter"), import("@/lib/audit"), import("@/lib/auth")]);
-  const note = how === "espera" ? "Se mandó a cuenta en espera" : "La cuenta se cobró después";
+  const where = account.folio ? ` en el Pedido #${account.folio}` : "";
+  const note = how === "espera" ? `Se mandó a cuenta en espera${where}` : `La cuenta se cobró después${where}`;
   resolveOperationsAlert(match.alertId, "Sistema", `${note} ($${total.toFixed(2)}).`);
   const user = getCurrentUser();
-  addAuditEvent({ category: "Seguridad", action: "drawer.justified", description: `Cajón abierto sin venta de $${match.total.toFixed(2)}: ${note.toLowerCase()}.`, userName: user.name, metadata: { total, how } });
+  addAuditEvent({ category: "Seguridad", action: "drawer.justified", description: `Cajón abierto sin venta de $${match.total.toFixed(2)}: ${note.toLowerCase()}.`, userName: user.name, metadata: { total, how, account: account.key || null, folio: account.folio || null, alertId: match.alertId } });
 }
