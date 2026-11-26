@@ -48,6 +48,16 @@ async function main() {
   check("upsert de uno que ya existe: lo cambia con número nuevo", Number(again.data?.[0]?.seq) > seqs[2] && (again.data?.[0]?.data as { name: string }).name === "P1 nuevo", again);
   const { data: since } = await sa.from("sync_records").select("record_id, seq, data, deleted").eq("business_id", a.businessId).gt("seq", seqs[0]).order("seq", { ascending: true }).limit(1000);
   check("cambios desde un número (pull)", since?.map((r) => r.record_id).join() === "2,3,1", since?.map((r) => r.record_id));
+  // (el 1 ya cambió de número con el upsert de arriba)
+  // La caja pide hasta 200 cambios por número de una vez (lib/cloud/sync.ts fetchBySeqs);
+  // D1 solo acepta 100 variables por consulta: antes contestaba 500 y la caja se atoraba
+  const many = [...seqs, ...Array.from({ length: 247 }, (_, i) => 900_000 + i)];
+  const bySeq = await sa.from("sync_records").select("record_id, seq").eq("business_id", a.businessId).in("scope", [a.branchId, "business"]).in("seq", many);
+  check("in() con 250 números (más de 100) contesta bien", !bySeq.error && bySeq.data?.map((r) => r.record_id).sort().join() === "2,3", bySeq.error);
+  const byText = await sa.from("sync_records").select("record_id").eq("business_id", a.businessId).in("record_id", ["2", "3", ...Array.from({ length: 150 }, (_, i) => `x${i}`)]);
+  check("in() con 152 textos contesta bien", !byText.error && byText.data?.map((r) => r.record_id).sort().join() === "2,3", byText.error || byText.data);
+  const notIn = await sa.from("sync_records").select("record_id").eq("business_id", a.businessId).not("record_id", "in", "(1,2)");
+  check("not in sigue igual", !notIn.error && notIn.data?.map((r) => r.record_id).join() === "3", notIn.error || notIn.data);
   check("data regresa como objeto y deleted como bool", typeof since?.[0]?.data === "object" && since?.[0]?.deleted === false);
   const otherWrite = await sa.from("sync_records").upsert([{ ...recs[0], business_id: b.businessId }]);
   check("no puede escribir en otro negocio", otherWrite.error?.code === "42501", otherWrite.error);
