@@ -43,7 +43,8 @@ export function useOnlineOrdersWatch() {
 
         // Programados que ya toca: se mandan solos a cocina si hay caja abierta.
         // Los de envío por cotizar no: alguien tiene que poner cuánto se cobra.
-        const open = Boolean(localStorage.getItem("bpos_active_shift"));
+        // Solo la caja principal crea ventas solas: un celular o tablet puede tener el turno atrasado
+        const open = Boolean(localStorage.getItem("bpos_active_shift")) && isPrimaryDevice();
         const auto = (o: OnlineOrder) => !(o.data.type === "Domicilio" && o.data.deliveryQuote);
         const accepted = new Set<string>();
         if (open && !menu.autoAccept) {
@@ -68,7 +69,7 @@ export function useOnlineOrdersWatch() {
           }
         }
         // Aceptados con la caja cerrada: ya hay caja, se crea su venta (cocina, inventario e impresión)
-        if (open && (isPrimaryDevice() || window.location.pathname === "/pedidos-en-linea")) {
+        if (open) {
           let created = false;
           for (const order of all.filter((o) => waitingSale(o) && !o.data.saleLater?.error)) {
             try {
