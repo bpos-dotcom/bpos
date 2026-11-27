@@ -10,6 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { DispatchModal } from "@/components/delivery/DispatchModal";
 import { getCurrentUser } from "@/lib/auth";
+import { isPrimaryDevice } from "@/lib/cloud/sync";
 import { DIGITAL_MENU_EVENT, awaitingOnlinePayment, getDigitalMenu, kioskLabel, kitchenTime, mapsLink, paidOnline, scheduledLabel, scheduledLater, whatsappNumber } from "@/lib/digital-menu";
 import {
   ONLINE_ORDERS_EVENT,
@@ -375,6 +376,20 @@ function OrderCard({ order, onChanged }: { order: OnlineOrder; onChanged: () => 
         return;
       }
       noticeOrder = { ...order, data: { ...d, deliveryFee: fee, total: Math.max(0, Number(d.subtotal) + fee - onlineDiscount(d)) } };
+    }
+    // Desde un celular o tablet (no la caja principal): se acepta y la venta la crea la caja,
+    // que tiene el turno y el inventario al día (un celular atrasado regresaba la caja de ayer)
+    if (cashOpen() && !isPrimaryDevice()) {
+      await step(
+        "aceptado",
+        async () => {
+          await acceptOnlineOrderLater(order, etaUse, getCurrentUser()?.name, quoting ? { deliveryFee: fee } : {});
+          setMessage("Aceptado. La caja crea la venta, la manda a cocina e imprime en unos segundos.");
+        },
+        { eta: etaUse },
+        noticeOrder
+      );
+      return;
     }
     // Caja cerrada (por ejemplo desde el celular): se acepta y la venta se crea al abrir la caja
     if (!cashOpen()) {

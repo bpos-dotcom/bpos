@@ -15,6 +15,7 @@
  */
 import { isQuotaError, slimOrdersText } from "@/lib/order-slim";
 import { isArchivedOrder, localOrdersCutoff } from "@/lib/order-archive";
+import { resolveShiftPush, type ShiftDoc } from "@/lib/cloud/shift-guard";
 import { archiveIds, KARDEX_ARCHIVE_COLLECTION, localKardexCutoff, splitKardex } from "@/lib/kardex-archive";
 import {
   applyRowChanges,
@@ -635,8 +636,51 @@ function markDirty(key: string) {
   pushTimer = setTimeout(() => void flush(), 500);
 }
 
+const SHIFT_KEY = "bpos_active_shift";
+
+/**
+ * Antes de subir la caja abierta: si otro equipo la cambió desde la última
+ * vez que este la vio, gana la nube (ver shift-guard.ts). Regresa true si
+ * hay que subir lo de este equipo.
+ */
+async function guardShiftPush(key: string): Promise<boolean> {
+  const scope = scopeFor(key);
+  const { data, error } = await getSupabase()
+    .from("sync_records")
+    .select("data, deleted")
+    .eq("business_id", account!.businessId)
+    .eq("scope", scope)
+    .eq("collection", cloudCollection(key))
+    .eq("record_id", DOC_ID)
+    .limit(1);
+  if (error) throw new Error(friendlyError(error));
+  const row = (data ?? [])[0] as { data: unknown; deleted: boolean } | undefined;
+  const cloud = row && !row.deleted && row.data && typeof row.data === "object" ? (row.data as ShiftDoc) : null;
+  const cloudHash = cloud ? hash(JSON.stringify(cloud)) : undefined;
+  const seen = shadow[key]?.[DOC_ID];
+  const parsed = parseValue(rawGet(key));
+  const local = parsed.mode === "doc" && parsed.value && typeof parsed.value === "object" ? (parsed.value as ShiftDoc) : null;
+  const decision = resolveShiftPush(local, cloud, cloudHash !== seen);
+  if (decision.action === "push") {
+    if (decision.value !== local) rawSet(key, JSON.stringify(decision.value));
+    return true;
+  }
+  // Este equipo estaba atrasado: se queda con la caja de la nube y no sube nada
+  if (decision.value) {
+    rawSet(key, JSON.stringify(decision.value));
+    shadow[key] = { [DOC_ID]: cloudHash! };
+  } else {
+    rawRemove(key);
+    delete shadow[key];
+  }
+  saveShadow();
+  notifyApp([key]);
+  return false;
+}
+
 async function pushKey(key: string) {
   if (!account) return;
+  if (key === SHIFT_KEY && !(await guardShiftPush(key))) return;
   const current = toEntries(key, rawGet(key));
   const previous = { ...(shadow[key] ?? {}) };
   // El documento completo de antes no se borra de la nube: lo siguen usando los equipos sin actualizar
