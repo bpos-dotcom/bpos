@@ -16,6 +16,7 @@
 import { isQuotaError, slimOrdersText } from "@/lib/order-slim";
 import { isArchivedOrder, localOrdersCutoff } from "@/lib/order-archive";
 import { resolveShiftPush, type ShiftDoc } from "@/lib/cloud/shift-guard";
+import { mergeInventoryItem } from "@/lib/cloud/inventory-merge";
 import { archiveIds, KARDEX_ARCHIVE_COLLECTION, localKardexCutoff, splitKardex } from "@/lib/kardex-archive";
 import {
   applyRowChanges,
@@ -723,6 +724,8 @@ async function pushKey(key: string) {
 
   // Pedidos: una copia vieja no regresa un cobro ni una cancelación
   if (key === ORDERS_COLLECTION && rows.length > 0) await keepOrdersMoneyState(rows, scope, previous, nextHashes);
+  // Inventario: lo que movió este equipo se suma a la nube (no la pisa)
+  if (key === INVENTORY_KEY && rows.length > 0) await mergeInventoryWithCloud(rows, scope, previous, nextHashes);
 
   for (let i = 0; i < rows.length; i += UPSERT_BATCH) {
     const { data, error } = await getSupabase()
@@ -738,6 +741,67 @@ async function pushKey(key: string) {
   if (Object.keys(nextHashes).length === 0) delete shadow[key];
   saveShadow();
   if (key === ORDERS_COLLECTION) pruneArchivedOrders();
+  if (key === INVENTORY_KEY) refreshInventoryBase();
+}
+
+// ------------------------------------------------------------ inventario: sumar, no pisar
+
+const INVENTORY_KEY = "bpos_inventory";
+/** Cada artículo como estaba la última vez que se sincronizó (para saber qué movió este equipo) */
+const INVENTORY_BASE_KEY = "bpos_sync_inventory_base";
+
+/** Guarda como base los artículos que están igual que en la nube (los que este equipo no ha movido) */
+function refreshInventoryBase() {
+  const parsed = parseValue(rawGet(INVENTORY_KEY));
+  if (parsed.mode !== "records") return;
+  const keyShadow = shadow[INVENTORY_KEY] ?? {};
+  const base = readJson<Record<string, unknown>>(INVENTORY_BASE_KEY, {});
+  const next: Record<string, unknown> = {};
+  parsed.list.forEach((item, i) => {
+    const id = parsed.ids[i];
+    if (keyShadow[id] && keyShadow[id] === hash(JSON.stringify(item))) next[id] = item;
+    else if (base[id]) next[id] = base[id]; // movido aquí y sin subir: se queda la base de antes
+  });
+  safeSet(INVENTORY_BASE_KEY, JSON.stringify(next));
+}
+
+async function mergeInventoryWithCloud(rows: Obj[], scope: string, previous: Record<string, string>, nextHashes: Record<string, string>) {
+  const ids = rows.filter((row) => !row.deleted).map((row) => String(row.record_id));
+  const cloud = new Map<string, Obj>();
+  for (let i = 0; i < ids.length; i += UPSERT_BATCH) {
+    const { data, error } = await getSupabase()
+      .from("sync_records")
+      .select("record_id, data, deleted")
+      .eq("business_id", account!.businessId)
+      .eq("scope", scope)
+      .eq("collection", cloudCollection(INVENTORY_KEY))
+      .in("record_id", ids.slice(i, i + UPSERT_BATCH));
+    if (error) throw new Error(friendlyError(error));
+    (data ?? []).forEach((row) => row.data && !row.deleted && cloud.set(String(row.record_id), row.data as Obj));
+  }
+  const base = readJson<Record<string, Obj>>(INVENTORY_BASE_KEY, {});
+  const fixed = new Map<string, [string, Obj]>();
+  rows.forEach((row) => {
+    const id = String(row.record_id);
+    const remote = cloud.get(id);
+    if (!remote || row.deleted) return;
+    if (hash(JSON.stringify(remote)) === previous[id]) return; // nadie más lo cambió
+    const merged = mergeInventoryItem(base[id], row.data as Obj, remote);
+    if (merged === row.data) return;
+    fixed.set(id, [hash(JSON.stringify(row.data)), merged]);
+    row.data = merged;
+    nextHashes[id] = hash(JSON.stringify(merged));
+  });
+  if (fixed.size === 0) return;
+  // Este equipo también se queda con lo juntado (si no movió el artículo mientras tanto)
+  const parsed = parseValue(rawGet(INVENTORY_KEY));
+  if (parsed.mode !== "records") return;
+  const list = parsed.list.map((item, i) => {
+    const fix = fixed.get(parsed.ids[i]);
+    return fix && hash(JSON.stringify(item)) === fix[0] ? fix[1] : item;
+  });
+  rawSet(INVENTORY_KEY, JSON.stringify(list));
+  notifyApp([INVENTORY_KEY]);
 }
 
 /** Sube todo lo pendiente */
@@ -876,6 +940,7 @@ function applyRows(rows: Row[]) {
   });
 
   saveShadow();
+  if (byKey.has(INVENTORY_KEY)) refreshInventoryBase();
   if (changedKeys.length > 0) notifyApp(changedKeys);
 }
 
@@ -1140,6 +1205,7 @@ export function startSync(acc: ReadyAccount) {
     saveDirty();
   }
   pruneArchivedOrders();
+  refreshInventoryBase();
 
   if (started) return;
   started = true;
