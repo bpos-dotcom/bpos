@@ -330,6 +330,54 @@ function pruneArchivedOrders() {
   notifyApp([ORDERS_COLLECTION]);
 }
 
+/**
+ * Memoria del navegador llena (27 nov): quita de la caja las ventas cerradas
+ * de antes del corte que ya se subieron alguna vez (están en la sombra),
+ * aunque hayan cambiado después; siguen en la nube. Regresa cuántas quitó y
+ * lo que más ocupa, para el aviso.
+ */
+export function emergencyFreeSpace(): { removed: number; report: string } {
+  let removed = 0;
+  try {
+    const parsed = parseValue(rawGet(ORDERS_COLLECTION));
+    if (parsed.mode === "records") {
+      const cutoff = localOrdersCutoff();
+      const keyShadow = shadow[ORDERS_COLLECTION] ?? {};
+      const gone: string[] = [];
+      const kept = parsed.list.filter((order, i) => {
+        const id = parsed.ids[i];
+        if (!isArchivedOrder(order, cutoff) || !keyShadow[id]) return true;
+        gone.push(id);
+        return false;
+      });
+      if (gone.length) {
+        rawSet(ORDERS_COLLECTION, JSON.stringify(kept));
+        gone.forEach((id) => delete keyShadow[id]);
+        shadow[ORDERS_COLLECTION] = keyShadow;
+        saveShadow();
+        notifyApp([ORDERS_COLLECTION]);
+        removed = gone.length;
+      }
+    }
+  } catch (e) {
+    console.warn("[sync] no se pudo liberar memoria", e);
+  }
+  let report = "";
+  try {
+    const sizes: [string, number][] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k) sizes.push([k, (localStorage.getItem(k) || "").length + k.length]);
+    }
+    const total = sizes.reduce((s, [, n]) => s + n, 0);
+    sizes.sort((a, b) => b[1] - a[1]);
+    report = `Total ${(total / 1e6).toFixed(2)} M · ${sizes.slice(0, 6).map(([k, n]) => `${k.replace(/^bpos_/, "")} ${(n / 1e6).toFixed(2)}`).join(" · ")}`;
+  } catch {
+    // sin reporte
+  }
+  return { removed, report };
+}
+
 const KARDEX_KEY = "bpos_inventory_kardex";
 
 /**
