@@ -21,7 +21,10 @@
   ],
   "r2_buckets": [{ "binding": "NUBE_FILES", "bucket_name": "bpos-nube-archivos" }],
   "durable_objects": {
-    "bindings": [{ "name": "NUBE_REALTIME", "class_name": "NubeRealtime" }]
+    // El tiempo real es el de producción ("bpos"): los dos Workers escriben en la misma D1 y
+    // con un Durable Object propio, lo que se mandaba desde aquí no le avisaba a la caja
+    // (que escucha en www): los mensajes tardaban hasta 60 s (28 nov 2026)
+    "bindings": [{ "name": "NUBE_REALTIME", "class_name": "NubeRealtime", "script_name": "bpos" }]
   },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["NubeRealtime"] }],
   // Valores públicos (los secretos van con `wrangler secret put`, nunca en git)
