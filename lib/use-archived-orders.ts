@@ -1,6 +1,6 @@
 "use client";
 /**
- * Ventas que ya no están en la memoria de la caja (de hace más de 10 días):
+ * Ventas que ya no están en la memoria de la caja (más viejas de lo que guarda: 10 días en el navegador, hasta 30 en el Agent):
  * se piden a la nube solo cuando la pantalla consulta esas fechas. Se
  * guardan un rato en memoria para no volver a bajarlas a cada cambio.
  */
@@ -53,7 +53,7 @@ export function useArchivedOrders(from: Date | null | undefined, to?: Date | nul
 /** Aviso para mostrar arriba de la pantalla mientras se consulta o si falló */
 export function archivedNotice(a: ArchivedOrders) {
   if (!a.active) return "";
-  if (a.loading) return "☁️ Consultando en la nube las ventas de hace más de 10 días…";
-  if (a.error) return `⚠️ No se pudieron traer de la nube las ventas de hace más de 10 días: ${a.error}`;
+  if (a.loading) return "☁️ Consultando en la nube las ventas anteriores…";
+  if (a.error) return `⚠️ No se pudieron traer de la nube las ventas anteriores: ${a.error}`;
   return "";
 }

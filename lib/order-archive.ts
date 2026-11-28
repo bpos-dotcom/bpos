@@ -8,11 +8,21 @@
  * ventas (3.3 MB) y con el kardex se llenó la memoria del navegador (~5 MB);
  * la caja ya no pudo guardar pedidos nuevos.
  */
-export const ORDERS_LOCAL_DAYS = 10;
+import { cajaLocalSince, isCajaLocal } from "@/lib/caja-local";
+import { localCutoffFor } from "@/lib/local-days";
 
-/** 00:00 de hace ORDERS_LOCAL_DAYS días: lo anterior se consulta en la nube */
-export function localOrdersCutoff(now = new Date()) {
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - ORDERS_LOCAL_DAYS);
+export const ORDERS_LOCAL_DAYS = 10;
+/** En la caja local del Agent se guarda en disco (sin el tope de ~5 MB del navegador): 30 días */
+export const ORDERS_LOCAL_DAYS_AGENT = 30;
+
+/** Días de ventas que guarda este equipo */
+export function ordersLocalDays(agent = isCajaLocal()) {
+  return agent ? ORDERS_LOCAL_DAYS_AGENT : ORDERS_LOCAL_DAYS;
+}
+
+/** Desde cuándo están en la caja (00:00): lo anterior se consulta en la nube */
+export function localOrdersCutoff(now = new Date(), agent = isCajaLocal(), since = agent ? cajaLocalSince(now) : null) {
+  return localCutoffFor(now, ordersLocalDays(agent), ORDERS_LOCAL_DAYS, since);
 }
 
 type OrderLike = { id?: unknown; createdAt?: unknown; pendingPayment?: unknown };

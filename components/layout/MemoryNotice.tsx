@@ -7,6 +7,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { emergencyFreeSpace } from "@/lib/cloud/sync";
+import { isCajaLocal } from "@/lib/caja-local";
 import { STORAGE_WARN, storageUsage, usageReport } from "@/lib/storage-usage";
 
 const CHECK_MS = 5 * 60 * 1000;
@@ -18,6 +19,8 @@ export function MemoryNotice() {
   const snoozeUntil = useRef(0);
 
   useEffect(() => {
+    // En la caja local del Agent se guarda en disco: no hay tope de 5 MB
+    if (isCajaLocal()) return;
     const check = () => {
       try {
         let u = storageUsage(window.localStorage);

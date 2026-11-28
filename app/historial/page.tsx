@@ -13,6 +13,7 @@ import { SaleWhatsappDialog } from "@/components/sale/SaleWhatsappDialog";
 import { ask } from "@/components/layout/Dialogs";
 import { archivedNotice, useArchivedOrders } from "@/lib/use-archived-orders";
 import { mergeOrders } from "@/lib/order-archive";
+import { useLocalOrdersDays } from "@/lib/use-local-days";
 import { ReprintDialog } from "@/components/print/ReprintDialog";
 import type { SaleForTickets } from "@/lib/bridge/sale-tickets";
 
@@ -66,6 +67,8 @@ export default function OrderHistoryPage() {
   /** Pedido a reimprimir (ventana para elegir estaciones y tickets) */
   const [reprint, setReprint] = useState<SavedOrder | null>(null);
   const [whatsapp, setWhatsapp] = useState<SavedOrder | null>(null);
+  /** Días de ventas que tiene esta caja (lo anterior, de la nube) */
+  const localDays = useLocalOrdersDays();
 
   // Reimprimir: se confirma (le avisa al dueño) y luego se elige a dónde. Sin PIN.
   async function askReprint(order: SavedOrder) {
@@ -101,13 +104,13 @@ export default function OrderHistoryPage() {
       ...(shift ? [{ key: "actual", label: `Turno actual (desde ${fmt(shift.openedAt)})`, sessionId: shift.sessionId }] : []),
       ...closed.map((c, i) => ({ key: `cerrado-${i}`, label: `Turno ${c.folio} · ${fmt(c.openedAt)} → ${fmt(c.closedAt)}`, sessionId: c.sessionId })),
       { key: "rango", label: "Rango de fechas…" },
-      { key: "todo", label: "Últimos 10 días" },
+      { key: "todo", label: `Últimos ${localDays} días` },
     ],
-    [shift, closed]
+    [shift, closed, localDays]
   );
   const period = periods.find((p) => p.key === periodKey) || periods[periods.length - 1];
   const effective: Period = period.key === "rango" ? { ...period, from, to } : period;
-  // Un rango de hace más de 10 días se consulta en la nube (la caja guarda solo los últimos 10 días)
+  // Un rango anterior a lo que guarda la caja se consulta en la nube
   const rangeFrom = period.key === "rango" && /^\d{4}-\d{2}-\d{2}$/.test(from) ? new Date(`${from}T00:00:00`) : null;
   const rangeTo = period.key === "rango" && /^\d{4}-\d{2}-\d{2}$/.test(to) ? new Date(new Date(`${to}T00:00:00`).getTime() + 86_400_000) : null;
   const archived = useArchivedOrders(rangeFrom, rangeTo);
@@ -146,7 +149,7 @@ export default function OrderHistoryPage() {
             {visible.length} pedidos · ${visibleTotal.toFixed(2)}
           </span>
         </section>
-        {period.key === "rango" && !cloudNotice && <p className="-mt-3 text-xs text-zinc-500">Las ventas de hace más de 10 días se consultan en la nube al elegir las fechas.</p>}
+        {period.key === "rango" && !cloudNotice && <p className="-mt-3 text-xs text-zinc-500">Las ventas de hace más de {localDays} días se consultan en la nube al elegir las fechas.</p>}
         {cloudNotice && <p className={`-mt-3 text-sm font-bold ${archived.error ? "text-red-300" : "text-sky-300"}`}>{cloudNotice}</p>}
 
         <OrderHistoryPanel
