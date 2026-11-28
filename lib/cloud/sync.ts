@@ -346,7 +346,7 @@ export function emergencyFreeSpace(): { removed: number; report: string } {
       const gone: string[] = [];
       const kept = parsed.list.filter((order, i) => {
         const id = parsed.ids[i];
-        if (!isArchivedOrder(order, cutoff) || !keyShadow[id]) return true;
+        if (!isArchivedOrder(order, cutoff)) return true; // ya está en la nube (la caja sincroniza cada venta)
         gone.push(id);
         return false;
       });
