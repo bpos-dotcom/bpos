@@ -623,3 +623,33 @@ CREATE TABLE IF NOT EXISTS nube_sequences (
   name TEXT NOT NULL PRIMARY KEY,
   value INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS nube_devices (
+  business_id TEXT NOT NULL,
+  device_id TEXT NOT NULL,
+  branch_id TEXT,
+  user_id TEXT NOT NULL,
+  email TEXT,
+  name TEXT NOT NULL DEFAULT '',
+  label TEXT NOT NULL DEFAULT '',
+  kind TEXT NOT NULL DEFAULT 'navegador',
+  session_id TEXT,
+  first_seen_at TEXT NOT NULL,
+  last_seen_at TEXT NOT NULL,
+  ip TEXT,
+  city TEXT,
+  region TEXT,
+  country TEXT,
+  revoked_at TEXT,
+  revoked_session TEXT,
+  PRIMARY KEY (business_id, device_id)
+);
+
+CREATE TABLE IF NOT EXISTS nube_branch_primary (
+  business_id TEXT NOT NULL,
+  branch_id TEXT NOT NULL,
+  device_id TEXT,
+  set_at TEXT NOT NULL,
+  set_by TEXT,
+  PRIMARY KEY (business_id, branch_id)
+);

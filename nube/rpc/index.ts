@@ -8,6 +8,7 @@ import { CLUB_RPC } from "./club";
 import { AGENT_RPC } from "./agent";
 import { AI_RPC } from "./ai";
 import { ADMIN_RPC } from "./admin";
+import { DEVICES_RPC } from "./devices";
 
 export const RPC_FUNCTIONS: Record<string, RpcFn> = {
   ...COMMON_RPC,
@@ -16,4 +17,5 @@ export const RPC_FUNCTIONS: Record<string, RpcFn> = {
   ...AGENT_RPC,
   ...AI_RPC,
   ...ADMIN_RPC,
+  ...DEVICES_RPC,
 };

@@ -1387,6 +1387,21 @@ export function startSync(acc: ReadyAccount) {
 
   if (dirty.size > 0) void flush();
   schedulePull(50);
+
+  // Lista de dispositivos y caja principal elegida en la nube (lib/cloud/devices.ts)
+  void Promise.all([import("@/lib/cloud/devices"), import("@/lib/cloud/account")]).then(([devices, accountMod]) =>
+    devices.startDevicePing(acc, {
+      deviceId: getDeviceId,
+      isPrimary: isPrimaryDevice,
+      setPrimary: setPrimaryDevice,
+      logout: async () => {
+        await flush().catch(() => undefined);
+        await accountMod.signOutDevice();
+        resetDeviceSync();
+        window.location.reload();
+      },
+    })
+  );
 }
 
 // ------------------------------------------------------------ dispositivo principal

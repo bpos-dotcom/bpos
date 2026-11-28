@@ -8,11 +8,13 @@
  * sincronización.
  */
 import { useEffect, useState } from "react";
+import { notify } from "@/components/layout/Dialogs";
 import { getCurrentUser } from "@/lib/auth";
+import { deviceAccount, PRIMARY_EVENT, setCloudPrimary } from "@/lib/cloud/devices";
 import { isPrimaryDevice, setPrimaryDevice } from "@/lib/cloud/sync";
 import { requirePermissionOrAdmin } from "@/lib/permissions";
 
-export const PRIMARY_EVENT = "bpos:primary-device-updated";
+export { PRIMARY_EVENT };
 
 export function usePrimaryDevice() {
   const [primary, setPrimary] = useState<boolean | null>(null);
@@ -24,6 +26,16 @@ export function usePrimaryDevice() {
   }, []);
   const change = async (next: boolean) => {
     if (!(await requirePermissionOrAdmin(getCurrentUser(), "settings.view", next ? "marcar esta computadora como caja principal" : "quitar la caja principal"))) return;
+    // Con la nube, la caja principal se elige allá (una por sucursal): la que lo era la suelta sola
+    const acc = deviceAccount();
+    if (acc) {
+      try {
+        await setCloudPrimary(acc.businessId, acc.branchId, next ? acc.deviceId : null);
+      } catch (e) {
+        notify(`No se pudo cambiar la caja principal: ${e instanceof Error ? e.message : "sin conexión"}`, "error");
+        return;
+      }
+    }
     setPrimaryDevice(next);
     window.dispatchEvent(new Event(PRIMARY_EVENT));
   };

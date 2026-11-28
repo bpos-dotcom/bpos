@@ -11,7 +11,11 @@ export type RpcCtx = {
   authEnv: AuthEnv;
   onSyncHead?: NubeCtx["onSyncHead"];
   broadcast?: (messages: { topic: string; event: string; payload: unknown }[]) => Promise<void>;
+  /** De dónde llama (Cloudflare: IP y ubicación aproximada); no hay en las pruebas ni dentro del servidor */
+  geo?: Geo;
 };
+
+export type Geo = { ip?: string | null; city?: string | null; region?: string | null; country?: string | null };
 
 export type RpcFn = (ctx: RpcCtx, args: Row) => Promise<unknown>;
 
