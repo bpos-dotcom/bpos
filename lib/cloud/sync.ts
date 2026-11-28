@@ -301,7 +301,7 @@ function compactOrders() {
 }
 
 /**
- * Solo este mes y el pasado se quedan en la caja: las ventas cerradas más
+ * Solo los últimos 10 días se quedan en la caja: las ventas cerradas más
  * viejas que ya están en la nube tal cual se quitan de la memoria (y de la
  * sombra, para que NO se suban como borradas). Se consultan en la nube.
  */

@@ -101,15 +101,15 @@ export default function OrderHistoryPage() {
       ...(shift ? [{ key: "actual", label: `Turno actual (desde ${fmt(shift.openedAt)})`, sessionId: shift.sessionId }] : []),
       ...closed.map((c, i) => ({ key: `cerrado-${i}`, label: `Turno ${c.folio} · ${fmt(c.openedAt)} → ${fmt(c.closedAt)}`, sessionId: c.sessionId })),
       { key: "rango", label: "Rango de fechas…" },
-      { key: "todo", label: "Este mes y el pasado" },
+      { key: "todo", label: "Últimos 10 días" },
     ],
     [shift, closed]
   );
   const period = periods.find((p) => p.key === periodKey) || periods[periods.length - 1];
   const effective: Period = period.key === "rango" ? { ...period, from, to } : period;
-  // Un rango de antes del mes pasado se consulta en la nube (la caja guarda solo este mes y el pasado)
-  const rangeFrom = period.key === "rango" && /^d{4}-d{2}-d{2}$/.test(from) ? new Date(`${from}T00:00:00`) : null;
-  const rangeTo = period.key === "rango" && /^d{4}-d{2}-d{2}$/.test(to) ? new Date(new Date(`${to}T00:00:00`).getTime() + 86_400_000) : null;
+  // Un rango de hace más de 10 días se consulta en la nube (la caja guarda solo los últimos 10 días)
+  const rangeFrom = period.key === "rango" && /^\d{4}-\d{2}-\d{2}$/.test(from) ? new Date(`${from}T00:00:00`) : null;
+  const rangeTo = period.key === "rango" && /^\d{4}-\d{2}-\d{2}$/.test(to) ? new Date(new Date(`${to}T00:00:00`).getTime() + 86_400_000) : null;
   const archived = useArchivedOrders(rangeFrom, rangeTo);
   const cloudNotice = archivedNotice(archived);
   const allOrders = useMemo(() => (archived.orders.length ? [...mergeOrders([...orders].reverse(), archived.orders)].reverse() : orders), [orders, archived.orders]);
@@ -146,7 +146,7 @@ export default function OrderHistoryPage() {
             {visible.length} pedidos · ${visibleTotal.toFixed(2)}
           </span>
         </section>
-        {period.key === "rango" && !cloudNotice && <p className="-mt-3 text-xs text-zinc-500">Para ver ventas de antes del mes pasado, elige aquí las fechas: se consultan en la nube.</p>}
+        {period.key === "rango" && !cloudNotice && <p className="-mt-3 text-xs text-zinc-500">Las ventas de hace más de 10 días se consultan en la nube al elegir las fechas.</p>}
         {cloudNotice && <p className={`-mt-3 text-sm font-bold ${archived.error ? "text-red-300" : "text-sky-300"}`}>{cloudNotice}</p>}
 
         <OrderHistoryPanel
