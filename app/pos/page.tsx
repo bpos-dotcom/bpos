@@ -1,6 +1,7 @@
 "use client";
 
 import { isQuotaError } from "@/lib/order-slim";
+import { emergencyFreeSpace } from "@/lib/cloud/sync";
 import { addAuditEvent } from "@/lib/audit";
 import { notify } from "@/components/layout/Toasts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -367,8 +368,20 @@ function PosScreen() {
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
     } catch (error) {
-      if (isQuotaError(error)) alert("La memoria de B-POS en esta computadora está llena: el pedido NO se guardó. Recarga B-POS (F5) para que libere las ventas viejas y vuelve a intentarlo.");
-      throw error;
+      if (!isQuotaError(error)) throw error;
+      // Se liberan las ventas viejas que ya están en la nube y se intenta otra vez
+      const freed = emergencyFreeSpace();
+      try {
+        if (!freed.removed) throw error;
+        const current = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]") as SavedOrder[];
+        const keep = new Set(current.map((o) => String(o.id)));
+        const fresh = nextOrders.filter((o) => keep.has(String(o.id)) || !orders.some((p) => p.id === o.id));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(fresh));
+        nextOrders = fresh;
+      } catch {
+        alert(`La memoria de B-POS en esta computadora está llena: el pedido NO se guardó. Toma foto de este aviso y mándasela a soporte.\n\n${freed.report}`);
+        throw error;
+      }
     }
     setOrders(nextOrders);
   }
