@@ -180,6 +180,14 @@ let meta: SyncMeta | null = null;
 let liveStatus = "CONNECTING";
 
 /** Cada cuánto revisar la nube por si un aviso no llegó */
+/** Tiempo sin tiempo real antes de volver a conectarlo */
+export const RELISTEN_AFTER_MS = 30_000;
+
+/** ¿Ya toca reconectar el tiempo real? (con internet y tras un rato sin él) */
+export function shouldRelisten(live: boolean, lostAt: number, now: number, online: boolean) {
+  return !live && online && now - lostAt >= RELISTEN_AFTER_MS;
+}
+
 export function pollEveryMs(live: boolean, visible: boolean) {
   if (live) return visible ? 60_000 : 120_000;
   return visible ? 10_000 : 30_000;
@@ -1300,21 +1308,54 @@ export function startSync(acc: ReadyAccount) {
   // 0042). Antes se escuchaba sync_records y cada aviso traía el registro completo
   // (el kardex entero en cada venta) a cada equipo.
   const supabase = getSupabase();
-  const channel = supabase.channel(`sync-${acc.businessId}-${getDeviceId()}`);
-  channel.on(
-    "postgres_changes",
-    { event: "*", schema: "public", table: "sync_heads", filter: `business_id=eq.${acc.businessId}` },
-    (payload: { new?: { seq?: number | string } }) => {
-      const seq = Number(payload?.new?.seq);
-      if (meta && Number.isFinite(seq) && seq <= meta.lastSeq) return; // ya lo tengo (mi propio cambio)
-      schedulePull();
+  let channel: ReturnType<typeof supabase.channel> | null = null;
+  /** Desde cuándo no hay tiempo real (para volver a conectarlo) */
+  let liveLostAt = Date.now();
+  const listen = () => {
+    const ch = supabase.channel(`sync-${acc.businessId}-${getDeviceId()}`);
+    ch.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "sync_heads", filter: `business_id=eq.${acc.businessId}` },
+      (payload: { new?: { seq?: number | string } }) => {
+        const seq = Number(payload?.new?.seq);
+        if (meta && Number.isFinite(seq) && seq <= meta.lastSeq) return; // ya lo tengo (mi propio cambio)
+        schedulePull();
+      }
+    );
+    ch.subscribe((status: string) => {
+      if (ch !== channel) return; // uno viejo que ya se cambió
+      if (status === "SUBSCRIBED" && liveStatus !== "SUBSCRIBED") schedulePull(100); // lo que se pudo perder
+      if (status !== "SUBSCRIBED" && liveStatus === "SUBSCRIBED") liveLostAt = Date.now();
+      liveStatus = status;
+    });
+    channel = ch;
+  };
+  listen();
+  // 28 nov: la caja se quedaba sin tiempo real (al publicar una versión se reinicia el aviso,
+  // o la sesión caducaba con la ventana atrás) y no volvía: mensajes y pedidos tardaban hasta
+  // la revisión de cada 10 s. Si pasa un rato sin tiempo real, sesión fresca y se reconecta.
+  let relistening = false;
+  const relisten = async () => {
+    if (relistening) return;
+    relistening = true;
+    try {
+      const { data } = await supabase.auth.getSession(); // renueva la sesión si ya caducó
+      if (data.session?.access_token) await supabase.realtime.setAuth(data.session.access_token);
+      const old = channel;
+      channel = null;
+      if (old) await supabase.removeChannel(old).catch(() => undefined);
+      liveStatus = "CONNECTING";
+      liveLostAt = Date.now();
+      listen();
+    } catch (e) {
+      console.warn("[sync] no se pudo reconectar el tiempo real", e);
+    } finally {
+      relistening = false;
     }
-  );
-  channel.subscribe((status: string) => {
-    liveStatus = status;
-    // Al volver el tiempo real, de una vez lo que se pudo haber perdido
-    if (status === "SUBSCRIBED") schedulePull(100);
-  });
+  };
+  setInterval(() => {
+    if (shouldRelisten(liveStatus === "SUBSCRIBED", liveLostAt, Date.now(), navigator.onLine)) void relisten();
+  }, 5000);
 
   // Respaldo: revisión periódica. Con tiempo real basta cada minuto; sin él (se cayó la
   // conexión o la nube la rechazó) cada 10 s para que pedidos y mensajes no tarden.
