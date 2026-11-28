@@ -955,7 +955,15 @@ function PosScreen() {
         alert(`Venta cobrada, pero no se pudo registrar el regalo de bienvenida: ${e instanceof Error ? e.message : "sin internet"}`)
       );
     }
-    discountInventoryByOrder(newOrder.id, cart);
+    // La venta ya está guardada: si algo de aquí en adelante falla (memoria llena, etc.) igual se imprime y se cierra el cobro
+    const sideStep = (what: string, fn: () => void) => {
+      try {
+        fn();
+      } catch (e) {
+        console.warn(`[pos] ${what}`, e);
+      }
+    };
+    sideStep("inventario", () => discountInventoryByOrder(newOrder.id, cart));
     // Cajón: si no se abrió al abrir el cobro y la configuración dice que sí (forma de pago y tipo de pedido),
     // se abre ahora, antes de armar el ticket; el ticket solo lo abre si el Agent no pudo (Agent viejo)
     const drawerWanted = !data.pending && drawerShouldOpen(data.paymentMethod, nextDetails.orderType);
@@ -966,9 +974,9 @@ function PosScreen() {
         if (failed.length) notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero no salió en: ${failed.join(" · ")}. Revisa Configuración → Impresoras o reimprime desde Historial de pedidos.`, "error");
       })
       .catch(() => notify(`${data.pending ? "Pedido mandado a espera" : "Pedido cobrado"}, pero B-POS no pudo imprimir. Revisa que B-POS Agent esté conectado en la computadora de las impresoras y reimprime desde Historial de pedidos.`, "error"));
-    addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por ${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } });
+    sideStep("bitácora", () => addAuditEvent({ category: "Venta", action: "sale.created", description: `${currentUser?.name || "Usuario"} creó Pedido #${formatOrderNumber(newOrder)} por ${total.toFixed(2)}`, userId: currentUser?.id ? String(currentUser.id) : undefined, userName: currentUser?.name, entityId: String(newOrder.id), metadata: { total, paymentMethod: data.paymentMethod, discount: data.discount, shiftSessionId: sequence.shiftSessionId } }));
     // Si antes se cerró un cobro de esta cuenta con el cajón abierto, no era sospechoso (se guardó en espera o se cobró)
-    void clearDrawerSuspect(total, data.pending ? "espera" : "cobro", { key: cartKey, folio: formatOrderNumber(newOrder) });
+    sideStep("cajón", () => void clearDrawerSuspect(total, data.pending ? "espera" : "cobro", { key: cartKey, folio: formatOrderNumber(newOrder) }).catch(() => undefined));
 
     notify(
       data.pending
@@ -989,9 +997,12 @@ function PosScreen() {
       };
       if (data.driver) {
         // Repartidor elegido al cobrar: se le manda el pedido por WhatsApp de una vez
-        assignDriverToSale(newOrder.id, data.driver);
-        const link = driverWhatsappLink(data.driver, info);
-        if (link) openWhatsapp(link);
+        const driver = data.driver;
+        sideStep("repartidor", () => {
+          assignDriverToSale(newOrder.id, driver);
+          const link = driverWhatsappLink(driver, info);
+          if (link) openWhatsapp(link);
+        });
       } else {
         setDispatch({ saleId: newOrder.id, info });
       }
