@@ -117,6 +117,7 @@ export class NubeRealtime {
       // El Durable Object recibe el env original: en www.bpos.com.mx SUPABASE_SERVICE_ROLE_KEY es la de Supabase
       serviceKey: env.NUBE_SERVICE_ROLE_KEY || env.SUPABASE_SERVICE_ROLE_KEY || "",
       sockets: () => this.state.getWebSockets().map((ws) => this.wrap(ws)),
+      ...(env.SOURCE_SUPABASE_URL && env.SOURCE_SUPABASE_ANON_KEY ? { legacy: { url: env.SOURCE_SUPABASE_URL, anonKey: env.SOURCE_SUPABASE_ANON_KEY } } : {}),
     });
   }
 

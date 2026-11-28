@@ -92,6 +92,20 @@ async function main() {
   await hub.onMessage(espia, JSON.stringify(["1", "1", "realtime:x", "phx_join", { config: { postgres_changes: [{ event: "*", schema: "public", table: "sync_records", filter: `business_id=eq.${a.businessId}` }] }, access_token: tokenA }]));
   check("ni otras tablas", espia.last()?.[4]?.status === "error");
 
+  // 28 nov: caja con la sesión de Supabase de antes del cambio (la REST la acepta): también entra al tiempo real
+  const legacyFetch = (async (_url: string, init?: RequestInit) => {
+    const auth = new Headers(init?.headers).get("authorization");
+    return auth === "Bearer sesion-supabase-vieja" ? new Response(JSON.stringify({ id: a.uid, email: "dueno@prueba.mx" }), { status: 200 }) : new Response("{}", { status: 401 });
+  }) as unknown as typeof fetch;
+  const hubLegacy = new RealtimeHub({ db: h.db, jwtSecret: h.deps.auth.jwtSecret, serviceKey: SERVICE, sockets: () => [], legacy: { url: "https://viejo.supabase.co", anonKey: "anon", fetch: legacyFetch } });
+  const vieja = new FakeSocket("2.0.0");
+  await hubLegacy.onMessage(vieja, JSON.stringify(["1", "1", topic, "phx_join", { config: { postgres_changes: [{ event: "*", schema: "public", table: "sync_heads", filter: `business_id=eq.${a.businessId}` }] }, access_token: "sesion-supabase-vieja" }]));
+  check("caja con sesión de Supabase de antes entra al tiempo real", vieja.last()?.[4]?.status === "ok", vieja.last());
+  await hubLegacy.onMessage(vieja, JSON.stringify(["1", "2", `realtime:sync-${b.businessId}-v`, "phx_join", { config: { postgres_changes: [{ event: "*", schema: "public", table: "sync_heads", filter: `business_id=eq.${b.businessId}` }] }, access_token: "sesion-supabase-vieja" }]));
+  check("pero no a un negocio que no es suyo", vieja.last()?.[4]?.status === "error");
+  await hubLegacy.onMessage(vieja, JSON.stringify(["1", "3", topic, "phx_join", { config: { postgres_changes: [{ event: "*", schema: "public", table: "sync_heads", filter: `business_id=eq.${a.businessId}` }] }, access_token: "inventada" }]));
+  check("una sesión inventada no entra", vieja.last()?.[4]?.status === "error");
+
   // ---------------------------------------------------------------- Agent (vsn 1.0.0)
   const agent = new FakeSocket("1.0.0");
   sockets.push(agent);
