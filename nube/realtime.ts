@@ -88,6 +88,23 @@ export class RealtimeHub {
     return Boolean(await this.deps.db.first("SELECT 1 AS ok FROM business_members WHERE business_id = ? AND user_id = ?", [businessId, claims.sub]));
   }
 
+  /** Diagnóstico temporal (28 nov): por qué no entra una caja al tiempo real */
+  private async whyNot(token: unknown, businessId: string | null) {
+    if (!businessId) return "sin negocio en el filtro";
+    const t = String(token ?? "");
+    if (!t) return "sin token";
+    if (t.split(".").length !== 3) return "token no es JWT (" + t.slice(0, 12) + ")";
+    let payload: Record<string, unknown> = {};
+    try {
+      payload = JSON.parse(atob(t.split(".")[1].replace(/-/g, "+").replace(/_/g, "/")));
+    } catch {
+      return "token ilegible";
+    }
+    const claims = await verifyJwt(t, this.deps.jwtSecret);
+    if (!claims) return "firma o caducidad: iss=" + payload.iss + " exp=" + payload.exp + " ahora=" + Math.floor(Date.now() / 1000) + " sub=" + payload.sub;
+    return "no es miembro: sub=" + claims.sub;
+  }
+
   async onMessage(socket: HubSocket, text: string | ArrayBuffer | Uint8Array) {
     const st = socket.state();
     const m = this.decode(text, st.vsn);
@@ -101,6 +118,7 @@ export class RealtimeHub {
         const filter = f.filter || "";
         const businessId = /^business_id=eq\.([0-9a-f-]{36})$/i.exec(filter)?.[1] ?? null;
         if (f.table !== "sync_heads" || !(await this.canSee(m.payload.access_token, businessId))) {
+          console.log("[rt] join rechazado", m.topic, f.table, await this.whyNot(m.payload.access_token, businessId));
           return this.reply(socket, m, "error", { reason: "Sin permiso para escuchar esos cambios" });
         }
         const id = this.nextId++ + Math.floor(Math.random() * 1e6) * 1000;
@@ -109,6 +127,7 @@ export class RealtimeHub {
       }
       st.joins = st.joins.filter((j) => j.topic !== m.topic).concat({ topic: m.topic, joinRef: m.join_ref ?? m.ref, pg });
       socket.save(st);
+      console.log("[rt] join ok", m.topic);
       return this.reply(socket, m, "ok", config.postgres_changes?.length ? { postgres_changes: response } : {});
     }
     if (m.event === "phx_leave") {
