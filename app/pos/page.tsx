@@ -1,5 +1,6 @@
 "use client";
 
+import { isQuotaError } from "@/lib/order-slim";
 import { addAuditEvent } from "@/lib/audit";
 import { notify } from "@/components/layout/Toasts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -357,9 +358,19 @@ function PosScreen() {
       ? "Captura el WhatsApp del cliente."
       : "Completa los detalles del pedido.";
 
+  /**
+   * Primero se guarda y luego se muestra: si la memoria del navegador está
+   * llena, el pedido no aparece como si se hubiera guardado (27 nov: salieron
+   * 28 cuentas en espera que no existían, ni imprimieron ni subieron).
+   */
   function saveOrders(nextOrders: SavedOrder[]) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
+    } catch (error) {
+      if (isQuotaError(error)) alert("La memoria de B-POS en esta computadora está llena: el pedido NO se guardó. Recarga B-POS (F5) para que libere las ventas viejas y vuelve a intentarlo.");
+      throw error;
+    }
     setOrders(nextOrders);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(nextOrders));
   }
 
   /** Mesa libre elegida: el pedido queda como Mesa (comer aquí) y se regresa a los productos */

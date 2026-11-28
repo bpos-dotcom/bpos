@@ -1,13 +1,18 @@
 /**
- * La caja guarda en su memoria solo las ventas de este mes y del mes pasado
- * (lo que se ve en Finanzas sin ir más atrás). Lo más viejo se queda en la
- * nube y se consulta cuando se pide en Finanzas, Reportes, Historial o
- * Clientes. Las cuentas abiertas (mesas, en espera) nunca se quitan.
+ * La caja guarda en su memoria solo las ventas de los últimos días. Lo más
+ * viejo se queda en la nube y se consulta cuando se pide en Finanzas,
+ * Reportes, Historial o Clientes. Las cuentas abiertas (mesas, en espera)
+ * nunca se quitan.
+ *
+ * Antes se guardaban este mes y el pasado: el 27 nov eran más de 1,000
+ * ventas (3.3 MB) y con el kardex se llenó la memoria del navegador (~5 MB);
+ * la caja ya no pudo guardar pedidos nuevos.
  */
+export const ORDERS_LOCAL_DAYS = 10;
 
-/** Primer día del mes pasado, 00:00: lo anterior se consulta en la nube */
+/** 00:00 de hace ORDERS_LOCAL_DAYS días: lo anterior se consulta en la nube */
 export function localOrdersCutoff(now = new Date()) {
-  return new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - ORDERS_LOCAL_DAYS);
 }
 
 type OrderLike = { id?: unknown; createdAt?: unknown; pendingPayment?: unknown };
