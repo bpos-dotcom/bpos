@@ -12,6 +12,8 @@ import { getAdminProducts } from "@/lib/admin";
 import { getBusinessSettings } from "@/lib/business-settings";
 import { getSuppliers } from "@/lib/purchases";
 import { formatQty, suggestedOrder, suggestedOrderText, unitOf } from "@/lib/retail";
+import { getKardex, type InventoryMovement } from "@/lib/inventory";
+import { useKardexLastDays } from "@/lib/use-archived-kardex";
 import { openWhatsapp, whatsappLink } from "@/lib/whatsapp";
 import type { Product } from "@/data/products";
 
@@ -33,10 +35,14 @@ function Pedido() {
   const [days, setDays] = useState(14);
   const [cover, setCover] = useState(7);
   const [version, setVersion] = useState(0);
+  const [localKardex, setLocalKardex] = useState<InventoryMovement[]>([]);
+  // La caja guarda pocos días de movimientos: lo demás de los días elegidos viene de la nube
+  const sold = useKardexLastDays(localKardex, days);
 
   useEffect(() => {
     const load = () => {
       setProducts(getAdminProducts());
+      setLocalKardex(getKardex());
       setVersion((v) => v + 1);
     };
     load();
@@ -48,8 +54,7 @@ function Pedido() {
     };
   }, []);
 
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- version: se recalcula cuando cambia el inventario
-  const groups = useMemo(() => suggestedOrder(products, { days, coverDays: cover }), [products, days, cover, version]);
+  const groups = useMemo(() => suggestedOrder(products, { days, coverDays: cover, kardex: sold.kardex }), [products, days, cover, sold.kardex]);
   const suppliers = useMemo(() => (typeof window === "undefined" ? [] : getSuppliers()), [version]);
 
   function send(supplier: string, lines: Parameters<typeof suggestedOrderText>[2]) {
@@ -92,6 +97,7 @@ function Pedido() {
           Más el mínimo de cada artículo. Los artículos sin proveedor salen al final: ponle su proveedor en Artículos.
         </p>
       </div>
+      {sold.notice && <p className="-mt-3 text-sm font-bold text-sky-300">{sold.notice}</p>}
 
       {groups.length === 0 ? (
         <p className="rounded-3xl border border-zinc-800 bg-zinc-950 p-10 text-center text-zinc-500">

@@ -31,6 +31,7 @@ import { SoundUnlock } from "@/components/layout/SoundUnlock";
 import { usePendingReviews } from "@/lib/reviews";
 import { syncAdvisorSnapshot } from "@/lib/advisor-sync";
 import { UpdateNotice } from "@/components/layout/UpdateNotice";
+import { MemoryNotice } from "@/components/layout/MemoryNotice";
 
 import { currentTab, visibleNav } from "@/lib/nav";
 import { openServices } from "@/lib/services";
@@ -412,6 +413,7 @@ export function Sidebar() {
       )}
     </aside>
     <UpdateNotice />
+    <MemoryNotice />
     <BridgeProcessor />
     <ProductivityAlarm />
     <OnlineOrderPopup orders={online.popup} />

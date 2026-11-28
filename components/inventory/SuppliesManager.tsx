@@ -14,7 +14,8 @@ import { TicketEquivalences } from "@/components/inventory/TicketEquivalences";
 import { ManualCost } from "@/components/inventory/ManualCost";
 import { ask, askText, notify } from "@/components/layout/Dialogs";
 import { getKardex, recordStockEdit, type InventoryMovement } from "@/lib/inventory";
-import { CheckChips, MoveCard, MovesList, StockBadge, checkItems, isLow, isMovesCheck, isOut, qty, stockMoves, type StockCheck } from "@/components/inventory/StockCheck";
+import { useKardexLastDays } from "@/lib/use-archived-kardex";
+import { CheckChips, MOVES_DAYS, MoveCard, MovesList, StockBadge, checkItems, isLow, isMovesCheck, isOut, qty, stockMoves, type StockCheck } from "@/components/inventory/StockCheck";
 import { addAuditEvent } from "@/lib/audit";
 import { getCurrentUser } from "@/lib/auth";
 import { UNITS, changeIngredientUnit, unitChangeImpact, unitFactor } from "@/lib/units";
@@ -91,7 +92,9 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
       .filter(([c, list]) => list.length > 0 && (!category || c === category));
   }, [categories, ingredients, query, category, check]);
   // Entradas o salidas de los de la categoría (y la búsqueda) elegida
-  const moves = useMemo(() => stockMoves(kardex, grouped.flatMap(([, list]) => list), check), [kardex, grouped, check]);
+  // Entradas/salidas: los últimos MOVES_DAYS días (lo que ya no está en la caja viene de la nube)
+  const movesKardex = useKardexLastDays(kardex, MOVES_DAYS, isMovesCheck(check));
+  const moves = useMemo(() => stockMoves(movesKardex.kardex, grouped.flatMap(([, list]) => list), check), [movesKardex.kardex, grouped, check]);
 
   useEffect(() => {
     const savedIngredients = getAdminIngredients();
@@ -245,6 +248,7 @@ export function SuppliesManager({ kind }: { kind: SupplyKind }) {
 
             {isMovesCheck(check) ? (
               <div className="bpos-scroll -mr-2 mt-4 max-h-[65vh] overflow-y-auto pr-2">
+                {movesKardex.notice && <p className="mb-2 text-xs font-bold text-sky-300">{movesKardex.notice}</p>}
                 <MovesList
                   moves={moves}
                   check={check}
