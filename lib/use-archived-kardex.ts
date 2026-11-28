@@ -4,8 +4,8 @@
  * días, ver lib/kardex-archive.ts): se pide a la nube solo cuando la
  * pantalla consulta esas fechas, y se guarda un rato para no volver a bajarlo.
  */
-import { useEffect, useState } from "react";
-import { archivedKardexPart, localKardexCutoff } from "@/lib/kardex-archive";
+import { useEffect, useMemo, useState } from "react";
+import { archivedKardexPart, localKardexCutoff, mergeKardex } from "@/lib/kardex-archive";
 import { fetchCloudKardex } from "@/lib/cloud/sync";
 import { isCloudConfigured } from "@/lib/supabase/client";
 
@@ -54,4 +54,19 @@ export function archivedKardexNotice(a: ArchivedKardex) {
   if (a.loading) return "☁️ Consultando en la nube los movimientos de inventario anteriores…";
   if (a.error) return `⚠️ No se pudieron traer de la nube los movimientos de inventario anteriores: ${a.error}`;
   return "";
+}
+
+/** 00:00 de hace `days` días */
+export function daysAgoMidnight(days: number, now = new Date()) {
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - days);
+}
+
+/**
+ * Kardex de la caja más lo de la nube de los últimos `days` días (solo si
+ * `enabled`). Para pantallas que miran más días de los que guarda la caja.
+ */
+export function useKardexLastDays<T>(local: T[], days: number, enabled = true) {
+  const cloud = useArchivedKardex(enabled ? daysAgoMidnight(days) : null);
+  const kardex = useMemo(() => mergeKardex(local, cloud.rows), [local, cloud.rows]);
+  return { kardex, notice: archivedKardexNotice(cloud), loading: cloud.loading };
 }

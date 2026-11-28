@@ -13,6 +13,7 @@
  * Funciona sin internet: los cambios quedan pendientes y se suben al
  * volver la conexión.
  */
+import { storageUsage, usageReport } from "@/lib/storage-usage";
 import { isQuotaError, slimOrdersText } from "@/lib/order-slim";
 import { isArchivedOrder, localOrdersCutoff } from "@/lib/order-archive";
 import { resolveShiftPush, type ShiftDoc } from "@/lib/cloud/shift-guard";
@@ -366,14 +367,7 @@ export function emergencyFreeSpace(): { removed: number; report: string } {
   }
   let report = "";
   try {
-    const sizes: [string, number][] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k) sizes.push([k, (localStorage.getItem(k) || "").length + k.length]);
-    }
-    const total = sizes.reduce((s, [, n]) => s + n, 0);
-    sizes.sort((a, b) => b[1] - a[1]);
-    report = `Total ${(total / 1e6).toFixed(2)} M · ${sizes.slice(0, 6).map(([k, n]) => `${k.replace(/^bpos_/, "")} ${(n / 1e6).toFixed(2)}`).join(" · ")}`;
+    report = usageReport(storageUsage(window.localStorage));
   } catch {
     // sin reporte
   }

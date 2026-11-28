@@ -7,7 +7,7 @@
  */
 
 /** Días de kardex que se quedan en la caja */
-export const KARDEX_LOCAL_DAYS = 7;
+export const KARDEX_LOCAL_DAYS = 2;
 
 /** Colección de la nube con el kardex viejo (no empieza con "bpos_": la sincronización no la baja) */
 export const KARDEX_ARCHIVE_COLLECTION = "archive:bpos_inventory_kardex";

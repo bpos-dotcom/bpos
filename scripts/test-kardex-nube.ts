@@ -39,12 +39,13 @@ check("unir: 5 movimientos, sin repetir el de ayer", merged.length === 5, merged
 check("unir: del más viejo al más nuevo", merged[0].createdAt === day(4) && merged.filter((m) => m.id === "sale-9").length === 1);
 check("unir sin nada de la nube regresa lo mismo", mergeKardex(keep, []) === keep);
 
-check("rango dentro de la caja no consulta la nube", archivedKardexPart(new Date(2026, 10, 15), null, cutoff) === null);
+check("rango dentro de la caja no consulta la nube", archivedKardexPart(new Date(2026, 10, 18 - KARDEX_LOCAL_DAYS + 1), null, cutoff) === null);
 const part = archivedKardexPart(new Date(2026, 10, 1), new Date(2026, 10, 18), cutoff);
 check("rango viejo consulta la nube solo hasta el corte", !!part && part.to.getTime() === cutoff.getTime(), part);
 
-// Tamaño: 500 movimientos al día de ~300 letras = 7 días caben holgados
-check("7 días de kardex pesan ~1 MB", 500 * 7 * 300 < 1.2 * 1024 * 1024);
+// Tamaño: el 27 nov eran ~600 movimientos al día de ~330 letras; 7 días pesaban 1.35 M
+check(`${KARDEX_LOCAL_DAYS} días de kardex (con el de hoy) pesan menos de 0.7 M`, 600 * (KARDEX_LOCAL_DAYS + 1) * 330 < 700_000);
+check("guarda menos de 7 días (7 días llenaron la caja)", KARDEX_LOCAL_DAYS < 7);
 
 console.log(`\n${ok} bien, ${bad} mal`);
 if (bad) process.exit(1);

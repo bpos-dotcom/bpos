@@ -25,9 +25,9 @@ import { canViewCosts } from "@/lib/auth";
 import { addAuditEvent } from "@/lib/audit";
 import { downloadXlsx } from "@/lib/xlsx";
 import { exportInventory, exportKardex } from "@/lib/exports";
-import { CheckChips, MoveCard, MovesList, StockBadge, checkItems, isLow, isMovesCheck, isOut, qty, stockMoves, type StockCheck } from "@/components/inventory/StockCheck";
+import { CheckChips, MOVES_DAYS, MoveCard, MovesList, StockBadge, checkItems, isLow, isMovesCheck, isOut, qty, stockMoves, type StockCheck } from "@/components/inventory/StockCheck";
 import { KARDEX_LOCAL_DAYS, mergeKardex } from "@/lib/kardex-archive";
-import { archivedKardexNotice, useArchivedKardex } from "@/lib/use-archived-kardex";
+import { archivedKardexNotice, useArchivedKardex, useKardexLastDays } from "@/lib/use-archived-kardex";
 
 /** A las 00:00 de hace n días (fijo durante el día, para no volver a pedir a la nube a cada rato) */
 function daysAgo(n: number) {
@@ -211,6 +211,7 @@ export default function InventarioPage() {
           <div className="flex flex-wrap items-center gap-2">
             <select value={kardexDays} onChange={(e) => setKardexDays(Number(e.target.value))} className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-bold" aria-label="Periodo del kardex">
               <option value={KARDEX_LOCAL_DAYS}>Últimos {KARDEX_LOCAL_DAYS} días</option>
+              <option value={7}>Últimos 7 días ☁️</option>
               <option value={30}>Últimos 30 días ☁️</option>
               <option value={90}>Últimos 90 días ☁️</option>
             </select>
@@ -337,7 +338,9 @@ function InventoryCheckPanel({ ingredients, kardex }: { ingredients: Ingredient[
   const q = plain(query.trim());
   const searched = useMemo(() => (q ? inCategory.filter((i) => plain(`${i.name} ${i.category || ""}`).includes(q)) : inCategory), [inCategory, q]);
   const list = checkItems(searched, check);
-  const moves = useMemo(() => stockMoves(kardex, searched, check), [kardex, searched, check]);
+  // Entradas/salidas: los últimos MOVES_DAYS días (lo que ya no está en la caja viene de la nube)
+  const movesKardex = useKardexLastDays(kardex, MOVES_DAYS, isMovesCheck(check));
+  const moves = useMemo(() => stockMoves(movesKardex.kardex, searched, check), [movesKardex.kardex, searched, check]);
   const narrowed = Boolean(category || check || q);
   const expanded = open || narrowed;
   const shown = expanded ? list : list.slice(0, 2);
@@ -393,6 +396,7 @@ function InventoryCheckPanel({ ingredients, kardex }: { ingredients: Ingredient[
 
           {isMovesCheck(check) ? (
             <div className="mt-4 max-h-[34rem] overflow-y-auto pr-1">
+              {movesKardex.notice && <p className="mb-2 text-xs font-bold text-sky-300">{movesKardex.notice}</p>}
               <MovesList moves={moves} check={check} scope={category || undefined} renderMove={(m) => <MoveCard move={m} name={ingredients.find((i) => i.id === m.ingredientId)?.name} href={insumoHref({ id: m.ingredientId, kind: ingredients.find((i) => i.id === m.ingredientId)?.kind })} />} />
             </div>
           ) : list.length === 0 ? (
