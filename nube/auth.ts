@@ -173,7 +173,30 @@ async function issueSession(db: Db, env: AuthEnv, user: UserRow, sessionId: stri
   );
   const refresh = randomToken();
   await db.run("INSERT INTO nube_refresh_tokens (token, user_id, session_id, revoked, created_at) VALUES (?, ?, ?, 0, ?)", [refresh, user.id, sessionId, nowIso()]);
+  await cleanupTokens(db, user.id);
   return { access_token: access, token_type: "bearer", expires_in: ACCESS_TTL_S, expires_at: now + ACCESS_TTL_S, refresh_token: refresh, user: publicUser(user) };
+}
+
+/** Una sesión sin usarse este tiempo se cierra sola (el equipo vuelve a entrar con su contraseña) */
+export const SESSION_IDLE_MS = 30 * 86400000;
+
+/**
+ * 28 nov: cada renovación (cada hora por equipo) dejaba guardada la llave
+ * vieja; el dueño tenía 178 llaves para 11 sesiones. Se borran las gastadas
+ * (una gastada solo vale 10 s), las de sesiones cerradas y las sesiones
+ * abandonadas. Las sesiones en uso no se tocan.
+ */
+export async function cleanupTokens(db: Db, userId: string, now = Date.now()) {
+  const day = new Date(now - 86400000).toISOString();
+  const week = new Date(now - 7 * 86400000).toISOString();
+  const idle = new Date(now - SESSION_IDLE_MS).toISOString();
+  await db.batch([
+    {
+      sql: "UPDATE nube_refresh_tokens SET revoked = 1 WHERE user_id = ? AND revoked = 0 AND session_id IN (SELECT session_id FROM nube_refresh_tokens WHERE user_id = ? GROUP BY session_id HAVING MAX(created_at) < ?)",
+      params: [userId, userId, idle],
+    },
+    { sql: "DELETE FROM nube_refresh_tokens WHERE user_id = ? AND ((used_at IS NOT NULL AND used_at < ?) OR (revoked = 1 AND created_at < ?))", params: [userId, day, week] },
+  ]);
 }
 
 const userById = (db: Db, id: string) => db.first<UserRow>("SELECT * FROM nube_users WHERE id = ?", [id]);

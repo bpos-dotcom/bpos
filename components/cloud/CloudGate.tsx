@@ -1,5 +1,7 @@
 "use client";
 import { ask } from "@/components/layout/Dialogs";
+import { usePrimaryDevice } from "@/components/settings/PrimaryDeviceCard";
+import { CLOSED_NOTICE_KEY } from "@/lib/cloud/devices";
 import Link from "next/link";
 
 import { useCallback, useEffect, useState } from "react";
@@ -19,11 +21,9 @@ import {
   hasLocalBusinessData,
   flush,
   initialSync,
-  isPrimaryDevice,
   onSyncStatus,
   pull,
   resetDeviceSync,
-  setPrimaryDevice,
   startSync,
   type InitialSituation,
   type SyncStatus,
@@ -270,6 +270,16 @@ function AccountForm({ onDone }: { onDone: () => void }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  // La sesión se cerró desde Configuración → Sistema → Dispositivos (en otro equipo)
+  const [closedNotice] = useState(() => {
+    try {
+      const v = typeof window !== "undefined" && window.sessionStorage.getItem(CLOSED_NOTICE_KEY);
+      if (v) window.sessionStorage.removeItem(CLOSED_NOTICE_KEY);
+      return Boolean(v);
+    } catch {
+      return false;
+    }
+  });
 
   async function submit() {
     setMessage("");
@@ -297,6 +307,11 @@ function AccountForm({ onDone }: { onDone: () => void }) {
 
   return (
     <>
+      {closedNotice && (
+        <p className="mb-4 rounded-2xl border border-orange-500/50 bg-orange-500/10 p-3 text-center text-sm text-orange-200">
+          La sesión de este equipo se cerró desde la lista de Dispositivos. Lo pendiente ya se subió. Para volver a usarlo, entra con la cuenta.
+        </p>
+      )}
       <h1 className="text-center text-3xl font-black">Conectar a la nube</h1>
       <p className="mt-2 text-center text-zinc-400">
         Entra con la cuenta del negocio. Solo se hace una vez en cada
@@ -677,10 +692,9 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
     pending: 0,
   });
   const [open, setOpen] = useState(false);
-  const [isPrimary, setIsPrimary] = useState(true);
+  const { primary: isPrimary, change: changePrimary } = usePrimaryDevice();
 
   useEffect(() => onSyncStatus(setStatus), []);
-  useEffect(() => setIsPrimary(isPrimaryDevice()), [open]);
 
   const label =
     status.state === "offline"
@@ -739,12 +753,8 @@ function SyncBadge({ account }: { account: ReadyAccount }) {
           <label className="mt-3 flex items-start gap-2 text-xs text-zinc-300">
             <input
               type="checkbox"
-              checked={isPrimary}
-              onChange={(e) => {
-                setPrimaryDevice(e.target.checked);
-                setIsPrimary(e.target.checked);
-                window.dispatchEvent(new Event("bpos:primary-device-updated"));
-              }}
+              checked={Boolean(isPrimary)}
+              onChange={(e) => void changePrimary(e.target.checked)}
             />
             <span>
               <b>Caja principal.</b> Procesa sola los pedidos de Uber, DiDi y Rappi

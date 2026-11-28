@@ -10,6 +10,7 @@ import { ThemeToggle } from "@/components/layout/TopCorner";
 import { Advisor } from "@/components/owner/Advisor";
 import { NotificationsHistory } from "@/components/owner/NotificationsHistory";
 import { ProductivityOwner } from "@/components/owner/ProductivityOwner";
+import { DevicesCard } from "@/components/settings/DevicesCard";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import RequirePermission from "@/components/auth/RequirePermission";
 import { canViewCosts, getCurrentUser } from "@/lib/auth";
@@ -61,14 +62,14 @@ export default function OwnerPage() {
   );
 }
 
-type Tab = "resumen" | "avisos" | "productividad" | "asesor";
+type Tab = "resumen" | "avisos" | "productividad" | "asesor" | "equipos";
 
 function OwnerApp() {
   const [preset, setPreset] = useState<Preset>("hoy");
   // Al tocar una notificación se abre /dueno?vista=avisos
   const [tab, setTab] = useState<Tab>(() => {
     const vista = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("vista") : "";
-    return vista === "avisos" || vista === "productividad" ? vista : "resumen";
+    return vista === "avisos" || vista === "productividad" || vista === "equipos" ? vista : "resumen";
   });
   const [branch, setBranch] = useState("all");
   const [data, setData] = useState<Data | null>(null);
@@ -339,15 +340,17 @@ function OwnerApp() {
             )}
           </section>
         )}
-        <Chips items={[["resumen", "📊 Resumen"], ["avisos", "🔔 Avisos"], ["productividad", "✅ Productividad"], ["asesor", "✨ Asesor IA"]] as [Tab, string][]} value={tab} onChange={setTab} />
+        <Chips items={[["resumen", "📊 Resumen"], ["avisos", "🔔 Avisos"], ["productividad", "✅ Productividad"], ["asesor", "✨ Asesor IA"], ["equipos", "📲 Dispositivos"]] as [Tab, string][]} value={tab} onChange={setTab} />
         {tab === "resumen" && <Chips items={PRESETS} value={preset} onChange={setPreset} />}
-        {data && data.branches.length > 1 && tab !== "productividad" && (
+        {data && data.branches.length > 1 && tab !== "productividad" && tab !== "equipos" && (
           <Chips items={[["all", "Todas"], ...data.branches.map((b) => [b.id, b.name] as [string, string])]} value={branch} onChange={setBranch} />
         )}
 
         {error && <p className="rounded-2xl border border-red-500/40 bg-red-500/10 p-3 text-sm text-red-300">{error}</p>}
 
-        {tab === "avisos" ? (
+        {tab === "equipos" ? (
+          <DevicesCard />
+        ) : tab === "avisos" ? (
           <NotificationsHistory />
         ) : tab === "productividad" ? (
           <ProductivityOwner />

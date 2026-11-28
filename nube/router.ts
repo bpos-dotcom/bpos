@@ -9,6 +9,7 @@ import { authFromRequest, handleAuth, type AuthEnv } from "./auth";
 import { errorReply, handleRest, type NubeCtx, type Reply } from "./rest";
 import { RestError } from "./postgrest";
 import { handleRpc } from "./rpc";
+import type { Geo } from "./rpc-types";
 import { copyBackPage, copyFilesFolder, copyTablePage, copyUsersPage, counts, fixSequences, rewriteFileUrls, type Source } from "./migrate";
 import type { BucketLike } from "./storage";
 
@@ -49,6 +50,13 @@ async function readBody(request: Request): Promise<unknown> {
   }
 }
 
+/** IP y ubicación aproximada que pone Cloudflare en cada petición (request.cf) */
+export function geoOf(request: Request): Geo {
+  const cf = (request as unknown as { cf?: { city?: unknown; region?: unknown; country?: unknown } }).cf;
+  const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+  return { ip: request.headers.get("cf-connecting-ip"), city: str(cf?.city), region: str(cf?.region), country: str(cf?.country) || request.headers.get("cf-ipcountry") };
+}
+
 export async function handleNubeRequest(request: Request, deps: NubeDeps): Promise<Response> {
   if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   const url = new URL(request.url);
@@ -82,7 +90,7 @@ export async function handleNubeRequest(request: Request, deps: NubeDeps): Promi
     if (path.startsWith("/rest/v1/rpc/")) {
       const fn = decodeURIComponent(path.slice("/rest/v1/rpc/".length));
       const body = request.method === "GET" ? Object.fromEntries(url.searchParams) : ((await readBody(request)) || {});
-      return toResponse(await handleRpc({ db: deps.db, auth, onSyncHead: deps.onSyncHead, broadcast: deps.broadcast, authEnv: deps.auth }, fn, body as Row, request.headers));
+      return toResponse(await handleRpc({ db: deps.db, auth, onSyncHead: deps.onSyncHead, broadcast: deps.broadcast, authEnv: deps.auth, geo: geoOf(request) }, fn, body as Row, request.headers));
     }
 
     if (path.startsWith("/rest/v1/")) {

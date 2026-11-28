@@ -11,6 +11,7 @@ import { AppShell } from "@/components/layout/AppShell";
 import { AgentCard } from "@/components/agent/AgentCard";
 import { BrandCard } from "@/components/settings/BrandCard";
 import { PrimaryDeviceCard } from "@/components/settings/PrimaryDeviceCard";
+import { DevicesCard } from "@/components/settings/DevicesCard";
 import { CajaLocalCard } from "@/components/settings/CajaLocalCard";
 import { ScaleCard } from "@/components/retail/ScaleCard";
 import { setTouchKeypad, setWhatsappApp, touchKeypadEnabled, whatsappAppEnabled } from "@/lib/device-settings";
@@ -41,9 +42,10 @@ export default function SistemaPage() {
 
   return (
     <RequireRole allow={["Admin"]}>
-      <AppShell title="Sistema" subtitle="Caja principal, apariencia, región, pantalla táctil, respaldos y B-POS Agent.">
+      <AppShell title="Sistema" subtitle="Caja principal, dispositivos, apariencia, región, pantalla táctil, respaldos y B-POS Agent.">
         <div className="grid max-w-5xl gap-5 lg:grid-cols-2">
           <PrimaryDeviceCard className="lg:col-span-2" />
+          <DevicesCard className="lg:col-span-2" />
           <CajaLocalCard className="lg:col-span-2" />
           <BrandCard className="lg:col-span-2" />
           <ScaleCard className="lg:col-span-2" />

@@ -92,7 +92,8 @@ export async function signUp(email: string, password: string): Promise<boolean> 
 }
 
 export async function signOutDevice() {
-  await getSupabase().auth.signOut();
+  // Solo este equipo: sin "local", la nube cerraba también la sesión de todos los demás equipos
+  await getSupabase().auth.signOut({ scope: "local" });
   localStorage.removeItem(BRANCH_KEY);
 }
 
