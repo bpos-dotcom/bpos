@@ -8,7 +8,7 @@
  * su propio cliente (vsn 1.0.0: mensajes como objeto). El Hub no sabe de
  * Cloudflare; el Durable Object (NubeRealtime) le pasa los sockets.
  */
-import { verifyJwt } from "./auth";
+import { legacySessionUser, verifyJwt, type AuthEnv } from "./auth";
 import type { Db } from "./db";
 
 export type Join = { topic: string; joinRef: string | null; pg: { id: number; table: string; filter: string; businessId: string | null }[] };
@@ -55,7 +55,7 @@ export function decodeBinaryBroadcast(data: ArrayBuffer | Uint8Array): Msg | nul
 
 export class RealtimeHub {
   private nextId = 1;
-  constructor(private deps: { db: Db; jwtSecret: string; serviceKey: string; sockets: () => HubSocket[] }) {}
+  constructor(private deps: { db: Db; jwtSecret: string; serviceKey: string; sockets: () => HubSocket[]; legacy?: AuthEnv["legacy"] }) {}
 
   decode(text: string | ArrayBuffer | Uint8Array, vsn: SocketState["vsn"]): Msg | null {
     if (typeof text !== "string") return decodeBinaryBroadcast(text);
@@ -84,8 +84,11 @@ export class RealtimeHub {
     const t = String(token ?? "");
     if (t === this.deps.serviceKey) return true;
     const claims = await verifyJwt(t, this.deps.jwtSecret);
-    if (!claims || typeof claims.sub !== "string") return false;
-    return Boolean(await this.deps.db.first("SELECT 1 AS ok FROM business_members WHERE business_id = ? AND user_id = ?", [businessId, claims.sub]));
+    // 28 nov: las cajas con sesión de Supabase de antes del cambio (la REST sí las acepta) se quedaban
+    // sin tiempo real y los mensajes tardaban hasta la revisión de cada 10 s
+    const uid = claims && typeof claims.sub === "string" ? claims.sub : this.deps.legacy ? (await legacySessionUser(this.deps.legacy, t))?.uid : null;
+    if (!uid) return false;
+    return Boolean(await this.deps.db.first("SELECT 1 AS ok FROM business_members WHERE business_id = ? AND user_id = ?", [businessId, uid]));
   }
 
   /** Diagnóstico temporal (28 nov): por qué no entra una caja al tiempo real */
@@ -127,7 +130,6 @@ export class RealtimeHub {
       }
       st.joins = st.joins.filter((j) => j.topic !== m.topic).concat({ topic: m.topic, joinRef: m.join_ref ?? m.ref, pg });
       socket.save(st);
-      console.log("[rt] join ok", m.topic);
       return this.reply(socket, m, "ok", config.postgres_changes?.length ? { postgres_changes: response } : {});
     }
     if (m.event === "phx_leave") {

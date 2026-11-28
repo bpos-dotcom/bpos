@@ -32,6 +32,11 @@ export type AuthEnv = {
 /** Sesiones de Supabase ya revisadas (token → usuario), para no preguntarle en cada petición */
 const legacyCache = new Map<string, { uid: string; email: string | null; until: number }>();
 
+/** Usuario de una sesión de Supabase de antes del cambio (null si no vale) */
+export function legacySessionUser(legacy: AuthEnv["legacy"], token: string) {
+  return legacyUser({ legacy } as AuthEnv, token);
+}
+
 async function legacyUser(env: AuthEnv, token: string) {
   if (!env.legacy) return null;
   const hit = legacyCache.get(token);
