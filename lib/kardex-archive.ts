@@ -69,6 +69,18 @@ export function archiveIds(list: unknown[]) {
   });
 }
 
+/**
+ * Quita del kardex los movimientos viejos que ya se guardaron en la nube
+ * (`uploaded`, ids de archiveIds). Dice cuántos viejos quedan por subir.
+ */
+export function removeArchived<T>(list: T[], uploaded: string[], cutoff = localKardexCutoff()) {
+  const done = new Set(uploaded);
+  const split = splitKardex(list, cutoff);
+  const oldIds = archiveIds(split.old);
+  const left = split.old.filter((_, i) => !done.has(oldIds[i]));
+  return { list: [...left, ...split.keep], oldLeft: left.length };
+}
+
 /** Une el kardex de la caja con el de la nube, sin repetir, del más viejo al más nuevo */
 export function mergeKardex<T>(local: T[], cloud: unknown[]): T[] {
   if (!cloud.length) return local;

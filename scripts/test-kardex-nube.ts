@@ -2,7 +2,8 @@
  * Kardex: en la caja solo los últimos días, lo viejo en la nube.
  *   npx tsx scripts/test-kardex-nube.ts
  */
-import { archiveIds, archivedKardexPart, KARDEX_LOCAL_DAYS, localKardexCutoff, mergeKardex, splitKardex } from "@/lib/kardex-archive";
+import { archiveIds, archivedKardexPart, KARDEX_LOCAL_DAYS, localKardexCutoff, mergeKardex, removeArchived, splitKardex } from "@/lib/kardex-archive";
+import { pushOrder } from "@/lib/cloud/sync";
 
 let ok = 0;
 let bad = 0;
@@ -46,6 +47,19 @@ check("rango viejo consulta la nube solo hasta el corte", !!part && part.to.getT
 // Tamaño: el 27 nov eran ~600 movimientos al día de ~330 letras; 7 días pesaban 1.35 M
 check(`${KARDEX_LOCAL_DAYS} días de kardex (con el de hoy) pesan menos de 0.7 M`, 600 * (KARDEX_LOCAL_DAYS + 1) * 330 < 700_000);
 check("guarda menos de 7 días (7 días llenaron la caja)", KARDEX_LOCAL_DAYS < 7);
+
+// 28 nov: un celular subía miles de movimientos viejos de golpe y sus mensajes esperaban detrás.
+// Ahora va por tandas: tras cada tanda se quita solo lo subido y se sabe cuánto falta.
+const firstTwo = archiveIds(old).slice(0, 2);
+const afterOne = removeArchived(kardex, firstTwo, cutoff);
+check("tanda: quita solo lo que ya subió", afterOne.list.length === kardex.length - 2, afterOne.list.length);
+check("tanda: dice cuántos viejos faltan", afterOne.oldLeft === 1, afterOne.oldLeft);
+const afterAll = removeArchived(afterOne.list, archiveIds(splitKardex(afterOne.list, cutoff).old), cutoff);
+check("tanda: al final no falta nada y se queda lo reciente", afterAll.oldLeft === 0 && afterAll.list.length === keep.length);
+check(
+  "el kardex se sube al final (mensajes y ventas primero)",
+  JSON.stringify(pushOrder(["bpos_inventory_kardex", "bpos_messages", "bpos_orders"])) === JSON.stringify(["bpos_messages", "bpos_orders", "bpos_inventory_kardex"])
+);
 
 console.log(`\n${ok} bien, ${bad} mal`);
 if (bad) process.exit(1);
