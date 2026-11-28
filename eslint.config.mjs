@@ -15,6 +15,7 @@ const eslintConfig = defineConfig([
     // Copias de seguridad manuales y el agente de escritorio (proyecto aparte)
     "_respaldo*/**",
     "bpos-agent/**",
+    "bpos-android/**",
   ]),
 ]);
 
