@@ -18,7 +18,7 @@ import { isQuotaError, slimOrdersText } from "@/lib/order-slim";
 import { isArchivedOrder, localOrdersCutoff } from "@/lib/order-archive";
 import { resolveShiftPush, type ShiftDoc } from "@/lib/cloud/shift-guard";
 import { mergeInventoryItem } from "@/lib/cloud/inventory-merge";
-import { archiveIds, KARDEX_ARCHIVE_COLLECTION, localKardexCutoff, splitKardex } from "@/lib/kardex-archive";
+import { archiveIds, KARDEX_ARCHIVE_COLLECTION, localKardexCutoff, removeArchived, splitKardex } from "@/lib/kardex-archive";
 import {
   applyRowChanges,
   cloudCollection,
@@ -377,6 +377,12 @@ export function emergencyFreeSpace(): { removed: number; report: string } {
 
 const KARDEX_KEY = "bpos_inventory_kardex";
 
+/** Orden de subida: lo pesado (kardex) al final, para que mensajes y ventas no esperen detrás */
+export function pushOrder(keys: Iterable<string>) {
+  const list = [...keys];
+  return [...list.filter((k) => k !== KARDEX_KEY), ...list.filter((k) => k === KARDEX_KEY)];
+}
+
 /**
  * El kardex viejo (antes de los últimos días) se sube a la nube en una
  * colección aparte y se quita de la caja (ver lib/kardex-archive.ts). Solo
@@ -392,23 +398,24 @@ async function archiveOldKardex() {
   const cutoff = localKardexCutoff();
   const { old } = splitKardex(list, cutoff);
   if (!old.length) return;
-  const ids = archiveIds(old);
+  // Una tanda por vuelta: el 28 nov un celular con miles de movimientos viejos tenía la fila
+  // ocupada minutos subiéndolos todos de golpe, y sus mensajes y ventas esperaban detrás.
+  const batch = old.slice(0, UPSERT_BATCH);
+  const ids = archiveIds(old).slice(0, UPSERT_BATCH);
   const scope = scopeFor(KARDEX_KEY);
   const device = getDeviceId();
   try {
-    for (let i = 0; i < old.length; i += UPSERT_BATCH) {
-      const rows = old.slice(i, i + UPSERT_BATCH).map((data, j) => ({
-        business_id: account!.businessId,
-        scope,
-        collection: KARDEX_ARCHIVE_COLLECTION,
-        record_id: ids[i + j],
-        data,
-        deleted: false,
-        updated_by: device,
-      }));
-      const { error } = await getSupabase().from("sync_records").upsert(rows, { onConflict: "business_id,scope,collection,record_id" });
-      if (error) throw new Error(friendlyError(error));
-    }
+    const rows = batch.map((data, j) => ({
+      business_id: account!.businessId,
+      scope,
+      collection: KARDEX_ARCHIVE_COLLECTION,
+      record_id: ids[j],
+      data,
+      deleted: false,
+      updated_by: device,
+    }));
+    const { error } = await getSupabase().from("sync_records").upsert(rows, { onConflict: "business_id,scope,collection,record_id" });
+    if (error) throw new Error(friendlyError(error));
   } catch (e) {
     console.warn("[sync] no se pudo guardar el kardex viejo en la nube", e);
     return;
@@ -417,19 +424,21 @@ async function archiveOldKardex() {
   const now = parseValue(rawGet(KARDEX_KEY));
   const current = now.mode === "records" ? now.list : now.mode === "doc" && Array.isArray(now.value) ? (now.value as unknown[]) : null;
   if (!current) return;
-  const uploaded = new Set(ids);
-  const split = splitKardex(current, cutoff);
-  const oldIds = archiveIds(split.old);
-  const left = split.old.filter((_, i) => !uploaded.has(oldIds[i]));
+  const kept = removeArchived(current, ids, cutoff);
   try {
-    rawSet(KARDEX_KEY, JSON.stringify([...left, ...split.keep]));
+    rawSet(KARDEX_KEY, JSON.stringify(kept.list));
   } catch (e) {
     console.warn("[sync] no se pudo aligerar el kardex", e);
     return;
   }
   markDirty(KARDEX_KEY);
   notifyApp([KARDEX_KEY]);
+  // Lo que falta, en la siguiente vuelta (lo urgente que llegue mientras pasa primero)
+  if (kept.oldLeft > 0) setTimeout(() => void enqueue(() => archiveOldKardex()), ARCHIVE_PAUSE_MS);
 }
+
+/** Pausa entre tandas del kardex viejo: deja pasar mensajes, ventas y bajadas */
+const ARCHIVE_PAUSE_MS = 1500;
 
 /** Kardex de la nube de esta sucursal entre dos fechas (lo que ya no está en la caja) */
 export async function fetchCloudKardex(from: Date, to: Date): Promise<unknown[]> {
@@ -859,7 +868,7 @@ export function flush(): Promise<void> {
     }
     setStatus({ state: "syncing" });
     try {
-      for (const key of [...dirty]) {
+      for (const key of pushOrder(dirty)) {
         await pushKey(key);
         dirty.delete(key);
         saveDirty();
@@ -1089,7 +1098,7 @@ export function pull(): Promise<void> {
     }
     try {
       // primero lo propio, para no pisar cambios locales sin subir
-      for (const key of [...dirty]) {
+      for (const key of pushOrder(dirty)) {
         await pushKey(key);
         dirty.delete(key);
         saveDirty();
