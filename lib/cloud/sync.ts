@@ -339,22 +339,24 @@ function pruneArchivedOrders() {
 export function emergencyFreeSpace(): { removed: number; report: string } {
   let removed = 0;
   try {
-    const parsed = parseValue(rawGet(ORDERS_COLLECTION));
-    if (parsed.mode === "records") {
+    // Directo del navegador: sin depender de que la sincronización ya arrancó ni de ids sin repetir
+    const raw = rawGet(ORDERS_COLLECTION) ?? window.localStorage.getItem(ORDERS_COLLECTION);
+    const list: unknown = raw ? JSON.parse(raw) : null;
+    if (Array.isArray(list)) {
       const cutoff = localOrdersCutoff();
       const keyShadow = shadow[ORDERS_COLLECTION] ?? {};
       const gone: string[] = [];
-      const kept = parsed.list.filter((order, i) => {
-        const id = parsed.ids[i];
+      const kept = list.filter((order) => {
         if (!isArchivedOrder(order, cutoff)) return true; // ya está en la nube (la caja sincroniza cada venta)
-        gone.push(id);
+        gone.push(String((order as { id?: unknown }).id));
         return false;
       });
       if (gone.length) {
-        rawSet(ORDERS_COLLECTION, JSON.stringify(kept));
+        // Primero fuera de la sombra: así NO se suben como borradas
         gone.forEach((id) => delete keyShadow[id]);
         shadow[ORDERS_COLLECTION] = keyShadow;
         saveShadow();
+        window.localStorage.setItem(ORDERS_COLLECTION, JSON.stringify(kept));
         notifyApp([ORDERS_COLLECTION]);
         removed = gone.length;
       }
