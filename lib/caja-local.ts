@@ -21,6 +21,28 @@ export function isCajaLocal() {
   return typeof window !== "undefined" && Boolean((window as unknown as { bposCajaLocal?: unknown }).bposCajaLocal);
 }
 
+/** Solo de este equipo (no empieza con "bpos_", no se sincroniza): cuándo empezó a ser caja local */
+export const SINCE_KEY = "caja_local_since";
+
+/**
+ * Desde cuándo esta ventana del Agent es la caja (se anota la primera vez).
+ * Sirve para saber desde qué día tiene completas las ventas y el kardex: al
+ * pasarse trae solo lo que tenía el navegador (10 días de ventas, 2 de
+ * kardex) y de ahí va juntando hasta 30.
+ */
+export function cajaLocalSince(now = new Date()): Date | null {
+  if (!isCajaLocal()) return null;
+  try {
+    const saved = window.localStorage.getItem(SINCE_KEY);
+    const at = saved ? Date.parse(saved) : NaN;
+    if (Number.isFinite(at)) return new Date(at);
+    window.localStorage.setItem(SINCE_KEY, now.toISOString());
+  } catch {
+    // sin memoria: se cuenta desde hoy
+  }
+  return now;
+}
+
 /** ¿Este navegador ya se pasó a la caja local? */
 export function movedToCajaLocal() {
   if (typeof window === "undefined" || isCajaLocal()) return false;

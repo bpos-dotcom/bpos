@@ -26,7 +26,8 @@ import { addAuditEvent } from "@/lib/audit";
 import { downloadXlsx } from "@/lib/xlsx";
 import { exportInventory, exportKardex } from "@/lib/exports";
 import { CheckChips, MOVES_DAYS, MoveCard, MovesList, StockBadge, checkItems, isLow, isMovesCheck, isOut, qty, stockMoves, type StockCheck } from "@/components/inventory/StockCheck";
-import { KARDEX_LOCAL_DAYS, mergeKardex } from "@/lib/kardex-archive";
+import { mergeKardex } from "@/lib/kardex-archive";
+import { useLocalKardexDays } from "@/lib/use-local-days";
 import { archivedKardexNotice, useArchivedKardex, useKardexLastDays } from "@/lib/use-archived-kardex";
 
 /** A las 00:00 de hace n días (fijo durante el día, para no volver a pedir a la nube a cada rato) */
@@ -41,7 +42,9 @@ export default function InventarioPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [recipes, setRecipes] = useState<RecipeItem[]>([]);
   const [kardex, setKardex] = useState<InventoryMovement[]>([]);
-  const [kardexDays, setKardexDays] = useState(KARDEX_LOCAL_DAYS);
+  /** 0 = lo que guarda la caja; más días se piden a la nube */
+  const [kardexDays, setKardexDays] = useState(0);
+  const localKardexDays = useLocalKardexDays();
 
   const [ingredientId, setIngredientId] = useState("");
   const [adjustmentType, setAdjustmentType] = useState<
@@ -98,7 +101,7 @@ export default function InventarioPage() {
   }
 
   // En la caja solo están los últimos días del kardex; lo anterior se pide a la nube al elegirlo
-  const cloudKardex = useArchivedKardex(kardexDays > KARDEX_LOCAL_DAYS ? daysAgo(kardexDays) : null);
+  const cloudKardex = useArchivedKardex(kardexDays > localKardexDays ? daysAgo(kardexDays) : null);
   const fullKardex = useMemo(() => mergeKardex(kardex, cloudKardex.rows), [kardex, cloudKardex.rows]);
 
   // De lo más nuevo a lo más viejo, con los cambios que no dejaron movimiento
@@ -210,10 +213,14 @@ export default function InventarioPage() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <select value={kardexDays} onChange={(e) => setKardexDays(Number(e.target.value))} className="rounded-xl border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm font-bold" aria-label="Periodo del kardex">
-              <option value={KARDEX_LOCAL_DAYS}>Últimos {KARDEX_LOCAL_DAYS} días</option>
-              <option value={7}>Últimos 7 días ☁️</option>
-              <option value={30}>Últimos 30 días ☁️</option>
-              <option value={90}>Últimos 90 días ☁️</option>
+              <option value={0}>Últimos {localKardexDays} días</option>
+              {[7, 30, 90]
+                .filter((d) => d > localKardexDays)
+                .map((d) => (
+                  <option key={d} value={d}>
+                    Últimos {d} días ☁️
+                  </option>
+                ))}
             </select>
             {fullKardex.length > 0 && (
               <button onClick={() => exportKardex(fullKardex)} className="rounded-xl border border-zinc-700 px-4 py-2 text-sm font-black">

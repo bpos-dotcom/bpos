@@ -5,18 +5,27 @@
  * más viejo se guarda en la nube (colección aparte que la sincronización no
  * baja a los equipos) y las pantallas lo piden cuando consultan esas fechas.
  */
+import { cajaLocalSince, isCajaLocal } from "@/lib/caja-local";
+import { localCutoffFor } from "@/lib/local-days";
 
 /** Días de kardex que se quedan en la caja */
 export const KARDEX_LOCAL_DAYS = 2;
+/** En la caja local del Agent se guarda en disco (sin el tope de ~5 MB del navegador): 30 días */
+export const KARDEX_LOCAL_DAYS_AGENT = 30;
+
+/** Días de kardex que guarda este equipo */
+export function kardexLocalDays(agent = isCajaLocal()) {
+  return agent ? KARDEX_LOCAL_DAYS_AGENT : KARDEX_LOCAL_DAYS;
+}
 
 /** Colección de la nube con el kardex viejo (no empieza con "bpos_": la sincronización no la baja) */
 export const KARDEX_ARCHIVE_COLLECTION = "archive:bpos_inventory_kardex";
 
 type MovementLike = { id?: unknown; ingredientId?: unknown; createdAt?: unknown };
 
-/** Desde cuándo se queda en la caja (a las 00:00 de hace KARDEX_LOCAL_DAYS días) */
-export function localKardexCutoff(now = new Date()) {
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate() - KARDEX_LOCAL_DAYS);
+/** Desde cuándo se queda en la caja (00:00); lo anterior va a la nube */
+export function localKardexCutoff(now = new Date(), agent = isCajaLocal(), since = agent ? cajaLocalSince(now) : null) {
+  return localCutoffFor(now, kardexLocalDays(agent), KARDEX_LOCAL_DAYS, since);
 }
 
 function timeOf(m: unknown) {
